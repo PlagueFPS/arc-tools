@@ -1,6 +1,6 @@
 # Project Structure
 
-Arc-Tools is a Turborepo monorepo containing two deployable bots (Twitch and Discord) that share commands, database access, and utilities.
+Arc-Tools is a Turborepo monorepo containing two deployable bots (Twitch and Discord) and a web app that share commands, database access, and utilities.
 
 ## Project Structure
 
@@ -8,7 +8,8 @@ Arc-Tools is a Turborepo monorepo containing two deployable bots (Twitch and Dis
 arc-tools/
 ├── apps/                    # Deployable applications
 │   ├── twitch-bot/          # @arctools/twitch-bot
-│   └── discord-bot/         # @arctools/discord-bot
+│   ├── discord-bot/         # @arctools/discord-bot
+│   └── web/                 # @arctools/web — TanStack Start web app
 ├── packages/                # Shared internal packages
 │   ├── typescript-config/   # @arctools/typescript-config — shared TS config
 │   ├── commands/            # @arctools/commands — shared command definitions
