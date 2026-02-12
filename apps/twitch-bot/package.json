@@ -1,0 +1,20 @@
+{
+  "name": "@arctools/twitch-bot",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@arctools/commands": "workspace:*",
+    "@arctools/database": "workspace:*",
+    "@arctools/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@arctools/typescript-config": "workspace:*",
+    "typescript": "latest"
+  }
+}
