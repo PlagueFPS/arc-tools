@@ -15,8 +15,8 @@
     "check-types": "turbo run check-types"
   },
   "devDependencies": {
-    "@biomejs/biome": "latest",
-    "turbo": "latest",
-    "typescript": "latest"
+    "@biomejs/biome": "2.3.15",
+    "turbo": "2.8.7",
+    "typescript": "5.9.3"
   }
 }
