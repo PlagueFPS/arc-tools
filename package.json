@@ -16,7 +16,11 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.15",
+    "@effect/language-service": "0.73.1",
     "turbo": "2.8.7",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "effect": "3.19.16"
   }
 }
