@@ -6,9 +6,10 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
   {
     effect: Effect.gen(function* () {
       const clientId = yield* Config.string("TWITCH_CLIENT_ID");
-      const clientSecret = yield* Config.string("TWITCH_CLIENT_SECRET");
+      const accessToken = yield* Config.string("TWITCH_ACCESS_TOKEN");
+      // const refreshToken = yield* Config.string("TWITCH_REFRESH_TOKEN");
 
-      const authProvider = new StaticAuthProvider(clientId, clientSecret);
+      const authProvider = new StaticAuthProvider(clientId, accessToken);
 
       return { authProvider } as const;
     }),

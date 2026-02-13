@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
+    "start": "bun run src/index.ts",
+    "dev": "bun run src/index.ts",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
