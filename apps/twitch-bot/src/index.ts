@@ -14,6 +14,10 @@ const startTwitchBot = Effect.gen(function* () {
       createBotCommand("help", (params, { reply }) => {
         reply("How can I help?");
       }),
+      createBotCommand("dice", (params, { reply }) => {
+        const result = Math.floor(Math.random() * 6) + 1;
+        reply(`You rolled a ${result}`);
+      }),
     ],
   });
 
