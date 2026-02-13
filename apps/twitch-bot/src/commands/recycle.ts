@@ -3,14 +3,14 @@ import { Effect, Option } from "effect";
 import { CommandRuntime } from "@/lib/layers";
 import { fetchItem, parseMessageParams } from "@/lib/utils";
 
-export const recycleTo = createBotCommand(
-  "recycleto",
+export const recycle = createBotCommand(
+  "recycle",
   async (params, { reply }) => {
     return Effect.gen(function* () {
       const search = parseMessageParams(params);
       if (!search) {
         return yield* Effect.succeed(
-          reply("Please provide an item (e.g. '!recycleto sensors')"),
+          reply("Please provide an item (e.g. '!recycle sensors')"),
         );
       }
 
@@ -19,31 +19,33 @@ export const recycleTo = createBotCommand(
         return yield* Effect.succeed(reply(`[Warn] No such item: ${search}`));
       }
 
-      if (Option.isNone(item.recycle_from)) {
+      if (Option.isNone(item.recycle_components)) {
         return yield* Effect.succeed(
           reply(`[Warn] recycle data not found for ${item.name}`),
         );
       }
 
-      if (item.recycle_from.value.length === 0) {
-        return yield* Effect.succeed(reply(`No items recycle to ${item.name}`));
+      if (item.recycle_components.value.length === 0) {
+        return yield* Effect.succeed(
+          reply(`No items granted for recycling ${item.name}`),
+        );
       }
 
-      const items = item.recycle_from.value.map((item) => {
+      const items = item.recycle_components.value.map((item) => {
         return {
-          name: item.item.name,
+          name: item.component.name,
           amount: item.quantity,
         };
       });
 
       return yield* Effect.succeed(
         reply(
-          `These items recycle to ${item.name}: ${items.map((item) => `${item.name} (x${item.amount})`).join(", ")}`,
+          `These items are granted for recycling ${item.name}: ${items.map((item) => `${item.name} (x${item.amount})`).join(", ")}`,
         ),
       );
     }).pipe(
-      Effect.withLogSpan("recycle_to_command"),
-      Effect.tapError((error) => Effect.logError(error.message)),
+      Effect.withLogSpan("recycle_command"),
+      Effect.tapError(Effect.logError),
       Effect.catchAll(() =>
         Effect.succeed(reply(`[Error] Unable to fetch item data`)),
       ),

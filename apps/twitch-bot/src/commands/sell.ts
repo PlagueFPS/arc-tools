@@ -1,33 +1,27 @@
 import { createBotCommand } from "@twurple/easy-bot";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import { CommandRuntime } from "@/lib/layers";
 import { fetchItem, parseMessageParams } from "@/lib/utils";
 
-export const find = createBotCommand("find", async (params, { reply }) => {
+export const sell = createBotCommand("sell", async (params, { reply }) => {
   return Effect.gen(function* () {
     const search = parseMessageParams(params);
     if (!search) {
       return yield* Effect.succeed(
-        reply("Please provide an item (e.g. '!find sensors')"),
+        reply("Please provide an item (e.g. '!sell sensors')"),
       );
     }
 
-    const item = yield* fetchItem({ search });
+    const item = yield* fetchItem({ search, minimal: "true" });
     if (!item) {
       return yield* Effect.succeed(reply(`[Warn] No such item: ${search}`));
     }
 
-    if (Option.isNone(item.loot_area)) {
-      return yield* Effect.succeed(
-        reply(`[Warn] loot area not found for ${item.name}`),
-      );
-    }
-
     return yield* Effect.succeed(
-      reply(`${item.name} can be found in ${item.loot_area.value} areas`),
+      reply(`${item.name} can be sold for ${item.value} coins each`),
     );
   }).pipe(
-    Effect.withLogSpan("find_command"),
+    Effect.withLogSpan("sell_command"),
     Effect.tapError(Effect.logError),
     Effect.catchAll(() =>
       Effect.succeed(reply(`[Error] Unable to fetch item data`)),

@@ -3,7 +3,9 @@ import { Bot } from "@twurple/easy-bot";
 import { Effect } from "effect";
 import { AuthProvider } from "@/lib/auth";
 import { find } from "./commands/find";
+import { recycle } from "./commands/recycle";
 import { recycleTo } from "./commands/recycle-to";
+import { sell } from "./commands/sell";
 
 const startTwitchBot = Effect.gen(function* () {
   yield* Effect.log("Twitch Bot starting...");
@@ -12,7 +14,7 @@ const startTwitchBot = Effect.gen(function* () {
   const bot = new Bot({
     authProvider,
     channels: ["arctoolsbot"],
-    commands: [recycleTo, find],
+    commands: [recycleTo, find, sell, recycle],
   });
 
   bot.onConnect(() => console.log("Successfully connected to Twitch"));
