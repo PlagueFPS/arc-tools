@@ -12,6 +12,7 @@
     "@arctools/commands": "workspace:*",
     "@arctools/database": "workspace:*",
     "@arctools/utils": "workspace:*",
+    "@effect/platform": "^0.94.4",
     "@effect/platform-bun": "^0.87.1",
     "@twurple/auth": "^8.0.3",
     "@twurple/easy-bot": "^8.0.3",

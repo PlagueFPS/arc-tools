@@ -1,7 +1,9 @@
 import { BunRuntime } from "@effect/platform-bun";
-import { Bot, createBotCommand } from "@twurple/easy-bot";
+import { Bot } from "@twurple/easy-bot";
 import { Effect } from "effect";
 import { AuthProvider } from "@/lib/auth";
+import { find } from "./commands/find";
+import { recycleTo } from "./commands/recycle-to";
 
 const startTwitchBot = Effect.gen(function* () {
   yield* Effect.log("Twitch Bot starting...");
@@ -10,18 +12,11 @@ const startTwitchBot = Effect.gen(function* () {
   const bot = new Bot({
     authProvider,
     channels: ["arctoolsbot"],
-    commands: [
-      createBotCommand("help", (params, { reply }) => {
-        reply("How can I help?");
-      }),
-      createBotCommand("dice", (params, { reply }) => {
-        const result = Math.floor(Math.random() * 6) + 1;
-        reply(`You rolled a ${result}`);
-      }),
-    ],
+    commands: [recycleTo, find],
   });
 
-  bot.onConnect(() => console.log("Connected to Twitch"));
+  bot.onConnect(() => console.log("Successfully connected to Twitch"));
+  bot.onJoin((channel) => console.log(`Joined ${channel.broadcasterName}`));
 }).pipe(Effect.provide(AuthProvider.Default));
 
 BunRuntime.runMain(startTwitchBot);
