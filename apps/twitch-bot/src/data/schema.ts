@@ -38,3 +38,15 @@ export class ItemAPIResponse extends Schema.Class<ItemAPIResponse>(
 )({
   data: Schema.Array(Item),
 }) {}
+
+export class Event extends Schema.Class<Event>("Event")({
+  name: Schema.String,
+  map: Schema.String,
+  startTime: Schema.Number,
+  endTime: Schema.Number,
+}) {}
+export class EventAPIResponse extends Schema.Class<EventAPIResponse>(
+  "EventAPIResponse",
+)({
+  data: Schema.Array(Event),
+}) {}
