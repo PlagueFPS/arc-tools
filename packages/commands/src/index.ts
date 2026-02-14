@@ -1,2 +1,1 @@
-// Shared command definitions/registries for Twitch and Discord bots
-export const placeholder = true;
+export { type CommandDefinition, commands } from "./registry.js";

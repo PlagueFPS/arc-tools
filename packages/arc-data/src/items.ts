@@ -1,8 +1,8 @@
 import { HttpClient, HttpClientResponse } from "@effect/platform";
 import { Effect } from "effect";
-import { ItemAPIResponse } from "@/data/schema";
+import { ItemAPIResponse } from "./schema.js";
 
-interface ItemAPIParams {
+export interface ItemAPIParams {
   /** The ID of the item */
   id?: string;
   /** The search query for the item */
@@ -24,7 +24,11 @@ const BASE_URL = "https://metaforge.app/api/arc-raiders";
  */
 export const fetchItem = (searchParams: ItemAPIParams) =>
   Effect.gen(function* () {
-    const params = new URLSearchParams(Object.entries(searchParams));
+    const params = new URLSearchParams(
+      Object.entries(searchParams)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)] as [string, string]),
+    );
     const url = `${BASE_URL}/items?${params.toString()}`;
     const httpClient = yield* HttpClient.HttpClient;
     const response = yield* httpClient

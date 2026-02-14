@@ -1,6 +1,7 @@
+import { normalize } from "@arctools/utils";
 import { HttpClient, HttpClientResponse } from "@effect/platform";
 import { Effect } from "effect";
-import { type Event, EventAPIResponse } from "@/data/schema";
+import { type Event, EventAPIResponse } from "./schema.js";
 
 const BASE_URL = "https://metaforge.app/api/arc-raiders";
 
@@ -18,9 +19,6 @@ export const fetchEvents = () =>
       );
     return response.data;
   });
-
-/** Normalize for matching: lowercase, no spaces */
-const normalize = (s: string) => s.toLowerCase().replace(/\s/g, "");
 
 /**
  * Selects the best matching event: prefers currently active, else closest upcoming

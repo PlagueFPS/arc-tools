@@ -12,8 +12,9 @@ arc-tools/
 │   └── web/                 # @arctools/web — TanStack Start web app
 ├── packages/                # Shared internal packages
 │   ├── typescript-config/   # @arctools/typescript-config — shared TS config
-│   ├── commands/            # @arctools/commands — shared command definitions
-│   ├── database/             # @arctools/database — shared DB client/schema
+│   ├── arc-data/            # @arctools/arc-data — Arc Raiders API client & schemas
+│   ├── commands/            # @arctools/commands — shared command definitions & registry
+│   ├── database/            # @arctools/database — shared DB client/schema
 │   └── utils/               # @arctools/utils — shared utilities
 ├── package.json             # Root workspace config
 ├── turbo.json               # Turborepo task config
@@ -28,7 +29,9 @@ All packages use the `@arctools/` namespace. Internal packages are referenced wi
 ## Dependency Graph
 
 - **apps** depend on: `@arctools/commands`, `@arctools/database`, `@arctools/utils`
-- **commands** and **database** depend on: `@arctools/utils`
+- **commands** depends on: `@arctools/arc-data`, `@arctools/utils`
+- **arc-data** depends on: `@arctools/utils`
+- **database** depends on: `@arctools/utils`
 - All packages extend **typescript-config** for TS settings
 
 ## Tooling

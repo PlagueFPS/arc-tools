@@ -1,5 +1,5 @@
 {
-  "name": "@arctools/commands",
+  "name": "@arctools/arc-data",
   "version": "0.0.0",
   "type": "module",
   "private": true,
@@ -15,9 +15,8 @@
     }
   },
   "dependencies": {
-    "@arctools/arc-data": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "@effect/platform": "^0.94.5",
+    "@effect/platform": "^0.94.4",
     "effect": "^3.19.16"
   },
   "devDependencies": {
