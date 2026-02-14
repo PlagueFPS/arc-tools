@@ -16,7 +16,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@arctools/commands": "workspace:*",
-        "@arctools/database": "workspace:*",
         "@arctools/utils": "workspace:*",
       },
       "devDependencies": {
@@ -29,7 +28,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@arctools/commands": "workspace:*",
-        "@arctools/database": "workspace:*",
         "@arctools/utils": "workspace:*",
         "@effect/platform": "^0.94.4",
         "@effect/platform-bun": "^0.87.1",
@@ -90,17 +88,6 @@
         "typescript": "latest",
       },
     },
-    "packages/database": {
-      "name": "@arctools/database",
-      "version": "0.0.0",
-      "dependencies": {
-        "@arctools/utils": "workspace:*",
-      },
-      "devDependencies": {
-        "@arctools/typescript-config": "workspace:*",
-        "typescript": "latest",
-      },
-    },
     "packages/typescript-config": {
       "name": "@arctools/typescript-config",
       "version": "0.0.0",
@@ -121,8 +108,6 @@
     "@arctools/arc-data": ["@arctools/arc-data@workspace:packages/arc-data"],
 
     "@arctools/commands": ["@arctools/commands@workspace:packages/commands"],
-
-    "@arctools/database": ["@arctools/database@workspace:packages/database"],
 
     "@arctools/discord-bot": ["@arctools/discord-bot@workspace:apps/discord-bot"],
 

@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@arctools/commands": "workspace:*",
-    "@arctools/database": "workspace:*",
     "@arctools/utils": "workspace:*"
   },
   "devDependencies": {

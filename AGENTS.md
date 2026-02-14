@@ -1,6 +1,6 @@
 # Project Structure
 
-Arc-Tools is a Turborepo monorepo containing two deployable bots (Twitch and Discord) and a web app that share commands, database access, and utilities.
+Arc-Tools is a Turborepo monorepo containing two deployable bots (Twitch and Discord) and a web app that share commands and utilities.
 
 ## Project Structure
 
@@ -14,7 +14,6 @@ arc-tools/
 │   ├── typescript-config/   # @arctools/typescript-config — shared TS config
 │   ├── arc-data/            # @arctools/arc-data — Arc Raiders API client & schemas
 │   ├── commands/            # @arctools/commands — shared command definitions & registry
-│   ├── database/            # @arctools/database — shared DB client/schema
 │   └── utils/               # @arctools/utils — shared utilities
 ├── package.json             # Root workspace config
 ├── turbo.json               # Turborepo task config
@@ -28,10 +27,9 @@ All packages use the `@arctools/` namespace. Internal packages are referenced wi
 
 ## Dependency Graph
 
-- **apps** depend on: `@arctools/commands`, `@arctools/database`, `@arctools/utils`
+- **apps** depend on: `@arctools/commands`, `@arctools/utils`
 - **commands** depends on: `@arctools/arc-data`, `@arctools/utils`
 - **arc-data** depends on: `@arctools/utils`
-- **database** depends on: `@arctools/utils`
 - All packages extend **typescript-config** for TS settings
 
 ## Tooling
