@@ -1,7 +1,8 @@
 import { createBotCommand } from "@twurple/easy-bot";
 import { Effect, Option } from "effect";
+import { fetchItem } from "@/data/items";
 import { CommandRuntime } from "@/lib/layers";
-import { fetchItem, parseMessageParams } from "@/lib/utils";
+import { parseMessageParams } from "@/lib/utils";
 
 export const recycleTo = createBotCommand(
   "recycleto",
@@ -14,7 +15,14 @@ export const recycleTo = createBotCommand(
         );
       }
 
-      const item = yield* fetchItem({ search, includeComponents: "true" });
+      const potentialId = search.toLowerCase().replace(/ /g, "-");
+
+      const itemById = yield* fetchItem({
+        id: potentialId,
+        includeComponents: true,
+      });
+      const item =
+        itemById ?? (yield* fetchItem({ search, includeComponents: true }));
       if (!item) {
         return yield* Effect.succeed(reply(`[Warn] No such item: ${search}`));
       }
