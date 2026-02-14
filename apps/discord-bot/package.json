@@ -4,13 +4,16 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "start": "bun run src/index.ts",
+    "dev": "bun run src/index.ts",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
     "@arctools/commands": "workspace:*",
-    "@arctools/utils": "workspace:*"
+    "@arctools/utils": "workspace:*",
+    "@effect/platform-bun": "^0.87.1",
+    "discord.js": "^14.25.1",
+    "effect": "^3.19.16"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",
