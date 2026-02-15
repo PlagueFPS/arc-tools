@@ -1,7 +1,7 @@
 import { ClientOnly, Link } from "@tanstack/react-router";
+import { ThemeToggle, ThemeToggleFallback } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { NAV_ROUTES } from "@/utils/nav-routes";
-import { ThemeToggle, ThemeToggleFallback } from "./theme-toggle";
 
 export function Header() {
   const discordAppLink = import.meta.env.VITE_DISCORD_APP_LINK;
