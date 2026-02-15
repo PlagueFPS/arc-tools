@@ -7,6 +7,7 @@ import {
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import type { ReactNode } from "react";
 import "@/global.css";
+import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -36,6 +37,7 @@ function RootComponent() {
         <TooltipProvider>
           <Header />
           <Outlet />
+          <Footer />
         </TooltipProvider>
       </ThemeProvider>
       <TanStackRouterDevtools />
