@@ -8,6 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@arctools/commands": "workspace:*",
     "@base-ui/react": "^1.2.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@tanstack/react-router": "^1.159.5",

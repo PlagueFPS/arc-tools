@@ -11,6 +11,9 @@ function App() {
       <div id="features">
         <FeaturesSection />
       </div>
+      <div id="commands">
+
+      </div>
     </main>
   );
 }
