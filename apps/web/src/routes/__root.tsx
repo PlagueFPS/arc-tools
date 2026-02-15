@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import "@/global.css";
+import { ThemeProvider } from "@/components/theme-provider";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -28,7 +29,9 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
+        <Outlet />
+      </ThemeProvider>
     </RootDocument>
   );
 }
