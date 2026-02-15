@@ -1,10 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { ClientOnly, createFileRoute } from "@tanstack/react-router";
 import { ComponentExample } from "@/components/component-example";
+import { ThemeToggle, ThemeToggleFallback } from "@/components/theme-toggle";
 
 export const Route = createFileRoute("/")({ component: App });
 
 function App() {
 return (
-  <ComponentExample />
+  <div>
+    <ClientOnly fallback={<ThemeToggleFallback />}>
+      <ThemeToggle />
+    </ClientOnly>
+    <ComponentExample />
+  </div>
 );
 }

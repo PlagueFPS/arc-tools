@@ -4,9 +4,11 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
+import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import type { ReactNode } from "react";
 import "@/global.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -30,8 +32,11 @@ function RootComponent() {
   return (
     <RootDocument>
       <ThemeProvider defaultTheme="system" storageKey="theme">
-        <Outlet />
+        <TooltipProvider>
+          <Outlet />
+        </TooltipProvider>
       </ThemeProvider>
+      <TanStackRouterDevtools />
     </RootDocument>
   );
 }
