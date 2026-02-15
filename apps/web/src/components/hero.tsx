@@ -13,7 +13,7 @@ export function Hero() {
 
       <div className="relative mx-auto max-w-5xl px-6 pb-24 pt-32 text-center">
         <h1 className="mx-auto max-w-3xl text-balance text-5xl font-bold tracking-tight text-foreground md:text-7xl">
-          The <span className="text-primary">Ultimate</span> Resource Raiders Deserve
+          The <span className="text-primary">Simple</span> Resource Raiders Deserve
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground md:text-xl">
