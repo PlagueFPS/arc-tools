@@ -16,37 +16,38 @@ export interface CommandDefinition {
 export const commands: readonly CommandDefinition[] = [
   {
     name: "craft",
-    description: "Get crafting recipe for an item",
+    description: "Get the required items and workbench to craft an item.",
     usage: "!craft <item>",
     handler: craftHandler,
   },
   {
     name: "find",
-    description: "Find loot areas for an item",
+    description: "Get the loot areas where an item can be found.",
     usage: "!find <item>",
     handler: findHandler,
   },
   {
     name: "sell",
-    description: "Get sell value for an item",
+    description: "Get the sell value of an item.",
     usage: "!sell <item>",
     handler: sellHandler,
   },
   {
     name: "recycle",
-    description: "Get items granted when recycling an item",
+    description: "Get the items granted for recycling an item.",
     usage: "!recycle <item>",
     handler: recycleHandler,
   },
   {
     name: "recycleto",
-    description: "Get items that recycle into an item",
+    description: "Get all items that recycle into a specific item.",
     usage: "!recycleto <item>",
     handler: recycleToHandler,
   },
   {
     name: "event",
-    description: "Look up event schedule by event or map name",
+    description:
+      "Get currently active or upcoming events by event or map name.",
     usage: "!event <event or map>",
     handler: eventHandler,
   },

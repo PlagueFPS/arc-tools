@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { CommandsSection } from "@/components/commands-section";
 import { FeaturesSection } from "@/components/features-section";
 import { Hero } from "@/components/hero";
 
@@ -12,7 +13,7 @@ function App() {
         <FeaturesSection />
       </div>
       <div id="commands">
-
+        <CommandsSection />
       </div>
     </main>
   );
