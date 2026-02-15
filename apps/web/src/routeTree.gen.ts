@@ -8,108 +8,107 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root";
-import { Route as ApiAuthTwitchRouteImport } from "./routes/api.auth.twitch";
-import { Route as ApiAuthTwitchCallbackRouteImport } from "./routes/api.auth.twitch.callback";
-import { Route as IndexRouteImport } from "./routes/index";
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiAuthTwitchRouteImport } from './routes/api.auth.twitch'
+import { Route as ApiAuthTwitchCallbackRouteImport } from './routes/api.auth.twitch.callback'
 
 const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ApiAuthTwitchRoute = ApiAuthTwitchRouteImport.update({
-  id: "/api/auth/twitch",
-  path: "/api/auth/twitch",
+  id: '/api/auth/twitch',
+  path: '/api/auth/twitch',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ApiAuthTwitchCallbackRoute = ApiAuthTwitchCallbackRouteImport.update({
-  id: "/callback",
-  path: "/callback",
+  id: '/callback',
+  path: '/callback',
   getParentRoute: () => ApiAuthTwitchRoute,
-} as any);
+} as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute;
-  "/api/auth/twitch": typeof ApiAuthTwitchRouteWithChildren;
-  "/api/auth/twitch/callback": typeof ApiAuthTwitchCallbackRoute;
+  '/': typeof IndexRoute
+  '/api/auth/twitch': typeof ApiAuthTwitchRouteWithChildren
+  '/api/auth/twitch/callback': typeof ApiAuthTwitchCallbackRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute;
-  "/api/auth/twitch": typeof ApiAuthTwitchRouteWithChildren;
-  "/api/auth/twitch/callback": typeof ApiAuthTwitchCallbackRoute;
+  '/': typeof IndexRoute
+  '/api/auth/twitch': typeof ApiAuthTwitchRouteWithChildren
+  '/api/auth/twitch/callback': typeof ApiAuthTwitchCallbackRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  "/": typeof IndexRoute;
-  "/api/auth/twitch": typeof ApiAuthTwitchRouteWithChildren;
-  "/api/auth/twitch/callback": typeof ApiAuthTwitchCallbackRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/api/auth/twitch': typeof ApiAuthTwitchRouteWithChildren
+  '/api/auth/twitch/callback': typeof ApiAuthTwitchCallbackRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/api/auth/twitch" | "/api/auth/twitch/callback";
-  fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/api/auth/twitch" | "/api/auth/twitch/callback";
-  id: "__root__" | "/" | "/api/auth/twitch" | "/api/auth/twitch/callback";
-  fileRoutesById: FileRoutesById;
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/' | '/api/auth/twitch' | '/api/auth/twitch/callback'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/' | '/api/auth/twitch' | '/api/auth/twitch/callback'
+  id: '__root__' | '/' | '/api/auth/twitch' | '/api/auth/twitch/callback'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute;
-  ApiAuthTwitchRoute: typeof ApiAuthTwitchRouteWithChildren;
+  IndexRoute: typeof IndexRoute
+  ApiAuthTwitchRoute: typeof ApiAuthTwitchRouteWithChildren
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/": {
-      id: "/";
-      path: "/";
-      fullPath: "/";
-      preLoaderRoute: typeof IndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/api/auth/twitch": {
-      id: "/api/auth/twitch";
-      path: "/api/auth/twitch";
-      fullPath: "/api/auth/twitch";
-      preLoaderRoute: typeof ApiAuthTwitchRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/api/auth/twitch/callback": {
-      id: "/api/auth/twitch/callback";
-      path: "/callback";
-      fullPath: "/api/auth/twitch/callback";
-      preLoaderRoute: typeof ApiAuthTwitchCallbackRouteImport;
-      parentRoute: typeof ApiAuthTwitchRoute;
-    };
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/twitch': {
+      id: '/api/auth/twitch'
+      path: '/api/auth/twitch'
+      fullPath: '/api/auth/twitch'
+      preLoaderRoute: typeof ApiAuthTwitchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/twitch/callback': {
+      id: '/api/auth/twitch/callback'
+      path: '/callback'
+      fullPath: '/api/auth/twitch/callback'
+      preLoaderRoute: typeof ApiAuthTwitchCallbackRouteImport
+      parentRoute: typeof ApiAuthTwitchRoute
+    }
   }
 }
 
 interface ApiAuthTwitchRouteChildren {
-  ApiAuthTwitchCallbackRoute: typeof ApiAuthTwitchCallbackRoute;
+  ApiAuthTwitchCallbackRoute: typeof ApiAuthTwitchCallbackRoute
 }
 
 const ApiAuthTwitchRouteChildren: ApiAuthTwitchRouteChildren = {
   ApiAuthTwitchCallbackRoute: ApiAuthTwitchCallbackRoute,
-};
+}
 
 const ApiAuthTwitchRouteWithChildren = ApiAuthTwitchRoute._addFileChildren(
   ApiAuthTwitchRouteChildren,
-);
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiAuthTwitchRoute: ApiAuthTwitchRouteWithChildren,
-};
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()
 
-import type { createStart } from "@tanstack/react-start";
-import type { getRouter } from "./router.tsx";
-
-declare module "@tanstack/react-start" {
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
   interface Register {
-    ssr: true;
-    router: Awaited<ReturnType<typeof getRouter>>;
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
   }
 }
