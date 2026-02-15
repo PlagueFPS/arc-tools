@@ -1,3 +1,4 @@
+import { ScriptOnce } from "@tanstack/react-router"
 import { createContext, useContext, useEffect, useState } from "react"
 
 type Theme = "dark" | "light" | "system"
@@ -20,33 +21,32 @@ const initialState: ThemeProviderState = {
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
 
+const themeScript = `(function() {
+  try {
+    const theme = localStorage.getItem('theme') || 'auto';
+    const resolved = theme === 'auto'
+      ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : theme;
+    document.documentElement.classList.add(resolved);
+    localStorage.setItem('theme', resolved);
+  } catch (e) {}
+})();`
+
 export function ThemeProvider({
   children,
   defaultTheme = "system",
-  storageKey = "vite-ui-theme",
+  storageKey = "theme",
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
+    () => defaultTheme
   )
 
   useEffect(() => {
-    const root = window.document.documentElement
-
-    root.classList.remove("light", "dark")
-
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-        .matches
-        ? "dark"
-        : "light"
-
-      root.classList.add(systemTheme)
-      return
-    }
-
-    root.classList.add(theme)
-  }, [theme])
+    const theme = localStorage.getItem(storageKey) as Theme
+    if (!theme) return
+    setTheme(theme)
+  }, [storageKey])
 
   const value = {
     theme,
@@ -58,6 +58,7 @@ export function ThemeProvider({
 
   return (
     <ThemeProviderContext.Provider {...props} value={value}>
+      <ScriptOnce>{themeScript}</ScriptOnce>
       {children}
     </ThemeProviderContext.Provider>
   )
