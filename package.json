@@ -9,6 +9,9 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:twitch": "turbo run dev --filter=@arctools/twitch-bot",
+    "dev:discord": "turbo run dev --filter=@arctools/discord-bot",
+    "dev:web": "turbo run dev --filter=@arctools/web",
     "lint": "turbo run format-and-lint",
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",
@@ -19,8 +22,5 @@
     "@effect/language-service": "0.73.1",
     "turbo": "2.8.7",
     "typescript": "5.9.3"
-  },
-  "overrides": {
-    "effect": "3.19.16"
   }
 }

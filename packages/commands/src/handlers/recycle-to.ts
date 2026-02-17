@@ -1,4 +1,5 @@
 import { fetchItem } from "@arctools/arc-data";
+import { sortByDesc } from "@arctools/utils";
 import { Effect, Option } from "effect";
 import { CommandLayer } from "../lib/layers";
 
@@ -37,8 +38,12 @@ export const recycleToHandler = (search: string) =>
       amount: entry.quantity,
     }));
 
+    const formattedItems = sortByDesc(items, (i) => i.amount)
+      .map((i) => `${i.name} (x${i.amount})`)
+      .join(", ");
+
     return yield* Effect.succeed(
-      `These items recycle to ${item.name}: ${items.map((i) => `${i.name} (x${i.amount})`).join(", ")}`,
+      `These items recycle to ${item.name}: ${formattedItems}`,
     );
   }).pipe(
     Effect.withLogSpan("recycle_to_command"),

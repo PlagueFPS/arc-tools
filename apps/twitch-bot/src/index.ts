@@ -10,7 +10,7 @@ const startTwitchBot = Effect.gen(function* () {
 
   const bot = new Bot({
     authProvider,
-    channels: ["arctoolsbot"],
+    channels: ["arctoolsbot", "k4rnivore"],
     commands: twitchCommands,
   });
 
