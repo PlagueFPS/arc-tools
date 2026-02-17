@@ -1,1 +1,5 @@
-export { type CommandDefinition, commands } from "./registry.js";
+export {
+  type CommandDefinition,
+  commands,
+  type SlashOption,
+} from "./registry.js";

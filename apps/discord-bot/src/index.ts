@@ -1,15 +1,9 @@
 import { commands } from "@arctools/commands";
 import { parseMessageParams } from "@arctools/utils";
 import { BunRuntime } from "@effect/platform-bun";
-import {
-  Client,
-  Events,
-  GatewayIntentBits,
-  REST,
-  Routes,
-} from "discord.js";
+import { Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
 import { Config, Data, Effect } from "effect";
-import { SLASH_OPTION_NAME, toDiscordPayload } from "./slash-adapter.js";
+import { toDiscordPayload } from "./slash-adapter.js";
 
 const PREFIX = "!";
 
@@ -68,7 +62,13 @@ const discordBot = Effect.gen(function* () {
       });
     }
 
-    const search = interaction.options.getString(SLASH_OPTION_NAME, true) ?? "";
+    const firstOpt = command.slashOptions[0];
+    const search = firstOpt
+      ? (interaction.options.getString(
+          firstOpt.name,
+          firstOpt.required ?? true,
+        ) ?? "")
+      : "";
 
     try {
       const result = await runHandler(command, search);

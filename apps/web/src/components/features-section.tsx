@@ -1,28 +1,31 @@
-import { Calendar, Globe, Info, type LucideIcon } from "lucide-react"
+import { Calendar, Globe, Info, type LucideIcon } from "lucide-react";
 
 interface Feature {
-  icon: LucideIcon
-  title: string
-  description: string
+  icon: LucideIcon;
+  title: string;
+  description: string;
 }
 
 const features: Feature[] = [
   {
     icon: Info,
     title: "Item Info",
-    description: "Quick access to useful item sell value, crafting recipe, recycle components, and more."
+    description:
+      "Quick access to useful item sell value, crafting recipe, recycle components, and more.",
   },
   {
     icon: Calendar,
     title: "Map Conditions",
-    description: "Real-time map condition timers for keeping track of the currently active and upcoming conditions."
+    description:
+      "Real-time map condition timers for keeping track of the currently active and upcoming conditions.",
   },
   {
     icon: Globe,
     title: "Wide Platform Support",
-    description: "Seamless integration with your Twitch streams and/or Discord servers with YouTube support coming soon!"
-  }
-]
+    description:
+      "Seamless integration with your Twitch streams and/or Discord servers with YouTube support coming soon!",
+  },
+];
 
 export function FeaturesSection() {
   return (
@@ -36,7 +39,8 @@ export function FeaturesSection() {
             Everything you need to survive topside
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-pretty text-muted-foreground">
-            From items to maps, ArcTools will make sure you're always prepared for the next raid.
+            From items to maps, ArcTools will make sure you're always prepared
+            for the next raid.
           </p>
         </div>
 
@@ -60,5 +64,5 @@ export function FeaturesSection() {
         </div>
       </div>
     </section>
-  )
+  );
 }

@@ -12,7 +12,8 @@ export function CommandsSection() {
             Powerful commands at your fingertips
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-pretty text-muted-foreground">
-            {commands.length} built-in commands to help you get the most out of ARC Raiders.
+            {commands.length} built-in commands to help you get the most out of
+            ARC Raiders.
           </p>
         </div>
 
@@ -41,5 +42,5 @@ export function CommandsSection() {
         </div>
       </div>
     </section>
-  )
+  );
 }

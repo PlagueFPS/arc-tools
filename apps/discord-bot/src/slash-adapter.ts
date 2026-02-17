@@ -1,30 +1,30 @@
 import type { CommandDefinition } from "@arctools/commands";
 import { ApplicationCommandOptionType } from "discord.js";
 
-export const SLASH_OPTION_NAME = "query" as const;
-
-const QUERY_OPTION = {
-  type: ApplicationCommandOptionType.String as const,
-  name: SLASH_OPTION_NAME,
-  description: "Search term (e.g. item, map, event)",
-  required: true,
-};
-
 /**
  * Transforms CommandDefinition to Discord REST API payload format.
- * Strips handler and adds the required string option for the search parameter.
+ * Maps each command's slashOptions to Discord format.
  */
 export function toDiscordPayload(
   commands: readonly CommandDefinition[],
 ): Array<{
   name: string;
   description: string;
-  options: (typeof QUERY_OPTION)[];
+  options: Array<{
+    type: typeof ApplicationCommandOptionType.String;
+    name: string;
+    description: string;
+    required: boolean;
+  }>;
 }> {
-  return commands.map(({ name, description }) => ({
+  return commands.map(({ name, description, slashOptions }) => ({
     name,
     description,
-    options: [QUERY_OPTION],
+    options: slashOptions.map((opt) => ({
+      type: ApplicationCommandOptionType.String,
+      name: opt.name,
+      description: opt.description,
+      required: opt.required ?? true,
+    })),
   }));
 }
-
