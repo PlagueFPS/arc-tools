@@ -9,9 +9,9 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "dev:twitch": "turbo run dev --filter=@arctools/twitch-bot",
-    "dev:discord": "turbo run dev --filter=@arctools/discord-bot",
-    "dev:web": "turbo run dev --filter=@arctools/web",
+    "dev:twitch": "turbo run dev --filter=twitch-bot",
+    "dev:discord": "turbo run dev --filter=discord-bot",
+    "dev:web": "turbo run dev --filter=web",
     "lint": "turbo run format-and-lint",
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",

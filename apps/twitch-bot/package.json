@@ -1,5 +1,5 @@
 {
-  "name": "@arctools/twitch-bot",
+  "name": "twitch-bot",
   "version": "0.0.0",
   "type": "module",
   "private": true,

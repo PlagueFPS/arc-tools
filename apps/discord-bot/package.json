@@ -1,5 +1,5 @@
 {
-  "name": "@arctools/discord-bot",
+  "name": "discord-bot",
   "version": "0.0.0",
   "type": "module",
   "private": true,

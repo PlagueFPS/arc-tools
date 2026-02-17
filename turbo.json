@@ -3,7 +3,16 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
+      "inputs": ["$TURBO_DEFAULT$", ".env"],
+      "outputs": ["dist/**", ".output/**"],
+      "env": [
+        "TWITCH_CLIENT_ID",
+        "TWITCH_CLIENT_SECRET",
+        "TWITCH_ACCESS_TOKEN",
+        "TWITCH_REFRESH_TOKEN",
+        "DISCORD_BOT_TOKEN",
+        "DISCORD_CLIENT_ID"
+      ]
     },
     "dev": {
       "cache": false,
