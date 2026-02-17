@@ -41,6 +41,16 @@ export function Hero() {
           />
           <Button
             nativeButton={false}
+            size="lg"
+            className="h-12 rounded-lg px-8 text-base font-semibold text-white bg-twitch-brand [a]:hover:opacity-90"
+            render={
+              <a href="/api/auth/twitch" rel="noopener noreferrer">
+                Add to Twitch
+              </a>
+            }
+          />
+          <Button
+            nativeButton={false}
             variant="outline"
             size="lg"
             className="h-12 rounded-lg border-border/50 px-8 text-base font-semibold text-foreground hover:bg-secondary"

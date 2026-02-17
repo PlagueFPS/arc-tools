@@ -11,7 +11,11 @@
         "TWITCH_ACCESS_TOKEN",
         "TWITCH_REFRESH_TOKEN",
         "DISCORD_BOT_TOKEN",
-        "DISCORD_CLIENT_ID"
+        "DISCORD_CLIENT_ID",
+        "BOT_JOIN_PORT",
+        "BOT_JOIN_SECRET",
+        "BOT_JOIN_API_URL",
+        "APP_URL"
       ]
     },
     "dev": {

@@ -46,6 +46,11 @@ export function Header() {
               </a>
             }
           />
+          <Button
+            nativeButton={false}
+            className="font-semibold rounded-lg text-white bg-twitch-brand [a]:hover:opacity-90"
+            render={<a href="/api/auth/twitch">Add to Twitch</a>}
+          />
           <ClientOnly fallback={<ThemeToggleFallback />}>
             <ThemeToggle />
           </ClientOnly>

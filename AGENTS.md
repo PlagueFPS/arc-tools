@@ -69,3 +69,14 @@ Apps are deployed separately. Each app builds its own `dist/` output; shared pac
 - **tsconfig.json** — Each package extends `@arctools/typescript-config/base.json`
 - **biome.json** — Root config; excludes `dist/` and `.turbo/`
 - **turbo.json** — Defines `build`, `dev`, `check-types`, and root Biome tasks
+
+## Dynamic Twitch Channel Join
+
+When a user clicks "Add to Twitch" in the web app and completes OAuth, the bot dynamically joins their channel without restart.
+
+| Variable | App | Description |
+|----------|-----|-------------|
+| `BOT_JOIN_PORT` | twitch-bot | Port for the join API (default: 3847). The API runs only when `BOT_JOIN_SECRET` is set. |
+| `BOT_JOIN_SECRET` | twitch-bot | Shared secret for `X-Bot-Join-Secret` header. Required to enable the join API. |
+| `BOT_JOIN_API_URL` | web | URL of the bot's join API (e.g. `http://localhost:3847`). Required for callback to trigger join. |
+| `APP_URL` | web | Base URL for OAuth redirect (e.g. `http://localhost:3000`). Default: `http://localhost:3000`. |
