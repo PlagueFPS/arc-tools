@@ -5,7 +5,6 @@ arc-tools/
 ├── apps/                    # Deployable applications
 │   ├── twitch-bot/          # @arctools/twitch-bot
 │   ├── discord-bot/         # @arctools/discord-bot
-│   └── web/                 # @arctools/web — TanStack Start web app
 ├── packages/                # Shared internal packages
 │   ├── typescript-config/   # @arctools/typescript-config — shared TS config
 │   ├── arc-data/            # @arctools/arc-data — Arc Raiders API client & schemas
