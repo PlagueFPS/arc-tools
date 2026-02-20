@@ -8,6 +8,25 @@ const ComponentSchema = Schema.Struct({
   }),
 });
 
+const ArcLootSchema = Schema.Struct({
+  id: Schema.UUID,
+  item: Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+  }),
+});
+
+export class Arc extends Schema.Class<Arc>("Arc")({
+  id: Schema.String,
+  name: Schema.String,
+  loot: Schema.OptionFromNullishOr(Schema.Array(ArcLootSchema), null),
+}) {}
+export class ArcsAPIResponse extends Schema.Class<ArcsAPIResponse>(
+  "ArcsAPIResponse",
+)({
+  data: Schema.Array(Arc),
+}) {}
+
 export class Item extends Schema.Class<Item>("Item")({
   id: Schema.String,
   name: Schema.String,

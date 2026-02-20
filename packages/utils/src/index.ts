@@ -1,3 +1,5 @@
+export const BASE_API_URL = "https://metaforge.app/api/arc-raiders";
+
 /**
  * Parses the message parameters into a formatted string
  * @param params - The parameters to parse

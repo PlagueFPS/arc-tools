@@ -3,6 +3,7 @@ import { activeHandler } from "./handlers/active";
 import { craftHandler } from "./handlers/craft";
 import { eventHandler } from "./handlers/event";
 import { findHandler } from "./handlers/find";
+import { lootHandler } from "./handlers/loot";
 import { recycleHandler } from "./handlers/recycle";
 import { recycleToHandler } from "./handlers/recycle-to";
 import { sellHandler } from "./handlers/sell";
@@ -30,7 +31,21 @@ const ITEM_OPTION: SlashOption = {
   required: true,
 };
 
+const ARC_OPTION: SlashOption = {
+  name: "arc",
+  description: "Arc name",
+  type: "string",
+  required: true,
+};
+
 export const commands: readonly CommandDefinition[] = [
+  {
+    name: "loot",
+    description: "Get the items dropped by an arc.",
+    usage: "!loot <arc>",
+    slashOptions: [ARC_OPTION],
+    handler: lootHandler,
+  },
   {
     name: "craft",
     description: "Get the required items and workbench to craft an item.",

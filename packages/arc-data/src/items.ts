@@ -1,3 +1,4 @@
+import { BASE_API_URL } from "@arctools/utils";
 import { HttpClient, HttpClientResponse } from "@effect/platform";
 import { Effect } from "effect";
 import { ItemAPIResponse } from "./schema.js";
@@ -15,8 +16,6 @@ export interface ItemAPIParams {
   minimal?: boolean;
 }
 
-const BASE_URL = "https://metaforge.app/api/arc-raiders";
-
 /**
  * Fetches an item from the API
  * @param searchParams - The search parameters
@@ -29,7 +28,7 @@ export const fetchItem = (searchParams: ItemAPIParams) =>
         .filter(([, v]) => v !== undefined)
         .map(([k, v]) => [k, String(v)] as [string, string]),
     );
-    const url = `${BASE_URL}/items?${params.toString()}`;
+    const url = `${BASE_API_URL}/items?${params.toString()}`;
     const httpClient = yield* HttpClient.HttpClient;
     const response = yield* httpClient
       .get(url)
