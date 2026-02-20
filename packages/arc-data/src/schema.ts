@@ -9,7 +9,6 @@ const ComponentSchema = Schema.Struct({
 });
 
 const ArcLootSchema = Schema.Struct({
-  id: Schema.UUID,
   item: Schema.Struct({
     id: Schema.String,
     name: Schema.String,
@@ -43,6 +42,17 @@ export class Item extends Schema.Class<Item>("Item")({
       Schema.Struct({
         quantity: Schema.Number,
         item: Schema.Struct({
+          id: Schema.String,
+          name: Schema.String,
+        }),
+      }),
+    ),
+    null,
+  ),
+  dropped_by: Schema.OptionFromNullishOr(
+    Schema.Array(
+      Schema.Struct({
+        arc: Schema.Struct({
           id: Schema.String,
           name: Schema.String,
         }),
