@@ -1,5 +1,5 @@
 import { fetchEvents, selectEvent } from "@arctools/arc-data";
-import { formatMinutes } from "@arctools/utils";
+import { formatMinutes, normalize } from "@arctools/utils";
 import { Effect } from "effect";
 import { CommandLayer } from "../lib/layers";
 
@@ -11,11 +11,16 @@ export const eventHandler = (search: string) =>
       );
     }
 
+    let normalizedSearch = normalize(search.trim());
+    if (normalizedSearch.includes("queen")) {
+      normalizedSearch = "harvester";
+    }
+
     const events = yield* fetchEvents();
-    const match = selectEvent(events, search);
+    const match = selectEvent(events, normalizedSearch);
     if (!match) {
       return yield* Effect.succeed(
-        `[Warn] No event or map found matching: ${search}`,
+        `[Warn] No event or map found matching: ${normalizedSearch}`,
       );
     }
 
