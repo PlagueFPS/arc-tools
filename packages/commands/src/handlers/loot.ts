@@ -11,9 +11,9 @@ export const lootHandler = (query: string) =>
       );
     }
 
-    const normalizedQuery = normalize(query.trim());
-    const arcById = yield* fetchArc({ id: normalizedQuery });
-    const arc = arcById ?? (yield* fetchArc({ search: normalizedQuery }));
+    const potentialId = query.toLowerCase().replace(/ /g, "-");
+    const arcById = yield* fetchArc({ id: potentialId });
+    const arc = arcById ?? (yield* fetchArc({ search: normalize(query) }));
     if (!arc) return yield* Effect.succeed(`[Warn] No such arc: ${query}`);
 
     if (Option.isNone(arc.loot)) {
