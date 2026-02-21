@@ -15,6 +15,24 @@ const ArcLootSchema = Schema.Struct({
   }),
 });
 
+const TraderItemSchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  trader_price: Schema.Number,
+});
+
+export class TradersAPIResponse extends Schema.Class<TradersAPIResponse>(
+  "TradersAPIResponse",
+)({
+  data: Schema.Struct({
+    Apollo: Schema.Array(TraderItemSchema),
+    Celeste: Schema.Array(TraderItemSchema),
+    Lance: Schema.Array(TraderItemSchema),
+    Shani: Schema.Array(TraderItemSchema),
+    TianWen: Schema.Array(TraderItemSchema),
+  }),
+}) {}
+
 export class Arc extends Schema.Class<Arc>("Arc")({
   id: Schema.String,
   name: Schema.String,

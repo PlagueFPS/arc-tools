@@ -7,6 +7,7 @@ events/map conditions, crafts, and more.
 | Command | Description | Usage |
 |---------|-------------|-------|
 | **loot** | Get the items dropped by an arc | `!loot <arc>` |
+| **buy** | Get the trader that sells an item and its price | `!buy <item>` |
 | **craft** | Get the required items and workbench to craft an item | `!craft <item>` |
 | **find** | Get the loot areas where an item can be found | `!find <item>` |
 | **sell** | Get the sell value of an item | `!sell <item>` |

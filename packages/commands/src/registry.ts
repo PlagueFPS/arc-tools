@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import { activeHandler } from "./handlers/active";
+import { buyHandler } from "./handlers/buy";
 import { craftHandler } from "./handlers/craft";
 import { eventHandler } from "./handlers/event";
 import { findHandler } from "./handlers/find";
@@ -39,6 +40,13 @@ const ARC_OPTION: SlashOption = {
 };
 
 export const commands: readonly CommandDefinition[] = [
+  {
+    name: "buy",
+    description: "Get the trader that sells an item and its price.",
+    usage: "!buy <item>",
+    slashOptions: [ITEM_OPTION],
+    handler: buyHandler,
+  },
   {
     name: "loot",
     description: "Get the items dropped by an arc.",
