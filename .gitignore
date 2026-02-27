@@ -6,3 +6,5 @@ dist/
 .env.*
 .output/
 .tanstack/
+tokens.json
+*.db

@@ -1,0 +1,1 @@
+ALTER TABLE `twitch_tokens` ALTER COLUMN "updated_at" TO "updated_at" integer;
