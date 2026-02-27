@@ -34,6 +34,11 @@ export class TwurpleAuthService extends Effect.Service<TwurpleAuthService>()(
         catch: (cause) =>
           new AuthBootstrapError({ message: "Failed to add user", cause }),
       }).pipe(
+        Effect.tapError(() =>
+          Effect.logError(
+            "Failed to add user, falling back to addUserForToken",
+          ),
+        ),
         Effect.catchTag("AuthBootstrapError", () =>
           Effect.tryPromise({
             try: () => authProvider.addUserForToken(stored.tokenData, ["chat"]),
