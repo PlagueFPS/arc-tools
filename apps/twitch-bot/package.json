@@ -6,19 +6,26 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "db:generate": "bunx drizzle-kit generate",
+    "db:migrate": "bunx drizzle-kit migrate",
+    "db:studio": "bunx drizzle-kit studio"
   },
   "dependencies": {
     "@arctools/commands": "workspace:*",
     "@arctools/utils": "workspace:*",
     "@effect/platform": "^0.94.4",
     "@effect/platform-bun": "^0.87.1",
+    "@libsql/client": "^0.17.0",
     "@twurple/auth": "^8.0.3",
     "@twurple/easy-bot": "^8.0.3",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.1",
     "effect": "^3.19.16"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",
+    "drizzle-kit": "^0.31.9",
     "typescript": "5.9.3"
   }
 }

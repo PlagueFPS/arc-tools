@@ -1,7 +1,7 @@
 import { BunRuntime } from "@effect/platform-bun";
 import { Bot } from "@twurple/easy-bot";
 import { Effect } from "effect";
-import { AuthProvider } from "@/lib/auth";
+import { AuthProvider } from "@/services/auth";
 import { twitchCommands } from "./commands";
 
 const startTwitchBot = Effect.gen(function* () {
