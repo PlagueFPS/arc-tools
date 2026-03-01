@@ -2,6 +2,8 @@
 This is a monorepo containing the Twitch and Discord chat bots providing ARC Raiders information on items, 
 events/map conditions, crafts, and more.
 
+> **Note:** This project is a work in progress and is not yet cloud-hosted.
+
 ## Commands
 
 | Command | Description | Usage |
