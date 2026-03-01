@@ -1,8 +1,8 @@
 import { RefreshingAuthProvider } from "@twurple/auth";
 import { eq } from "drizzle-orm";
-import { Config, Effect, Schema } from "effect";
+import { Config, Effect, Schedule, Schema } from "effect";
 import { twitchTokens } from "@/db/schema";
-import { Database } from "./db";
+import { Database } from "@/services/db";
 
 const TokenDataSchema = Schema.Struct({
   accessToken: Schema.propertySignature(Schema.String).pipe(
@@ -40,6 +40,7 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
   {
     dependencies: [Database.Default],
     effect: Effect.gen(function* () {
+      const db = yield* Database;
       const clientId = yield* Config.string("TWITCH_CLIENT_ID");
       const clientSecret = yield* Config.string("TWITCH_CLIENT_SECRET");
       const initialAccessToken = yield* Config.string(
@@ -49,12 +50,17 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
         "TWITCH_INITIAL_REFRESH_TOKEN",
       );
       const botUserId = yield* Config.string("TWITCH_BOT_USER_ID");
-      const db = yield* Database;
 
       const tokenDataFromDB = yield* Effect.tryPromise({
         try: () =>
           db
-            .select()
+            .select({
+              access_token: twitchTokens.access_token,
+              refresh_token: twitchTokens.refresh_token,
+              expires_in: twitchTokens.expires_in,
+              obtainment_timestamp: twitchTokens.obtainment_timestamp,
+              scope: twitchTokens.scope,
+            })
             .from(twitchTokens)
             .where(eq(twitchTokens.bot_user_id, botUserId))
             .get(),
@@ -101,7 +107,6 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
           ),
         );
 
-        // Insert token data into database
         yield* Effect.tryPromise({
           try: () =>
             db.insert(twitchTokens).values({
@@ -158,15 +163,26 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
               cause,
             }),
         }).pipe(
+          Effect.retry({
+            times: 3,
+            schedule: Schedule.fixed("200 millis"),
+          }),
           Effect.tapBoth({
             onSuccess: () =>
               Effect.log(`Persisted refreshed token for user ${userId}`),
             onFailure: (cause) => Effect.logError(cause),
           }),
-          Effect.catchAll((error) => Effect.dieMessage(error.message)),
+          Effect.catchAll(() => Effect.void),
           Effect.runPromise,
         );
       });
+
+      authProvider.onRefreshFailure((userId, error) =>
+        Effect.logError(
+          `Failed to refresh token for user ${userId}:`,
+          error,
+        ).pipe(Effect.runSync),
+      );
 
       return { authProvider } as const;
     }),

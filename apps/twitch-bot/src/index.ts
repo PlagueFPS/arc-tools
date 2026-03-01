@@ -14,8 +14,12 @@ const startTwitchBot = Effect.gen(function* () {
     commands: twitchCommands,
   });
 
-  bot.onConnect(() => console.log("Successfully connected to Twitch"));
-  bot.onJoin((channel) => console.log(`Joined ${channel.broadcasterName}`));
+  bot.onConnect(() =>
+    Effect.log("Successfully connected to Twitch").pipe(Effect.runSync),
+  );
+  bot.onJoin((channel) =>
+    Effect.log(`Joined ${channel.broadcasterName}`).pipe(Effect.runSync),
+  );
 }).pipe(Effect.provide(AuthProvider.Default));
 
 BunRuntime.runMain(startTwitchBot);
