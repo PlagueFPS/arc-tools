@@ -2,19 +2,23 @@ import { commands } from "@arctools/commands";
 import { parseMessageParams } from "@arctools/utils";
 import { BunRuntime } from "@effect/platform-bun";
 import { Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
-import { Config, Data, Effect } from "effect";
+import { Config, Effect, Schema } from "effect";
 import { toDiscordPayload } from "./slash-adapter.js";
 
 const PREFIX = "!";
 
-class CommandRegisterError extends Data.TaggedError("CommandRegisterError")<{
-  message: string;
-  cause?: unknown;
-}> {}
+class CommandRegisterError extends Schema.TaggedError<CommandRegisterError>()(
+  "CommandRegisterError",
+  {
+    message: Schema.String,
+    cause: Schema.Unknown,
+  },
+) {}
 
-async function runHandler(command: (typeof commands)[number], search: string) {
-  return Effect.runPromise(command.handler(search));
-}
+class ReplyError extends Schema.TaggedError<ReplyError>()("ReplyError", {
+  message: Schema.String,
+  cause: Schema.Unknown,
+}) {}
 
 const discordBot = Effect.gen(function* () {
   const botToken = yield* Config.string("DISCORD_BOT_TOKEN");
@@ -50,66 +54,84 @@ const discordBot = Effect.gen(function* () {
   );
 
   client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
+    return await Effect.gen(function* () {
+      if (!interaction.isChatInputCommand()) return;
 
-    const command = commands.find(
-      (cmd) => cmd.name === interaction.commandName,
+      const command = commands.find(
+        (cmd) => cmd.name === interaction.commandName,
+      );
+      if (!command) {
+        return yield* Effect.tryPromise({
+          try: () =>
+            interaction.reply({
+              content: "Command not found",
+              ephemeral: true,
+            }),
+          catch: (cause) =>
+            new ReplyError({
+              message: "Failed to reply ephemerally to no command found.",
+              cause,
+            }),
+        });
+      }
+
+      const firstOpt = command.slashOptions[0];
+      const search = firstOpt
+        ? (interaction.options.getString(
+            firstOpt.name,
+            firstOpt.required ?? true,
+          ) ?? "")
+        : "";
+
+      const result = yield* command.handler(search);
+      return yield* Effect.tryPromise({
+        try: () => interaction.reply({ content: result }),
+        catch: (cause) =>
+          new ReplyError({
+            message: `Failed to reply to command ${command.name}`,
+            cause,
+          }),
+      });
+    }).pipe(
+      Effect.tapError((error) => Effect.logError(error)),
+      Effect.runPromise,
     );
-    if (!command) {
-      return interaction.reply({
-        content: "Command not found",
-        ephemeral: true,
-      });
-    }
-
-    const firstOpt = command.slashOptions[0];
-    const search = firstOpt
-      ? (interaction.options.getString(
-          firstOpt.name,
-          firstOpt.required ?? true,
-        ) ?? "")
-      : "";
-
-    try {
-      const result = await runHandler(command, search);
-      await interaction.reply({ content: result });
-    } catch (error) {
-      console.error("Slash command error:", error);
-      await interaction.reply({
-        content: "[Error] Something went wrong. Please try again.",
-        ephemeral: true,
-      });
-    }
   });
 
   client.on(Events.MessageCreate, async (message) => {
-    if (message.author.bot) return;
-    const content = message.content;
-    if (!content.startsWith(PREFIX)) return;
+    return await Effect.gen(function* () {
+      if (message.author.bot) return;
+      const content = message.content;
+      if (!content.startsWith(PREFIX)) return;
 
-    const args = content.slice(PREFIX.length).trim().split(/\s+/);
-    const commandName = args[0]?.toLowerCase();
-    const commandArgs = args.slice(1);
+      const args = content.slice(PREFIX.length).trim().split(/\s+/);
+      const commandName = args[0]?.toLowerCase();
+      const commandArgs = args.slice(1);
 
-    if (!commandName) return;
+      if (!commandName) return;
 
-    const command = commands.find(
-      (cmd) => cmd.name.toLowerCase() === commandName,
+      const command = commands.find(
+        (cmd) => cmd.name.toLowerCase() === commandName,
+      );
+      if (!command) return;
+
+      const search = parseMessageParams(commandArgs);
+      const result = yield* command.handler(search);
+      return yield* Effect.tryPromise({
+        try: () => message.reply(result),
+        catch: (cause) =>
+          new ReplyError({
+            message: `Failed to reply to command ${command.name}`,
+            cause,
+          }),
+      });
+    }).pipe(
+      Effect.tapError((error) => Effect.logError(error)),
+      Effect.runPromise,
     );
-    if (!command) return;
-
-    const search = parseMessageParams(commandArgs);
-
-    try {
-      const result = await runHandler(command, search);
-      await message.reply(result);
-    } catch (error) {
-      console.error("Prefix command error:", error);
-      await message.reply("[Error] Something went wrong. Please try again.");
-    }
   });
 
   client.login(botToken);
-});
+}).pipe(Effect.withLogSpan("discord_bot"));
 
 BunRuntime.runMain(discordBot);

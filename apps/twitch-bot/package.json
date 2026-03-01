@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run src/index.ts",
+    "start": "bun run db:migrate && bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "check-types": "tsc --noEmit",
     "db:generate": "bunx drizzle-kit generate",

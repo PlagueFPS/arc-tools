@@ -20,6 +20,6 @@ const startTwitchBot = Effect.gen(function* () {
   bot.onJoin((channel) =>
     Effect.log(`Joined ${channel.broadcasterName}`).pipe(Effect.runSync),
   );
-}).pipe(Effect.provide(AuthProvider.Default));
+}).pipe(Effect.withLogSpan("twitch_bot"), Effect.provide(AuthProvider.Default));
 
 BunRuntime.runMain(startTwitchBot);
