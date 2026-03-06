@@ -1,10 +1,11 @@
 import { fetchTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const buyHandler = (query: string) =>
-  Effect.gen(function* () {
+export const buyHandler = Effect.fn("Command.buyHandler")(
+  function* (query: string) {
     if (!query) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!buy sensors')",
@@ -51,11 +52,11 @@ export const buyHandler = (query: string) =>
     });
 
     return yield* Effect.succeed(lines.join(", "));
-  }).pipe(
-    Effect.withLogSpan("buy_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() =>
-      Effect.succeed("[Error] Unable to fetch trader data"),
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.tapCause((cause) => Effect.logError(cause)),
+      Effect.catch((error) => Effect.succeed(error.message)),
+      Effect.provide(CommandLayer),
     ),
-    Effect.provide(CommandLayer),
-  );
+);

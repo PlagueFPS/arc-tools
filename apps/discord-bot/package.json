@@ -11,9 +11,9 @@
   "dependencies": {
     "@arctools/commands": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "@effect/platform-bun": "^0.87.1",
+    "@effect/platform-bun": "^4.0.0-beta.27",
     "discord.js": "^14.25.1",
-    "effect": "^3.19.16"
+    "effect": "^4.0.0-beta.27"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",

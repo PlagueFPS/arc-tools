@@ -1,22 +1,19 @@
-import { BASE_API_URL, normalize } from "@arctools/utils";
-import { HttpClient, HttpClientResponse } from "@effect/platform";
+import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
+import { HttpClientResponse } from "effect/unstable/http";
 import { type Event, EventAPIResponse } from "./schema.js";
+import { arcHttpClient } from "./utils.js";
 
 /**
  * Fetches all events from the event schedule API
  */
-export const fetchEvents = () =>
-  Effect.gen(function* () {
-    const url = `${BASE_API_URL}/events-schedule`;
-    const httpClient = yield* HttpClient.HttpClient;
-    const response = yield* httpClient
-      .get(url)
-      .pipe(
-        Effect.flatMap(HttpClientResponse.schemaBodyJson(EventAPIResponse)),
-      );
-    return response.data;
-  });
+export const fetchEvents = Effect.fn("ArcData.fetchEvents")(function* () {
+  const httpClient = yield* arcHttpClient;
+  const response = yield* httpClient
+    .get("/events-schedule")
+    .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(EventAPIResponse)));
+  return response.data;
+});
 
 /**
  * Selects the best matching event: prefers currently active, else closest upcoming

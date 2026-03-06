@@ -1,28 +1,27 @@
 import { RefreshingAuthProvider } from "@twurple/auth";
 import { eq } from "drizzle-orm";
-import { Config, Effect, Schedule, Schema } from "effect";
+import { Config, Effect, Layer, Schedule, Schema, ServiceMap } from "effect";
 import { twitchTokens } from "@/db/schema";
 import { Database } from "@/services/db";
 
 const TokenDataSchema = Schema.Struct({
-  accessToken: Schema.propertySignature(Schema.String).pipe(
-    Schema.fromKey("access_token"),
-  ),
-  refreshToken: Schema.propertySignature(Schema.NullOr(Schema.String)).pipe(
-    Schema.fromKey("refresh_token"),
-  ),
-  expiresIn: Schema.propertySignature(Schema.NullOr(Schema.Number)).pipe(
-    Schema.fromKey("expires_in"),
-  ),
-  obtainmentTimestamp: Schema.propertySignature(Schema.Number).pipe(
-    Schema.fromKey("obtainment_timestamp"),
-  ),
-  scope: Schema.parseJson(Schema.mutable(Schema.Array(Schema.String))),
-});
+  accessToken: Schema.String,
+  refreshToken: Schema.String,
+  expiresIn: Schema.NullOr(Schema.Int),
+  obtainmentTimestamp: Schema.Int,
+  scope: Schema.fromJsonString(Schema.mutable(Schema.Array(Schema.String))),
+}).pipe(
+  Schema.encodeKeys({
+    accessToken: "access_token",
+    refreshToken: "refresh_token",
+    expiresIn: "expires_in",
+    obtainmentTimestamp: "obtainment_timestamp",
+  }),
+);
 
-const decodeTokenData = Schema.decodeUnknown(TokenDataSchema);
+const decodeTokenData = Schema.decodeUnknownSync(TokenDataSchema);
 
-class DatabaseError extends Schema.TaggedError<DatabaseError>()(
+class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()(
   "DatabaseError",
   {
     message: Schema.String,
@@ -30,16 +29,15 @@ class DatabaseError extends Schema.TaggedError<DatabaseError>()(
   },
 ) {}
 
-class AuthError extends Schema.TaggedError<AuthError>()("AuthError", {
+class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError", {
   message: Schema.String,
   cause: Schema.Unknown,
 }) {}
 
-export class AuthProvider extends Effect.Service<AuthProvider>()(
-  "@arctools/twitch-bot/lib/auth/AuthProvider",
+export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
+  "twitch-bot/services/auth/AuthProvider",
   {
-    dependencies: [Database.Default],
-    effect: Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const db = yield* Database;
       const clientId = yield* Config.string("TWITCH_CLIENT_ID");
       const clientSecret = yield* Config.string("TWITCH_CLIENT_SECRET");
@@ -129,7 +127,7 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
           ),
         );
       } else {
-        const tokenData = yield* decodeTokenData(tokenDataFromDB);
+        const tokenData = decodeTokenData(tokenDataFromDB);
         yield* Effect.tryPromise({
           try: () => authProvider.addUserForToken(tokenData, ["chat"]),
           catch: (cause) =>
@@ -167,24 +165,23 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
             times: 3,
             schedule: Schedule.fixed("200 millis"),
           }),
-          Effect.tapBoth({
-            onSuccess: () =>
-              Effect.log(`Persisted refreshed token for user ${userId}`),
-            onFailure: (cause) => Effect.logError(cause),
-          }),
-          Effect.catchAll(() => Effect.void),
+          Effect.tap(() =>
+            Effect.log(`Persisted refreshed token for user ${userId}`),
+          ),
+          Effect.ignore({ log: "Error" }),
           Effect.runPromise,
         );
       });
 
       authProvider.onRefreshFailure((userId, error) =>
-        Effect.logError(
-          `Failed to refresh token for user ${userId}:`,
-          error,
-        ).pipe(Effect.runSync),
+        console.log(`Failed to refresh token for user ${userId}:`, error),
       );
 
       return { authProvider } as const;
     }),
   },
-) {}
+) {
+  static layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(Database.layer),
+  );
+}

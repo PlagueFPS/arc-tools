@@ -1,13 +1,14 @@
 import { fetchEvents } from "@arctools/arc-data";
 import { formatMinutes } from "@arctools/utils";
-import { Duration, Effect } from "effect";
+import { Clock, Duration, Effect } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const upcomingHandler = (_search: string) =>
-  Effect.gen(function* () {
+export const upcomingHandler = Effect.fn("Command.upcomingHandler")(
+  function* (_search: string) {
     const events = yield* fetchEvents();
-    const now = Date.now();
-    const threeHoursFromNow = now + Duration.toMillis("2 hours");
+    const now = yield* Clock.currentTimeMillis;
+    const threeHoursFromNow = now + Duration.hours(2).pipe(Duration.toMillis);
     const upcoming = events
       .filter((e) => e.startTime > now && e.startTime <= threeHoursFromNow)
       .sort((a, b) => a.startTime - b.startTime);
@@ -21,9 +22,11 @@ export const upcomingHandler = (_search: string) =>
         `${e.name} on ${e.map} (starts in ${formatMinutes(e.startTime - now)})`,
     );
     return yield* Effect.succeed(lines.join(", "));
-  }).pipe(
-    Effect.withLogSpan("upcoming_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() => Effect.succeed("[Error] Unable to fetch event data")),
-    Effect.provide(CommandLayer),
-  );
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.tapCause((cause) => Effect.logError(cause)),
+      Effect.catch((error) => Effect.succeed(error.message)),
+      Effect.provide(CommandLayer),
+    ),
+);

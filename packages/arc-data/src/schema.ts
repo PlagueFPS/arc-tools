@@ -36,7 +36,7 @@ export class TradersAPIResponse extends Schema.Class<TradersAPIResponse>(
 export class Arc extends Schema.Class<Arc>("Arc")({
   id: Schema.String,
   name: Schema.String,
-  loot: Schema.OptionFromNullishOr(Schema.Array(ArcLootSchema), null),
+  loot: Schema.OptionFromNullishOr(Schema.Array(ArcLootSchema)),
 }) {}
 export class ArcsAPIResponse extends Schema.Class<ArcsAPIResponse>(
   "ArcsAPIResponse",
@@ -48,13 +48,10 @@ export class Item extends Schema.Class<Item>("Item")({
   id: Schema.String,
   name: Schema.String,
   value: Schema.Number,
-  workbench: Schema.OptionFromNullishOr(Schema.String, null),
-  loot_area: Schema.OptionFromNullishOr(Schema.String, null),
-  components: Schema.OptionFromNullishOr(Schema.Array(ComponentSchema), null),
-  recycle_components: Schema.OptionFromNullishOr(
-    Schema.Array(ComponentSchema),
-    null,
-  ),
+  workbench: Schema.OptionFromNullishOr(Schema.String),
+  loot_area: Schema.OptionFromNullishOr(Schema.String),
+  components: Schema.OptionFromNullishOr(Schema.Array(ComponentSchema)),
+  recycle_components: Schema.OptionFromNullishOr(Schema.Array(ComponentSchema)),
   recycle_from: Schema.OptionFromNullishOr(
     Schema.Array(
       Schema.Struct({
@@ -65,7 +62,6 @@ export class Item extends Schema.Class<Item>("Item")({
         }),
       }),
     ),
-    null,
   ),
   dropped_by: Schema.OptionFromNullishOr(
     Schema.Array(
@@ -76,7 +72,6 @@ export class Item extends Schema.Class<Item>("Item")({
         }),
       }),
     ),
-    null,
   ),
 }) {}
 

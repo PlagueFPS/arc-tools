@@ -2,10 +2,10 @@ import { BunRuntime } from "@effect/platform-bun";
 import { Bot } from "@twurple/easy-bot";
 import { Effect } from "effect";
 import { AuthProvider } from "@/services/auth";
-import { twitchCommands } from "./commands";
+import { twitchCommands } from "./twitch-commands";
 
-const startTwitchBot = Effect.gen(function* () {
-  yield* Effect.log("Twitch Bot starting...");
+const runTwitchBot = Effect.fn("TwitchBot")(function* () {
+  yield* Effect.log("Twitch Bot Running..");
   const { authProvider } = yield* AuthProvider;
 
   const bot = new Bot({
@@ -14,12 +14,8 @@ const startTwitchBot = Effect.gen(function* () {
     commands: twitchCommands,
   });
 
-  bot.onConnect(() =>
-    Effect.log("Successfully connected to Twitch").pipe(Effect.runSync),
-  );
-  bot.onJoin((channel) =>
-    Effect.log(`Joined ${channel.broadcasterName}`).pipe(Effect.runSync),
-  );
-}).pipe(Effect.withLogSpan("twitch_bot"), Effect.provide(AuthProvider.Default));
+  bot.onConnect(() => console.log("Successfully connected to Twitch"));
+  bot.onJoin((channel) => console.log(`Joined ${channel.broadcasterName}`));
+});
 
-BunRuntime.runMain(startTwitchBot);
+runTwitchBot().pipe(Effect.provide(AuthProvider.layer), BunRuntime.runMain);

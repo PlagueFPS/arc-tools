@@ -7,7 +7,7 @@ import { toDiscordPayload } from "./slash-adapter.js";
 
 const PREFIX = "!";
 
-class CommandRegisterError extends Schema.TaggedError<CommandRegisterError>()(
+class CommandRegisterError extends Schema.TaggedErrorClass<CommandRegisterError>()(
   "CommandRegisterError",
   {
     message: Schema.String,
@@ -15,7 +15,7 @@ class CommandRegisterError extends Schema.TaggedError<CommandRegisterError>()(
   },
 ) {}
 
-class ReplyError extends Schema.TaggedError<ReplyError>()("ReplyError", {
+class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("ReplyError", {
   message: Schema.String,
   cause: Schema.Unknown,
 }) {}
