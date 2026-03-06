@@ -1,26 +1,18 @@
 import { commands } from "@arctools/commands";
-import { parseMessageParams } from "@arctools/utils";
 import { BunRuntime } from "@effect/platform-bun";
 import { Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
-import { Config, Effect, Schema } from "effect";
-import { toDiscordPayload } from "./slash-adapter.js";
-
-const PREFIX = "!";
+import { Config, Effect, Schedule, Schema } from "effect";
+import { handleInteractionCreate, handleMessageCreate } from "./events";
+import { toDiscordPayload } from "./slash-adapter";
 
 class CommandRegisterError extends Schema.TaggedErrorClass<CommandRegisterError>()(
   "CommandRegisterError",
   {
-    message: Schema.String,
     cause: Schema.Unknown,
   },
 ) {}
 
-class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("ReplyError", {
-  message: Schema.String,
-  cause: Schema.Unknown,
-}) {}
-
-const discordBot = Effect.gen(function* () {
+const runDiscordBot = Effect.fn("DiscordBot")(function* () {
   const botToken = yield* Config.string("DISCORD_BOT_TOKEN");
   const clientId = yield* Config.string("DISCORD_CLIENT_ID");
   const client = new Client({
@@ -40,12 +32,13 @@ const discordBot = Effect.gen(function* () {
       rest.put(Routes.applicationCommands(clientId), {
         body: discordCommands,
       }),
-    catch: (error) =>
-      new CommandRegisterError({
-        message: "Failed to register commands",
-        cause: error,
-      }),
-  });
+    catch: (cause) => new CommandRegisterError({ cause }),
+  }).pipe(
+    Effect.retry({
+      times: 3,
+      schedule: Schedule.fixed("200 millis"),
+    }),
+  );
 
   yield* Effect.log("Successfully registered application (/) commands.");
 
@@ -54,84 +47,23 @@ const discordBot = Effect.gen(function* () {
   );
 
   client.on(Events.InteractionCreate, async (interaction) => {
-    return await Effect.gen(function* () {
-      if (!interaction.isChatInputCommand()) return;
-
-      const command = commands.find(
-        (cmd) => cmd.name === interaction.commandName,
-      );
-      if (!command) {
-        return yield* Effect.tryPromise({
-          try: () =>
-            interaction.reply({
-              content: "Command not found",
-              ephemeral: true,
-            }),
-          catch: (cause) =>
-            new ReplyError({
-              message: "Failed to reply ephemerally to no command found.",
-              cause,
-            }),
-        });
-      }
-
-      const firstOpt = command.slashOptions[0];
-      const search = firstOpt
-        ? (interaction.options.getString(
-            firstOpt.name,
-            firstOpt.required ?? true,
-          ) ?? "")
-        : "";
-
-      const result = yield* command.handler(search);
-      return yield* Effect.tryPromise({
-        try: () => interaction.reply({ content: result }),
-        catch: (cause) =>
-          new ReplyError({
-            message: `Failed to reply to command ${command.name}`,
-            cause,
-          }),
-      });
-    }).pipe(
-      Effect.tapError((error) => Effect.logError(error)),
+    if (!interaction.isChatInputCommand()) return;
+    return await handleInteractionCreate(interaction).pipe(
+      Effect.annotateLogs({ command: interaction.commandName }),
+      Effect.tapCause((cause) => Effect.logError(cause)),
       Effect.runPromise,
     );
   });
 
   client.on(Events.MessageCreate, async (message) => {
-    return await Effect.gen(function* () {
-      if (message.author.bot) return;
-      const content = message.content;
-      if (!content.startsWith(PREFIX)) return;
-
-      const args = content.slice(PREFIX.length).trim().split(/\s+/);
-      const commandName = args[0]?.toLowerCase();
-      const commandArgs = args.slice(1);
-
-      if (!commandName) return;
-
-      const command = commands.find(
-        (cmd) => cmd.name.toLowerCase() === commandName,
-      );
-      if (!command) return;
-
-      const search = parseMessageParams(commandArgs);
-      const result = yield* command.handler(search);
-      return yield* Effect.tryPromise({
-        try: () => message.reply(result),
-        catch: (cause) =>
-          new ReplyError({
-            message: `Failed to reply to command ${command.name}`,
-            cause,
-          }),
-      });
-    }).pipe(
-      Effect.tapError((error) => Effect.logError(error)),
+    return await handleMessageCreate(message).pipe(
+      Effect.annotateLogs({ content: message.content }),
+      Effect.tapCause((cause) => Effect.logError(cause)),
       Effect.runPromise,
     );
   });
 
   client.login(botToken);
-}).pipe(Effect.withLogSpan("discord_bot"));
+});
 
-BunRuntime.runMain(discordBot);
+runDiscordBot().pipe(Effect.orDie, BunRuntime.runMain);

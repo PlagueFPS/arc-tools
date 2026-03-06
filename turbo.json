@@ -3,19 +3,19 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", ".env"],
+      "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
       "outputs": ["dist/**", ".output/**"],
       "env": [
         "TWITCH_CLIENT_ID",
         "TWITCH_CLIENT_SECRET",
         "TWITCH_ACCESS_TOKEN",
         "TWITCH_REFRESH_TOKEN",
+        "TWITCH_BOT_USER_ID",
+        "TWITCH_INITIAL_ACCESS_TOKEN",
+        "TWITCH_INITIAL_REFRESH_TOKEN",
+        "TURSO_CONNECTION_URL",
         "DISCORD_BOT_TOKEN",
-        "DISCORD_CLIENT_ID",
-        "BOT_JOIN_PORT",
-        "BOT_JOIN_SECRET",
-        "BOT_JOIN_API_URL",
-        "APP_URL"
+        "DISCORD_CLIENT_ID"
       ]
     },
     "dev": {
