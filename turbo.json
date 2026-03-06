@@ -5,7 +5,7 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
       "outputs": ["dist/**", ".output/**"],
-      "env": [
+      "passThroughEnv": [
         "TWITCH_CLIENT_ID",
         "TWITCH_CLIENT_SECRET",
         "TWITCH_ACCESS_TOKEN",

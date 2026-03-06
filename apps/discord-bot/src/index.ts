@@ -1,7 +1,7 @@
 import { commands } from "@arctools/commands";
 import { BunRuntime } from "@effect/platform-bun";
 import { Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
-import { Config, Effect, Schedule, Schema } from "effect";
+import { Config, Effect, Redacted, Schedule, Schema } from "effect";
 import { handleInteractionCreate, handleMessageCreate } from "./events";
 import { toDiscordPayload } from "./slash-adapter";
 
@@ -12,8 +12,12 @@ class CommandRegisterError extends Schema.TaggedErrorClass<CommandRegisterError>
   },
 ) {}
 
+class LoginError extends Schema.TaggedErrorClass<LoginError>()("LoginError", {
+  cause: Schema.Unknown,
+}) {}
+
 const runDiscordBot = Effect.fn("DiscordBot")(function* () {
-  const botToken = yield* Config.string("DISCORD_BOT_TOKEN");
+  const botToken = yield* Config.redacted("DISCORD_BOT_TOKEN");
   const clientId = yield* Config.string("DISCORD_CLIENT_ID");
   const client = new Client({
     intents: [
@@ -23,7 +27,7 @@ const runDiscordBot = Effect.fn("DiscordBot")(function* () {
     ],
   });
 
-  const rest = new REST().setToken(botToken);
+  const rest = new REST().setToken(Redacted.value(botToken));
   yield* Effect.log("Started refreshing application (/) commands.");
 
   const discordCommands = toDiscordPayload(commands);
@@ -57,13 +61,15 @@ const runDiscordBot = Effect.fn("DiscordBot")(function* () {
 
   client.on(Events.MessageCreate, async (message) => {
     return await handleMessageCreate(message).pipe(
-      Effect.annotateLogs({ content: message.content }),
       Effect.tapCause((cause) => Effect.logError(cause)),
       Effect.runPromise,
     );
   });
 
-  client.login(botToken);
+  yield* Effect.tryPromise({
+    try: () => client.login(Redacted.value(botToken)),
+    catch: (cause) => new LoginError({ cause }),
+  });
 });
 
 runDiscordBot().pipe(Effect.orDie, BunRuntime.runMain);

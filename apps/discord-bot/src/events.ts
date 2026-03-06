@@ -12,13 +12,6 @@ class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("ReplyError", {
   cause: Schema.Unknown,
 }) {}
 
-class CommandNotFoundError extends Schema.TaggedErrorClass<CommandNotFoundError>()(
-  "CommandNotFoundError",
-  {
-    cause: Schema.Unknown,
-  },
-) {}
-
 const COMMAND_PREFIX = "!";
 
 export const handleInteractionCreate = Effect.fn("handleInteractionCreate")(
@@ -39,12 +32,15 @@ export const handleInteractionCreate = Effect.fn("handleInteractionCreate")(
       });
     }
 
-    const firstOption = Arr.get(command.value.slashOptions, 0);
-    const search = Option.match(firstOption, {
-      onNone: () => "",
-      onSome: (option) =>
-        interaction.options.getString(option.name, option.required) ?? "",
-    });
+    const search = parseMessageParams(
+      command.value.slashOptions.flatMap((option) => {
+        const value = interaction.options.getString(
+          option.name,
+          option.required,
+        );
+        return value ? [value] : [];
+      }),
+    );
 
     const result = yield* command.value.handler(search);
     return yield* Effect.tryPromise({
@@ -73,11 +69,7 @@ export const handleMessageCreate = Effect.fn("handleMessageCreate")(function* (
     (cmd) => cmd.name.toLowerCase() === commandName.value,
   );
 
-  if (Option.isNone(command)) {
-    return yield* new CommandNotFoundError({
-      cause: `No command matching: ${commandName.value}`,
-    });
-  }
+  if (Option.isNone(command)) return;
 
   const search = parseMessageParams(commandArgs);
   const result = yield* command.value.handler(search);

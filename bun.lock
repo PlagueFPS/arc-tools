@@ -17,9 +17,9 @@
       "dependencies": {
         "@arctools/commands": "workspace:*",
         "@arctools/utils": "workspace:*",
-        "@effect/platform-bun": "^4.0.0-beta.27",
+        "@effect/platform-bun": "4.0.0-beta.27",
         "discord.js": "^14.25.1",
-        "effect": "^4.0.0-beta.27",
+        "effect": "4.0.0-beta.27",
       },
       "devDependencies": {
         "@arctools/typescript-config": "workspace:*",
@@ -32,13 +32,13 @@
       "dependencies": {
         "@arctools/commands": "workspace:*",
         "@arctools/utils": "workspace:*",
-        "@effect/platform-bun": "^4.0.0-beta.27",
+        "@effect/platform-bun": "4.0.0-beta.27",
         "@libsql/client": "^0.17.0",
         "@twurple/auth": "^8.0.3",
         "@twurple/easy-bot": "^8.0.3",
         "dotenv": "^17.3.1",
         "drizzle-orm": "^0.45.1",
-        "effect": "^4.0.0-beta.27",
+        "effect": "4.0.0-beta.27",
       },
       "devDependencies": {
         "@arctools/typescript-config": "workspace:*",
@@ -51,7 +51,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@arctools/utils": "workspace:*",
-        "effect": "^4.0.0-beta.27",
+        "effect": "4.0.0-beta.27",
       },
       "devDependencies": {
         "@arctools/typescript-config": "workspace:*",
@@ -64,7 +64,7 @@
       "dependencies": {
         "@arctools/arc-data": "workspace:*",
         "@arctools/utils": "workspace:*",
-        "effect": "^4.0.0-beta.27",
+        "effect": "4.0.0-beta.27",
       },
       "devDependencies": {
         "@arctools/typescript-config": "workspace:*",

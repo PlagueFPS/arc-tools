@@ -8,9 +8,9 @@ export const upcomingHandler = Effect.fn("Command.upcomingHandler")(
   function* (_search: string) {
     const events = yield* fetchEvents();
     const now = yield* Clock.currentTimeMillis;
-    const threeHoursFromNow = now + Duration.hours(2).pipe(Duration.toMillis);
+    const twoHoursFromNow = now + Duration.hours(2).pipe(Duration.toMillis);
     const upcoming = events
-      .filter((e) => e.startTime > now && e.startTime <= threeHoursFromNow)
+      .filter((e) => e.startTime > now && e.startTime <= twoHoursFromNow)
       .sort((a, b) => a.startTime - b.startTime);
 
     if (upcoming.length === 0) {

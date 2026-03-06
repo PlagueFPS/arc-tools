@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@arctools/utils": "workspace:*",
-    "effect": "^4.0.0-beta.27"
+    "effect": "4.0.0-beta.27"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",

@@ -6,5 +6,7 @@ export class CommandError extends Schema.TaggedErrorClass<CommandError>()(
     cause: Schema.Unknown,
   },
 ) {
-  static message = "Something went wrong while executing your command!";
+  get message() {
+    return "Something went wrong while executing your command!";
+  }
 }

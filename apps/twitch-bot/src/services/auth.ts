@@ -1,6 +1,14 @@
 import { RefreshingAuthProvider } from "@twurple/auth";
 import { eq } from "drizzle-orm";
-import { Config, Effect, Layer, Schedule, Schema, ServiceMap } from "effect";
+import {
+  Config,
+  Effect,
+  Layer,
+  Redacted,
+  Schedule,
+  Schema,
+  ServiceMap,
+} from "effect";
 import { twitchTokens } from "@/db/schema";
 import { Database } from "@/services/db";
 
@@ -19,7 +27,7 @@ const TokenDataSchema = Schema.Struct({
   }),
 );
 
-const decodeTokenData = Schema.decodeUnknownSync(TokenDataSchema);
+const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
 
 class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()(
   "DatabaseError",
@@ -40,11 +48,11 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
     make: Effect.gen(function* () {
       const db = yield* Database;
       const clientId = yield* Config.string("TWITCH_CLIENT_ID");
-      const clientSecret = yield* Config.string("TWITCH_CLIENT_SECRET");
-      const initialAccessToken = yield* Config.string(
+      const clientSecret = yield* Config.redacted("TWITCH_CLIENT_SECRET");
+      const initialAccessToken = yield* Config.redacted(
         "TWITCH_INITIAL_ACCESS_TOKEN",
       );
-      const initialRefreshToken = yield* Config.string(
+      const initialRefreshToken = yield* Config.redacted(
         "TWITCH_INITIAL_REFRESH_TOKEN",
       );
       const botUserId = yield* Config.string("TWITCH_BOT_USER_ID");
@@ -71,7 +79,7 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
 
       const authProvider = new RefreshingAuthProvider({
         clientId,
-        clientSecret,
+        clientSecret: Redacted.value(clientSecret),
       });
 
       if (!tokenDataFromDB) {
@@ -79,8 +87,8 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
           try: () =>
             authProvider.addUserForToken(
               {
-                accessToken: initialAccessToken,
-                refreshToken: initialRefreshToken,
+                accessToken: Redacted.value(initialAccessToken),
+                refreshToken: Redacted.value(initialRefreshToken),
                 expiresIn: 0,
                 obtainmentTimestamp: 0,
               },
@@ -127,7 +135,7 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
           ),
         );
       } else {
-        const tokenData = decodeTokenData(tokenDataFromDB);
+        const tokenData = yield* decodeTokenData(tokenDataFromDB);
         yield* Effect.tryPromise({
           try: () => authProvider.addUserForToken(tokenData, ["chat"]),
           catch: (cause) =>

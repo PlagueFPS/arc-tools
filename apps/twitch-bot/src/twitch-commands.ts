@@ -15,12 +15,13 @@ export const twitchCommands = commands.map((def) =>
       return yield* Effect.tryPromise({
         try: () => reply(result),
         catch: (cause) => new ReplyError({ cause }),
-      });
+      }).pipe(
+        Effect.retry({
+          times: 3,
+          schedule: Schedule.fixed("200 millis"),
+        }),
+      );
     }).pipe(
-      Effect.retry({
-        times: 3,
-        schedule: Schedule.fixed("200 millis"),
-      }),
       Effect.annotateLogs({ command: def.name }),
       Effect.ignore({ log: "Error" }),
       Effect.runPromise,
