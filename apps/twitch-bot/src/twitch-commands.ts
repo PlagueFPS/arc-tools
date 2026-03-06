@@ -23,7 +23,19 @@ export const twitchCommands = commands.map((def) =>
       );
     }).pipe(
       Effect.annotateLogs({ command: def.name }),
-      Effect.ignore({ log: "Error" }),
+      Effect.catchTag("CommandError", (error) =>
+        Effect.tryPromise({
+          try: () => reply(error.message),
+          catch: (cause) => new ReplyError({ cause }),
+        }).pipe(
+          Effect.retry({
+            times: 3,
+            schedule: Schedule.fixed("200 millis"),
+          }),
+        ),
+      ),
+      Effect.tapCause((cause) => Effect.logError(cause)),
+      Effect.ignore,
       Effect.runPromise,
     );
   }),

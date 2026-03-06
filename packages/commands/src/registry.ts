@@ -9,6 +9,7 @@ import { recycleHandler } from "./handlers/recycle";
 import { recycleToHandler } from "./handlers/recycle-to";
 import { sellHandler } from "./handlers/sell";
 import { upcomingHandler } from "./handlers/upcoming";
+import type { CommandError } from "./lib/command-error";
 
 export interface SlashOption {
   name: string;
@@ -22,7 +23,7 @@ export interface CommandDefinition {
   description: string;
   usage: string;
   slashOptions: SlashOption[];
-  handler: (search: string) => Effect.Effect<string, never, never>;
+  handler: (search: string) => Effect.Effect<string, CommandError, never>;
 }
 
 const ITEM_OPTION: SlashOption = {

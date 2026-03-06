@@ -41,8 +41,6 @@ export const craftHandler = Effect.fn("Command.craftHandler")(
   },
   (self) =>
     Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.tapCause((cause) => Effect.logError(cause)),
-      Effect.catch((error) => Effect.succeed(error.message)),
       Effect.provide(CommandLayer),
     ),
 );

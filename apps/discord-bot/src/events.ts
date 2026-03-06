@@ -6,7 +6,7 @@ import type {
   Message,
   OmitPartialGroupDMChannel,
 } from "discord.js";
-import { Array as Arr, Effect, Option, Schema } from "effect";
+import { Array as Arr, Effect, Option, Schedule, Schema } from "effect";
 
 class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("ReplyError", {
   cause: Schema.Unknown,
@@ -46,35 +46,75 @@ export const handleInteractionCreate = Effect.fn("handleInteractionCreate")(
     return yield* Effect.tryPromise({
       try: () => interaction.reply({ content: result }),
       catch: (cause) => new ReplyError({ cause }),
-    });
+    }).pipe(
+      Effect.retry({
+        times: 3,
+        schedule: Schedule.fixed("200 millis"),
+      }),
+    );
   },
+  (self, interaction) =>
+    Effect.annotateLogs(self, { command: interaction.commandName }).pipe(
+      Effect.catchTag("CommandError", (error) =>
+        Effect.tryPromise({
+          try: () =>
+            interaction.reply({ content: error.message, flags: "Ephemeral" }),
+          catch: (cause) => new ReplyError({ cause }),
+        }).pipe(
+          Effect.retry({
+            times: 3,
+            schedule: Schedule.fixed("200 millis"),
+          }),
+        ),
+      ),
+      Effect.tapCause((cause) => Effect.logError(cause)),
+      Effect.ignore,
+    ),
 );
 
-export const handleMessageCreate = Effect.fn("handleMessageCreate")(function* (
-  message: OmitPartialGroupDMChannel<Message<boolean>>,
-) {
-  if (message.author.bot) return;
+export const handleMessageCreate = Effect.fn("handleMessageCreate")(
+  function* (message: OmitPartialGroupDMChannel<Message<boolean>>) {
+    if (message.author.bot) return;
 
-  const { content } = message;
-  if (!content.startsWith(COMMAND_PREFIX)) return;
+    const { content } = message;
+    if (!content.startsWith(COMMAND_PREFIX)) return;
 
-  const args = content.slice(COMMAND_PREFIX.length).trim().split(/\s+/);
-  const commandName = Arr.get(args, 0).pipe(Option.map((s) => s.toLowerCase()));
-  const commandArgs = Arr.drop(args, 1);
+    const args = content.slice(COMMAND_PREFIX.length).trim().split(/\s+/);
+    const commandName = Arr.get(args, 0).pipe(
+      Option.map((s) => s.toLowerCase()),
+    );
+    const commandArgs = Arr.drop(args, 1);
 
-  if (Option.isNone(commandName)) return;
+    if (Option.isNone(commandName)) return;
 
-  const command = Arr.findFirst(
-    commands,
-    (cmd) => cmd.name.toLowerCase() === commandName.value,
-  );
+    const command = Arr.findFirst(
+      commands,
+      (cmd) => cmd.name.toLowerCase() === commandName.value,
+    );
 
-  if (Option.isNone(command)) return;
+    if (Option.isNone(command)) return;
 
-  const search = parseMessageParams(commandArgs);
-  const result = yield* command.value.handler(search);
-  return yield* Effect.tryPromise({
-    try: () => message.reply(result),
-    catch: (cause) => new ReplyError({ cause }),
-  });
-});
+    const search = parseMessageParams(commandArgs);
+    const result = yield* command.value
+      .handler(search)
+      .pipe(
+        Effect.catchTag("CommandError", (error) =>
+          Effect.succeed(error.message),
+        ),
+      );
+
+    return yield* Effect.tryPromise({
+      try: () => message.reply({ content: result }),
+      catch: (cause) => new ReplyError({ cause }),
+    }).pipe(
+      Effect.retry({
+        times: 3,
+        schedule: Schedule.fixed("200 millis"),
+      }),
+    );
+  },
+  (self) =>
+    Effect.tapCause(self, (cause) => Effect.logError(cause)).pipe(
+      Effect.ignore,
+    ),
+);

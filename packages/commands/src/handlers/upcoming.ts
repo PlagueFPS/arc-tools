@@ -25,8 +25,6 @@ export const upcomingHandler = Effect.fn("Command.upcomingHandler")(
   },
   (self) =>
     Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.tapCause((cause) => Effect.logError(cause)),
-      Effect.catch((error) => Effect.succeed(error.message)),
       Effect.provide(CommandLayer),
     ),
 );
