@@ -47,7 +47,7 @@ const runDiscordBot = Effect.fn("DiscordBot")(function* () {
   yield* Effect.log("Successfully registered application (/) commands.");
 
   client.on(Events.ClientReady, (c) =>
-    console.log(`Logged in as ${c.user.tag}`),
+    Effect.runFork(Effect.log(`Logged in as ${c.user.tag}`)),
   );
 
   client.on(Events.InteractionCreate, async (interaction) => {

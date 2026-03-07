@@ -1,8 +1,8 @@
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
 import { HttpClientResponse } from "effect/unstable/http";
-import { type Event, EventAPIResponse } from "./schema.js";
-import { arcHttpClient } from "./utils.js";
+import { type Event, EventAPIResponse } from "./schema";
+import { arcHttpClient } from "./utils";
 
 /**
  * Fetches all events from the event schedule API

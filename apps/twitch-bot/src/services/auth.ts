@@ -182,7 +182,10 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
       });
 
       authProvider.onRefreshFailure((userId, error) =>
-        console.log(`Failed to refresh token for user ${userId}:`, error),
+        Effect.runFork(Effect.logError(`Failed to refresh token for user ${userId}`, {
+          message: error.message,
+          cause: error.cause,
+        })),
       );
 
       return { authProvider } as const;

@@ -14,8 +14,16 @@ const runTwitchBot = Effect.fn("TwitchBot")(function* () {
     commands: twitchCommands,
   });
 
-  bot.onConnect(() => console.log("Successfully connected to Twitch"));
-  bot.onJoin((channel) => console.log(`Joined ${channel.broadcasterName}`));
+  bot.onConnect(() =>
+    Effect.runFork(Effect.log("Successfully connected to Twitch")),
+  );
+  bot.onJoin((channel) =>
+    Effect.runFork(Effect.log(`Joined ${channel.broadcasterName}`)),
+  );
 });
 
-runTwitchBot().pipe(Effect.provide(AuthProvider.layer), BunRuntime.runMain);
+runTwitchBot().pipe(
+  Effect.provide(AuthProvider.layer),
+  Effect.orDie,
+  BunRuntime.runMain,
+);
