@@ -1,4 +1,4 @@
-import { commands } from "@arctools/commands";
+import { CommandLayer, commands } from "@arctools/commands";
 import { BunRuntime } from "@effect/platform-bun";
 import { Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
 import { Config, Effect, Redacted, Schedule, Schema } from "effect";
@@ -52,11 +52,22 @@ const runDiscordBot = Effect.fn("DiscordBot")(function* () {
 
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
-    return await handleInteractionCreate(interaction).pipe(Effect.runPromise);
+    return await handleInteractionCreate(interaction).pipe(
+      Effect.annotateLogs({ interaction: interaction.commandName }),
+      Effect.tapCause((cause) => Effect.logError(cause)),
+      Effect.ignore,
+      Effect.provide(CommandLayer),
+      Effect.runPromise,
+    );
   });
 
   client.on(Events.MessageCreate, async (message) => {
-    return await handleMessageCreate(message).pipe(Effect.runPromise);
+    return await handleMessageCreate(message).pipe(
+      Effect.tapCause((cause) => Effect.logError(cause)),
+      Effect.ignore,
+      Effect.provide(CommandLayer),
+      Effect.runPromise,
+    );
   });
 
   yield* Effect.tryPromise({

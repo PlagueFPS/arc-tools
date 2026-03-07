@@ -1,10 +1,11 @@
 import { fetchItem } from "@arctools/arc-data";
 import { Effect, Option } from "effect";
+import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const craftHandler = Effect.fn("Command.craftHandler")(
-  function* (search: string) {
+  function* (args: CommandArgs) {
+    const search = args.search;
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!craft sensors')",
@@ -39,8 +40,5 @@ export const craftHandler = Effect.fn("Command.craftHandler")(
       `You must have ${item.value.workbench.value} and the following items to craft ${item.value.name}: ${components}`,
     );
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

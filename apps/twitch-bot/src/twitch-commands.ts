@@ -1,4 +1,4 @@
-import { commands } from "@arctools/commands";
+import { CommandLayer, commands } from "@arctools/commands";
 import { parseMessageParams } from "@arctools/utils";
 import { createBotCommand } from "@twurple/easy-bot";
 import { Effect, Schema } from "effect";
@@ -11,7 +11,7 @@ export const twitchCommands = commands.map((def) =>
   createBotCommand(def.name, async (params, { reply }) => {
     return await Effect.gen(function* () {
       const search = parseMessageParams(params);
-      const result = yield* def.handler(search);
+      const result = yield* def.handler({ search });
       return yield* Effect.tryPromise({
         try: () => reply(result),
         catch: (cause) => new ReplyError({ cause }),
@@ -25,7 +25,8 @@ export const twitchCommands = commands.map((def) =>
         }),
       ),
       Effect.tapCause((cause) => Effect.logError(cause)),
-      Effect.ignore,
+      Effect.catch(() => Effect.void),
+      Effect.provide(CommandLayer),
       Effect.runPromise,
     );
   }),

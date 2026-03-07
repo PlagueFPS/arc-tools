@@ -1,11 +1,12 @@
 import { fetchTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
+import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const buyHandler = Effect.fn("Command.buyHandler")(
-  function* (query: string) {
+  function* (args: CommandArgs) {
+    const query = args.search;
     if (!query) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!buy sensors')",
@@ -53,8 +54,5 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
 
     return yield* Effect.succeed(lines.join(", "));
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

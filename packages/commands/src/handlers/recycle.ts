@@ -1,10 +1,11 @@
 import { fetchItem } from "@arctools/arc-data";
 import { Effect, Option } from "effect";
+import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const recycleHandler = Effect.fn("Command.recycleHandler")(
-  function* (search: string) {
+  function* (args: CommandArgs) {
+    const search = args.search;
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!recycle sensors')",
@@ -44,8 +45,5 @@ export const recycleHandler = Effect.fn("Command.recycleHandler")(
       `These items are granted for recycling ${item.value.name}: ${items.map((i) => `${i.name} (x${i.amount})`).join(", ")}`,
     );
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

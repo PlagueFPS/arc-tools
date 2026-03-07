@@ -9,21 +9,33 @@ import { recycleHandler } from "./handlers/recycle";
 import { recycleToHandler } from "./handlers/recycle-to";
 import { sellHandler } from "./handlers/sell";
 import { upcomingHandler } from "./handlers/upcoming";
+import type { CommandArgs } from "./lib/command-args";
+
+export type { CommandArgs };
+
 import type { CommandError } from "./lib/command-error";
 
 export interface SlashOption {
-  name: string;
-  description: string;
-  type: "string";
-  required?: boolean;
+  readonly name: string;
+  readonly description: string;
+  readonly type: "string";
+  readonly required?: boolean;
 }
 
-export interface CommandDefinition {
-  name: string;
-  description: string;
-  usage: string;
-  slashOptions: SlashOption[];
-  handler: (search: string) => Effect.Effect<string, CommandError, never>;
+export interface CommandDefinition<R = unknown> {
+  readonly name: string;
+  readonly description: string;
+  readonly usage: string;
+  readonly slashOptions: SlashOption[];
+  readonly handler: (
+    args: CommandArgs,
+  ) => Effect.Effect<string, CommandError, R>;
+}
+
+export function defineCommand<R>(
+  def: CommandDefinition<R>,
+): CommandDefinition<R> {
+  return def;
 }
 
 const ITEM_OPTION: SlashOption = {
@@ -40,57 +52,57 @@ const ARC_OPTION: SlashOption = {
   required: true,
 };
 
-export const commands: readonly CommandDefinition[] = [
-  {
+export const commands = [
+  defineCommand({
     name: "buy",
     description: "Get the trader that sells an item and its price.",
     usage: "!buy <item>",
     slashOptions: [ITEM_OPTION],
     handler: buyHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "loot",
     description: "Get the items dropped by an arc.",
     usage: "!loot <arc>",
     slashOptions: [ARC_OPTION],
     handler: lootHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "craft",
     description: "Get the required items and workbench to craft an item.",
     usage: "!craft <item>",
     slashOptions: [ITEM_OPTION],
     handler: craftHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "find",
     description: "Get the loot areas where an item can be found.",
     usage: "!find <item>",
     slashOptions: [ITEM_OPTION],
     handler: findHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "sell",
     description: "Get the sell value of an item.",
     usage: "!sell <item>",
     slashOptions: [ITEM_OPTION],
     handler: sellHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "recycle",
     description: "Get the items granted for recycling an item.",
     usage: "!recycle <item>",
     slashOptions: [ITEM_OPTION],
     handler: recycleHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "recycleto",
     description: "Get all items that recycle into a specific item.",
     usage: "!recycleto <item>",
     slashOptions: [ITEM_OPTION],
     handler: recycleToHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "event",
     description:
       "Get currently active or upcoming events by event or map name.",
@@ -104,19 +116,19 @@ export const commands: readonly CommandDefinition[] = [
       },
     ],
     handler: eventHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "upcoming",
     description: "Display all upcoming events within the next 2 hours.",
     usage: "!upcoming",
     slashOptions: [],
     handler: upcomingHandler,
-  },
-  {
+  }),
+  defineCommand({
     name: "active",
     description: "Display all currently active events.",
     usage: "!active",
     slashOptions: [],
     handler: activeHandler,
-  },
-];
+  }),
+] as const;

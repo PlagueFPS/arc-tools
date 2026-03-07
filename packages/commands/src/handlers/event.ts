@@ -1,11 +1,12 @@
 import { fetchEvents, selectEvent } from "@arctools/arc-data";
 import { formatMinutes, normalize } from "@arctools/utils";
 import { Effect } from "effect";
+import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const eventHandler = Effect.fn("Command.eventHandler")(
-  function* (search: string) {
+  function* (args: CommandArgs) {
+    const search = args.search;
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an event or map name (e.g. '!event Prospecting Probes')",
@@ -40,8 +41,5 @@ export const eventHandler = Effect.fn("Command.eventHandler")(
       `${base} starts in ${formatMinutes(startsIn)}`,
     );
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

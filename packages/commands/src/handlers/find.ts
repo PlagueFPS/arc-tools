@@ -1,10 +1,11 @@
 import { fetchItem } from "@arctools/arc-data";
 import { Effect, Option } from "effect";
+import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const findHandler = Effect.fn("Command.findHandler")(
-  function* (search: string) {
+  function* (args: CommandArgs) {
+    const search = args.search;
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!find sensors')",
@@ -46,8 +47,5 @@ export const findHandler = Effect.fn("Command.findHandler")(
 
     return yield* Effect.succeed(`${item.value.name} ${parts.join(" and ")}.`);
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

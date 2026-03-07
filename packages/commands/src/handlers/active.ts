@@ -2,10 +2,9 @@ import { fetchEvents } from "@arctools/arc-data";
 import { formatMinutes } from "@arctools/utils";
 import { Clock, Effect } from "effect";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const activeHandler = Effect.fn("Command.activeHandler")(
-  function* (_search: string) {
+  function* () {
     const events = yield* fetchEvents();
     const now = yield* Clock.currentTimeMillis;
     const active = events.filter((e) => e.startTime <= now && now <= e.endTime);
@@ -20,8 +19,5 @@ export const activeHandler = Effect.fn("Command.activeHandler")(
     );
     return yield* Effect.succeed(lines.join(", "));
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );
