@@ -32,13 +32,11 @@ const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
 class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()(
   "DatabaseError",
   {
-    message: Schema.String,
     cause: Schema.Unknown,
   },
 ) {}
 
 class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError", {
-  message: Schema.String,
   cause: Schema.Unknown,
 }) {}
 
@@ -70,11 +68,7 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
             .from(twitchTokens)
             .where(eq(twitchTokens.bot_user_id, botUserId))
             .get(),
-        catch: (cause) =>
-          new DatabaseError({
-            message: "Failed to query token data from database",
-            cause,
-          }),
+        catch: (cause) => new DatabaseError({ cause }),
       });
 
       const authProvider = new RefreshingAuthProvider({
@@ -94,19 +88,22 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
               },
               ["chat"],
             ),
-          catch: (cause) =>
-            new AuthError({ message: "Failed to add user for token", cause }),
+          catch: (cause) => new AuthError({ cause }),
         }).pipe(
           Effect.tap((userId) =>
             Effect.log(`Added user for token ${userId} using initial tokens`),
           ),
         );
 
+        if (userId !== botUserId)
+          return yield* new AuthError({
+            cause: `user id: ${userId} does not match bot user id: ${botUserId}`,
+          });
+
         // Force refresh after initialization to get token data
         const tokenData = yield* Effect.tryPromise({
           try: () => authProvider.refreshAccessTokenForUser(userId),
-          catch: (cause) =>
-            new AuthError({ message: "Failed to refresh access token", cause }),
+          catch: (cause) => new AuthError({ cause }),
         }).pipe(
           Effect.tap(() =>
             Effect.log(`Refreshed access token for user ${userId}`),
@@ -124,11 +121,7 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
               scope: JSON.stringify(tokenData.scope),
               updated_at: new Date(),
             }),
-          catch: (cause) =>
-            new DatabaseError({
-              message: "Failed to insert token data into database",
-              cause,
-            }),
+          catch: (cause) => new DatabaseError({ cause }),
         }).pipe(
           Effect.tap(() =>
             Effect.log(`Inserted token data for user ${userId}`),
@@ -136,10 +129,9 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
         );
       } else {
         const tokenData = yield* decodeTokenData(tokenDataFromDB);
-        yield* Effect.tryPromise({
+        const userId = yield* Effect.tryPromise({
           try: () => authProvider.addUserForToken(tokenData, ["chat"]),
-          catch: (cause) =>
-            new AuthError({ message: "Failed to add user for token", cause }),
+          catch: (cause) => new AuthError({ cause }),
         }).pipe(
           Effect.tap((userId) =>
             Effect.log(
@@ -147,6 +139,11 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
             ),
           ),
         );
+
+        if (userId !== botUserId)
+          return yield* new AuthError({
+            cause: `user id: ${userId} does not match bot user id: ${botUserId}`,
+          });
       }
 
       authProvider.onRefresh(async (userId, newTokenData) => {
@@ -163,11 +160,7 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
                 updated_at: new Date(),
               })
               .where(eq(twitchTokens.bot_user_id, userId)),
-          catch: (cause) =>
-            new DatabaseError({
-              message: "Failed to update token data in database",
-              cause,
-            }),
+          catch: (cause) => new DatabaseError({ cause }),
         }).pipe(
           Effect.retry({
             times: 3,
@@ -176,16 +169,19 @@ export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
           Effect.tap(() =>
             Effect.log(`Persisted refreshed token for user ${userId}`),
           ),
-          Effect.ignore({ log: "Error" }),
+          Effect.tapCause((cause) => Effect.logError(cause)),
+          Effect.ignore,
           Effect.runPromise,
         );
       });
 
       authProvider.onRefreshFailure((userId, error) =>
-        Effect.runFork(Effect.logError(`Failed to refresh token for user ${userId}`, {
-          message: error.message,
-          cause: error.cause,
-        })),
+        Effect.runFork(
+          Effect.logError(`Failed to refresh token for user ${userId}`, {
+            message: error.message,
+            cause: error.cause,
+          }),
+        ),
       );
 
       return { authProvider } as const;
