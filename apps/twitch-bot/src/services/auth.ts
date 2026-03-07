@@ -14,7 +14,7 @@ import { Database } from "@/services/db";
 
 const TokenDataSchema = Schema.Struct({
   accessToken: Schema.String,
-  refreshToken: Schema.String,
+  refreshToken: Schema.NullOr(Schema.String),
   expiresIn: Schema.NullOr(Schema.Int),
   obtainmentTimestamp: Schema.Int,
   scope: Schema.fromJsonString(Schema.mutable(Schema.Array(Schema.String))),
