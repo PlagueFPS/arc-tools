@@ -6,7 +6,7 @@ import type {
   Message,
   OmitPartialGroupDMChannel,
 } from "discord.js";
-import { Array as Arr, Effect, Option, Schedule, Schema } from "effect";
+import { Array as Arr, Effect, Option, Schema } from "effect";
 
 class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("ReplyError", {
   cause: Schema.Unknown,
@@ -46,12 +46,7 @@ export const handleInteractionCreate = Effect.fn("handleInteractionCreate")(
     return yield* Effect.tryPromise({
       try: () => interaction.reply({ content: result }),
       catch: (cause) => new ReplyError({ cause }),
-    }).pipe(
-      Effect.retry({
-        times: 3,
-        schedule: Schedule.fixed("200 millis"),
-      }),
-    );
+    });
   },
   (self, interaction) =>
     Effect.annotateLogs(self, { command: interaction.commandName }).pipe(
@@ -60,12 +55,7 @@ export const handleInteractionCreate = Effect.fn("handleInteractionCreate")(
           try: () =>
             interaction.reply({ content: error.message, flags: "Ephemeral" }),
           catch: (cause) => new ReplyError({ cause }),
-        }).pipe(
-          Effect.retry({
-            times: 3,
-            schedule: Schedule.fixed("200 millis"),
-          }),
-        ),
+        }),
       ),
       Effect.tapCause((cause) => Effect.logError(cause)),
       Effect.ignore,
@@ -106,12 +96,7 @@ export const handleMessageCreate = Effect.fn("handleMessageCreate")(
     return yield* Effect.tryPromise({
       try: () => message.reply({ content: result }),
       catch: (cause) => new ReplyError({ cause }),
-    }).pipe(
-      Effect.retry({
-        times: 3,
-        schedule: Schedule.fixed("200 millis"),
-      }),
-    );
+    });
   },
   (self) =>
     Effect.tapCause(self, (cause) => Effect.logError(cause)).pipe(

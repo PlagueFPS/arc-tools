@@ -1,6 +1,6 @@
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { Config, Effect, Layer, Option, ServiceMap } from "effect";
+import { Config, Effect, Layer, Option, Redacted, ServiceMap } from "effect";
 import * as schema from "@/db/schema";
 
 export class Database extends ServiceMap.Service<Database>()(
@@ -8,10 +8,14 @@ export class Database extends ServiceMap.Service<Database>()(
   {
     make: Effect.gen(function* () {
       const url = yield* Config.string("TURSO_CONNECTION_URL");
-      const authToken = yield* Config.option(Config.string("TURSO_AUTH_TOKEN"));
+      const authToken = yield* Config.option(
+        Config.redacted("TURSO_AUTH_TOKEN"),
+      );
       const client = createClient({
         url,
-        authToken: Option.getOrUndefined(authToken),
+        authToken: Option.map(authToken, (token) => Redacted.value(token)).pipe(
+          Option.getOrUndefined,
+        ),
       });
       const db = drizzle(client, { schema });
       return db;
