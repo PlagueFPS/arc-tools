@@ -1,3 +1,4 @@
+export { CommandError } from "./lib/command-error.js";
 export {
   type CommandDefinition,
   commands,

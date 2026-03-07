@@ -1,9 +1,10 @@
 import { fetchItem } from "@arctools/arc-data";
 import { Effect, Option } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const recycleHandler = (search: string) =>
-  Effect.gen(function* () {
+export const recycleHandler = Effect.fn("Command.recycleHandler")(
+  function* (search: string) {
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!recycle sensors')",
@@ -12,39 +13,39 @@ export const recycleHandler = (search: string) =>
 
     const potentialId = search.toLowerCase().replace(/ /g, "-");
 
-    const itemById = yield* fetchItem({
-      id: potentialId,
-      includeComponents: true,
-    });
-    const item =
-      itemById ?? (yield* fetchItem({ search, includeComponents: true }));
-    if (!item) {
+    const item = yield* Effect.filterOrElse(
+      fetchItem({ id: potentialId, includeComponents: true }),
+      (result) => Option.isSome(result),
+      () => fetchItem({ search, includeComponents: true }),
+    );
+
+    if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }
 
-    if (Option.isNone(item.recycle_components)) {
+    if (Option.isNone(item.value.recycle_components)) {
       return yield* Effect.succeed(
-        `[Warn] recycle data not found for ${item.name}`,
+        `[Warn] recycle data not found for ${item.value.name}`,
       );
     }
 
-    if (item.recycle_components.value.length === 0) {
+    if (item.value.recycle_components.value.length === 0) {
       return yield* Effect.succeed(
-        `No items granted for recycling ${item.name}`,
+        `No items granted for recycling ${item.value.name}`,
       );
     }
 
-    const items = item.recycle_components.value.map((entry) => ({
+    const items = item.value.recycle_components.value.map((entry) => ({
       name: entry.component.name,
       amount: entry.quantity,
     }));
 
     return yield* Effect.succeed(
-      `These items are granted for recycling ${item.name}: ${items.map((i) => `${i.name} (x${i.amount})`).join(", ")}`,
+      `These items are granted for recycling ${item.value.name}: ${items.map((i) => `${i.name} (x${i.amount})`).join(", ")}`,
     );
-  }).pipe(
-    Effect.withLogSpan("recycle_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() => Effect.succeed("[Error] Unable to fetch item data")),
-    Effect.provide(CommandLayer),
-  );
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.provide(CommandLayer),
+    ),
+);

@@ -1,7 +1,7 @@
-import { BASE_API_URL } from "@arctools/utils";
-import { HttpClient, HttpClientResponse } from "@effect/platform";
-import { Effect } from "effect";
-import { ItemAPIResponse } from "./schema.js";
+import { Array as Arr, Effect } from "effect";
+import { HttpClientResponse, UrlParams } from "effect/unstable/http";
+import { ItemAPIResponse } from "./schema";
+import { arcHttpClient } from "./utils";
 
 export interface ItemAPIParams {
   /** The ID of the item */
@@ -21,17 +21,14 @@ export interface ItemAPIParams {
  * @param searchParams - The search parameters
  * @returns The item data based on search params
  */
-export const fetchItem = (searchParams: ItemAPIParams) =>
-  Effect.gen(function* () {
-    const params = new URLSearchParams(
-      Object.entries(searchParams)
-        .filter(([, v]) => v !== undefined)
-        .map(([k, v]) => [k, String(v)] as [string, string]),
-    );
-    const url = `${BASE_API_URL}/items?${params.toString()}`;
-    const httpClient = yield* HttpClient.HttpClient;
-    const response = yield* httpClient
-      .get(url)
-      .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(ItemAPIResponse)));
-    return response.data[0];
-  });
+export const fetchItem = Effect.fn("ArcData.fetchItem")(function* (
+  searchParams: ItemAPIParams,
+) {
+  const httpClient = yield* arcHttpClient;
+  const response = yield* httpClient
+    .get("/items", {
+      urlParams: UrlParams.fromInput(searchParams),
+    })
+    .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(ItemAPIResponse)));
+  return Arr.head(response.data);
+});

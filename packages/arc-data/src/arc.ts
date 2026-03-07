@@ -1,7 +1,7 @@
-import { BASE_API_URL } from "@arctools/utils";
-import { HttpClient, HttpClientResponse } from "@effect/platform";
-import { Effect } from "effect";
+import { Array as Arr, Effect } from "effect";
+import { HttpClientResponse, UrlParams } from "effect/unstable/http";
 import { ArcsAPIResponse } from "./schema";
+import { arcHttpClient } from "./utils";
 
 export interface ArcsAPIParams {
   /** The ID of the arc */
@@ -15,18 +15,17 @@ export interface ArcsAPIParams {
  * @param searchParams - The search parameters
  * @returns The arc data based on search params
  */
-export const fetchArc = (searchParams: ArcsAPIParams) =>
-  Effect.gen(function* () {
-    const params = new URLSearchParams(
-      Object.entries(searchParams)
-        .filter(([, v]) => v !== undefined)
-        .map(([k, v]) => [k, String(v)] as [string, string]),
-    );
-    params.set("includeLoot", "true");
-    const url = `${BASE_API_URL}/arcs?${params.toString()}`;
-    const httpClient = yield* HttpClient.HttpClient;
-    const response = yield* httpClient
-      .get(url)
-      .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(ArcsAPIResponse)));
-    return response.data[0];
-  });
+export const fetchArc = Effect.fn("ArcData.fetchArc")(function* (
+  searchParams: ArcsAPIParams,
+) {
+  const httpClient = yield* arcHttpClient;
+  const response = yield* httpClient
+    .get("/arcs", {
+      urlParams: UrlParams.fromInput({
+        ...searchParams,
+        includeLoot: true,
+      }),
+    })
+    .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(ArcsAPIResponse)));
+  return Arr.head(response.data);
+});

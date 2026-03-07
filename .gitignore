@@ -8,3 +8,4 @@ dist/
 .tanstack/
 tokens.json
 *.db
+.repos/*

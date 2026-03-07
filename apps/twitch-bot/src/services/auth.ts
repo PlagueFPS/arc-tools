@@ -1,52 +1,56 @@
 import { RefreshingAuthProvider } from "@twurple/auth";
 import { eq } from "drizzle-orm";
-import { Config, Effect, Schedule, Schema } from "effect";
+import {
+  Config,
+  Effect,
+  Layer,
+  Redacted,
+  Schedule,
+  Schema,
+  ServiceMap,
+} from "effect";
 import { twitchTokens } from "@/db/schema";
 import { Database } from "@/services/db";
 
 const TokenDataSchema = Schema.Struct({
-  accessToken: Schema.propertySignature(Schema.String).pipe(
-    Schema.fromKey("access_token"),
-  ),
-  refreshToken: Schema.propertySignature(Schema.NullOr(Schema.String)).pipe(
-    Schema.fromKey("refresh_token"),
-  ),
-  expiresIn: Schema.propertySignature(Schema.NullOr(Schema.Number)).pipe(
-    Schema.fromKey("expires_in"),
-  ),
-  obtainmentTimestamp: Schema.propertySignature(Schema.Number).pipe(
-    Schema.fromKey("obtainment_timestamp"),
-  ),
-  scope: Schema.parseJson(Schema.mutable(Schema.Array(Schema.String))),
-});
+  accessToken: Schema.String,
+  refreshToken: Schema.NullOr(Schema.String),
+  expiresIn: Schema.NullOr(Schema.Int),
+  obtainmentTimestamp: Schema.Int,
+  scope: Schema.fromJsonString(Schema.mutable(Schema.Array(Schema.String))),
+}).pipe(
+  Schema.encodeKeys({
+    accessToken: "access_token",
+    refreshToken: "refresh_token",
+    expiresIn: "expires_in",
+    obtainmentTimestamp: "obtainment_timestamp",
+  }),
+);
 
-const decodeTokenData = Schema.decodeUnknown(TokenDataSchema);
+const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
 
-class DatabaseError extends Schema.TaggedError<DatabaseError>()(
+class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()(
   "DatabaseError",
   {
-    message: Schema.String,
     cause: Schema.Unknown,
   },
 ) {}
 
-class AuthError extends Schema.TaggedError<AuthError>()("AuthError", {
-  message: Schema.String,
+class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError", {
   cause: Schema.Unknown,
 }) {}
 
-export class AuthProvider extends Effect.Service<AuthProvider>()(
-  "@arctools/twitch-bot/lib/auth/AuthProvider",
+export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
+  "twitch-bot/services/auth/AuthProvider",
   {
-    dependencies: [Database.Default],
-    effect: Effect.gen(function* () {
+    make: Effect.gen(function* () {
       const db = yield* Database;
       const clientId = yield* Config.string("TWITCH_CLIENT_ID");
-      const clientSecret = yield* Config.string("TWITCH_CLIENT_SECRET");
-      const initialAccessToken = yield* Config.string(
+      const clientSecret = yield* Config.redacted("TWITCH_CLIENT_SECRET");
+      const initialAccessToken = yield* Config.redacted(
         "TWITCH_INITIAL_ACCESS_TOKEN",
       );
-      const initialRefreshToken = yield* Config.string(
+      const initialRefreshToken = yield* Config.redacted(
         "TWITCH_INITIAL_REFRESH_TOKEN",
       );
       const botUserId = yield* Config.string("TWITCH_BOT_USER_ID");
@@ -64,16 +68,12 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
             .from(twitchTokens)
             .where(eq(twitchTokens.bot_user_id, botUserId))
             .get(),
-        catch: (cause) =>
-          new DatabaseError({
-            message: "Failed to query token data from database",
-            cause,
-          }),
+        catch: (cause) => new DatabaseError({ cause }),
       });
 
       const authProvider = new RefreshingAuthProvider({
         clientId,
-        clientSecret,
+        clientSecret: Redacted.value(clientSecret),
       });
 
       if (!tokenDataFromDB) {
@@ -81,26 +81,29 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
           try: () =>
             authProvider.addUserForToken(
               {
-                accessToken: initialAccessToken,
-                refreshToken: initialRefreshToken,
+                accessToken: Redacted.value(initialAccessToken),
+                refreshToken: Redacted.value(initialRefreshToken),
                 expiresIn: 0,
                 obtainmentTimestamp: 0,
               },
               ["chat"],
             ),
-          catch: (cause) =>
-            new AuthError({ message: "Failed to add user for token", cause }),
+          catch: (cause) => new AuthError({ cause }),
         }).pipe(
           Effect.tap((userId) =>
             Effect.log(`Added user for token ${userId} using initial tokens`),
           ),
         );
 
+        if (userId !== botUserId)
+          return yield* new AuthError({
+            cause: `user id: ${userId} does not match bot user id: ${botUserId}`,
+          });
+
         // Force refresh after initialization to get token data
         const tokenData = yield* Effect.tryPromise({
           try: () => authProvider.refreshAccessTokenForUser(userId),
-          catch: (cause) =>
-            new AuthError({ message: "Failed to refresh access token", cause }),
+          catch: (cause) => new AuthError({ cause }),
         }).pipe(
           Effect.tap(() =>
             Effect.log(`Refreshed access token for user ${userId}`),
@@ -118,11 +121,7 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
               scope: JSON.stringify(tokenData.scope),
               updated_at: new Date(),
             }),
-          catch: (cause) =>
-            new DatabaseError({
-              message: "Failed to insert token data into database",
-              cause,
-            }),
+          catch: (cause) => new DatabaseError({ cause }),
         }).pipe(
           Effect.tap(() =>
             Effect.log(`Inserted token data for user ${userId}`),
@@ -130,10 +129,9 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
         );
       } else {
         const tokenData = yield* decodeTokenData(tokenDataFromDB);
-        yield* Effect.tryPromise({
+        const userId = yield* Effect.tryPromise({
           try: () => authProvider.addUserForToken(tokenData, ["chat"]),
-          catch: (cause) =>
-            new AuthError({ message: "Failed to add user for token", cause }),
+          catch: (cause) => new AuthError({ cause }),
         }).pipe(
           Effect.tap((userId) =>
             Effect.log(
@@ -141,6 +139,11 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
             ),
           ),
         );
+
+        if (userId !== botUserId)
+          return yield* new AuthError({
+            cause: `user id: ${userId} does not match bot user id: ${botUserId}`,
+          });
       }
 
       authProvider.onRefresh(async (userId, newTokenData) => {
@@ -157,34 +160,35 @@ export class AuthProvider extends Effect.Service<AuthProvider>()(
                 updated_at: new Date(),
               })
               .where(eq(twitchTokens.bot_user_id, userId)),
-          catch: (cause) =>
-            new DatabaseError({
-              message: "Failed to update token data in database",
-              cause,
-            }),
+          catch: (cause) => new DatabaseError({ cause }),
         }).pipe(
           Effect.retry({
             times: 3,
             schedule: Schedule.fixed("200 millis"),
           }),
-          Effect.tapBoth({
-            onSuccess: () =>
-              Effect.log(`Persisted refreshed token for user ${userId}`),
-            onFailure: (cause) => Effect.logError(cause),
-          }),
-          Effect.catchAll(() => Effect.void),
+          Effect.tap(() =>
+            Effect.log(`Persisted refreshed token for user ${userId}`),
+          ),
+          Effect.tapCause((cause) => Effect.logError(cause)),
+          Effect.ignore,
           Effect.runPromise,
         );
       });
 
       authProvider.onRefreshFailure((userId, error) =>
-        Effect.logError(
-          `Failed to refresh token for user ${userId}:`,
-          error,
-        ).pipe(Effect.runSync),
+        Effect.runFork(
+          Effect.logError(`Failed to refresh token for user ${userId}`, {
+            message: error.message,
+            cause: error.cause,
+          }),
+        ),
       );
 
       return { authProvider } as const;
     }),
   },
-) {}
+) {
+  static layer = Layer.effect(this, this.make).pipe(
+    Layer.provide(Database.layer),
+  );
+}

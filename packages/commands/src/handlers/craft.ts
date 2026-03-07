@@ -1,9 +1,10 @@
 import { fetchItem } from "@arctools/arc-data";
 import { Effect, Option } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const craftHandler = (search: string) =>
-  Effect.gen(function* () {
+export const craftHandler = Effect.fn("Command.craftHandler")(
+  function* (search: string) {
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!craft sensors')",
@@ -11,34 +12,35 @@ export const craftHandler = (search: string) =>
     }
 
     const potentialId = search.toLowerCase().replace(/ /g, "-");
+    const item = yield* Effect.filterOrElse(
+      fetchItem({ id: potentialId, includeComponents: true }),
+      (result) => Option.isSome(result),
+      () => fetchItem({ search, includeComponents: true }),
+    );
 
-    const itemById = yield* fetchItem({
-      id: potentialId,
-      includeComponents: true,
-    });
-    const item =
-      itemById ?? (yield* fetchItem({ search, includeComponents: true }));
-
-    if (!item) {
+    if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }
 
-    if (Option.isNone(item.workbench) || Option.isNone(item.components)) {
-      return yield* Effect.succeed(`${item.name} cannot be crafted.`);
+    if (
+      Option.isNone(item.value.workbench) ||
+      Option.isNone(item.value.components)
+    ) {
+      return yield* Effect.succeed(`${item.value.name} cannot be crafted.`);
     }
 
-    const components = item.components.value
+    const components = item.value.components.value
       .map(
         (component) => `${component.component.name} (x${component.quantity})`,
       )
       .join(", ");
 
     return yield* Effect.succeed(
-      `You must have ${item.workbench.value} and the following items to craft ${item.name}: ${components}`,
+      `You must have ${item.value.workbench.value} and the following items to craft ${item.value.name}: ${components}`,
     );
-  }).pipe(
-    Effect.withLogSpan("craft_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() => Effect.succeed("[Error] Unable to fetch item data")),
-    Effect.provide(CommandLayer),
-  );
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.provide(CommandLayer),
+    ),
+);

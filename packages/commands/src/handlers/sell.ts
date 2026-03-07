@@ -1,9 +1,10 @@
 import { fetchItem } from "@arctools/arc-data";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const sellHandler = (search: string) =>
-  Effect.gen(function* () {
+export const sellHandler = Effect.fn("Command.sellHandler")(
+  function* (search: string) {
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!sell sensors')",
@@ -12,18 +13,22 @@ export const sellHandler = (search: string) =>
 
     const potentialId = search.toLowerCase().replace(/ /g, "-");
 
-    const itemById = yield* fetchItem({ id: potentialId, minimal: true });
-    const item = itemById ?? (yield* fetchItem({ search, minimal: true }));
-    if (!item) {
+    const item = yield* Effect.filterOrElse(
+      fetchItem({ id: potentialId, minimal: true }),
+      (result) => Option.isSome(result),
+      () => fetchItem({ search, minimal: true }),
+    );
+
+    if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }
 
     return yield* Effect.succeed(
-      `${item.name} can be sold for ${item.value} coins each`,
+      `${item.value.name} can be sold for ${item.value.value} coins each`,
     );
-  }).pipe(
-    Effect.withLogSpan("sell_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() => Effect.succeed("[Error] Unable to fetch item data")),
-    Effect.provide(CommandLayer),
-  );
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.provide(CommandLayer),
+    ),
+);

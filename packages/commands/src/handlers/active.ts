@@ -1,12 +1,13 @@
 import { fetchEvents } from "@arctools/arc-data";
 import { formatMinutes } from "@arctools/utils";
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const activeHandler = (_search: string) =>
-  Effect.gen(function* () {
+export const activeHandler = Effect.fn("Command.activeHandler")(
+  function* (_search: string) {
     const events = yield* fetchEvents();
-    const now = Date.now();
+    const now = yield* Clock.currentTimeMillis;
     const active = events.filter((e) => e.startTime <= now && now <= e.endTime);
 
     if (active.length === 0) {
@@ -18,9 +19,9 @@ export const activeHandler = (_search: string) =>
         `${e.name} on ${e.map} (ends in ${formatMinutes(e.endTime - now)})`,
     );
     return yield* Effect.succeed(lines.join(", "));
-  }).pipe(
-    Effect.withLogSpan("active_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() => Effect.succeed("[Error] Unable to fetch event data")),
-    Effect.provide(CommandLayer),
-  );
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.provide(CommandLayer),
+    ),
+);

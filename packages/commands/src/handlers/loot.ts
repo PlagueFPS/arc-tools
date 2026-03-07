@@ -1,10 +1,11 @@
 import { fetchArc } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect, Option } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const lootHandler = (query: string) =>
-  Effect.gen(function* () {
+export const lootHandler = Effect.fn("Command.lootHandler")(
+  function* (query: string) {
     if (!query) {
       return yield* Effect.succeed(
         "Please provide an arc name (e.g. '!loot bastion')",
@@ -12,28 +13,35 @@ export const lootHandler = (query: string) =>
     }
 
     const potentialId = query.toLowerCase().replace(/ /g, "-");
-    const arcById = yield* fetchArc({ id: potentialId });
-    const arc = arcById ?? (yield* fetchArc({ search: normalize(query) }));
-    if (!arc) return yield* Effect.succeed(`[Warn] No such arc: ${query}`);
+    const arc = yield* Effect.filterOrElse(
+      fetchArc({ id: potentialId }),
+      (result) => Option.isSome(result),
+      () => fetchArc({ search: normalize(query) }),
+    );
 
-    if (Option.isNone(arc.loot)) {
+    if (Option.isNone(arc))
+      return yield* Effect.succeed(`[Warn] No such arc: ${query}`);
+
+    if (Option.isNone(arc.value.loot)) {
       return yield* Effect.succeed(
-        `[Warn] loot data not found for ${arc.name}`,
+        `[Warn] loot data not found for ${arc.value.name}`,
       );
     }
 
-    if (arc.loot.value.length === 0) {
-      return yield* Effect.succeed(`No loot found for ${arc.name}`);
+    if (arc.value.loot.value.length === 0) {
+      return yield* Effect.succeed(`No loot found for ${arc.value.name}`);
     }
 
-    const lootItems = arc.loot.value.map((value) => value.item.name).join(", ");
+    const lootItems = arc.value.loot.value
+      .map((value) => value.item.name)
+      .join(", ");
 
     return yield* Effect.succeed(
-      `${arc.name}s drop the following items: ${lootItems}`,
+      `${arc.value.name}s drop the following items: ${lootItems}`,
     );
-  }).pipe(
-    Effect.withLogSpan("loot_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() => Effect.succeed("[Error] Unable to fetch arc data")),
-    Effect.provide(CommandLayer),
-  );
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.provide(CommandLayer),
+    ),
+);

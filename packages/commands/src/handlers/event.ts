@@ -1,10 +1,11 @@
 import { fetchEvents, selectEvent } from "@arctools/arc-data";
 import { formatMinutes, normalize } from "@arctools/utils";
 import { Effect } from "effect";
+import { CommandError } from "../lib/command-error";
 import { CommandLayer } from "../lib/layers";
 
-export const eventHandler = (search: string) =>
-  Effect.gen(function* () {
+export const eventHandler = Effect.fn("Command.eventHandler")(
+  function* (search: string) {
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an event or map name (e.g. '!event Prospecting Probes')",
@@ -38,9 +39,9 @@ export const eventHandler = (search: string) =>
     return yield* Effect.succeed(
       `${base} starts in ${formatMinutes(startsIn)}`,
     );
-  }).pipe(
-    Effect.withLogSpan("event_command"),
-    Effect.tapError(Effect.logError),
-    Effect.catchAll(() => Effect.succeed("[Error] Unable to fetch event data")),
-    Effect.provide(CommandLayer),
-  );
+  },
+  (self) =>
+    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
+      Effect.provide(CommandLayer),
+    ),
+);
