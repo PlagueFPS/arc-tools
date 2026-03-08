@@ -1,4 +1,4 @@
-import { fetchItem } from "@arctools/arc-data";
+import { getItem } from "@arctools/arc-data";
 import { normalize, slugify } from "@arctools/utils";
 import { Effect, Option } from "effect";
 import { CommandError } from "../lib/command-error";
@@ -12,9 +12,9 @@ export const sellHandler = Effect.fn("Command.sellHandler")(
     }
 
     const item = yield* Effect.filterOrElse(
-      fetchItem({ id: slugify(search), minimal: true }),
+      getItem({ id: slugify(search), minimal: true }),
       (result) => Option.isSome(result),
-      () => fetchItem({ search: normalize(search), minimal: true }),
+      () => getItem({ search: normalize(search), minimal: true }),
     );
 
     if (Option.isNone(item)) {

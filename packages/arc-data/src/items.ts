@@ -17,11 +17,11 @@ export interface ItemAPIParams {
 }
 
 /**
- * Fetches an item from the API
+ * Gets an item from the items API
  * @param searchParams - The search parameters
  * @returns The item data based on search params
  */
-export const fetchItem = Effect.fn("ArcData.fetchItem")(function* (
+export const getItem = Effect.fn("ArcData.getItem")(function* (
   searchParams: ItemAPIParams,
 ) {
   const httpClient = yield* arcHttpClient;

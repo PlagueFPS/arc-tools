@@ -1,4 +1,4 @@
-import { fetchTraders } from "@arctools/arc-data";
+import { getTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
 import { CommandError } from "../lib/command-error";
@@ -13,7 +13,7 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
 
     const potentialId = query.toLowerCase().replace(/ /g, "-");
     const normalizedQuery = normalize(query);
-    const traders = yield* fetchTraders();
+    const traders = yield* getTraders();
 
     const matches: { traderName: string; itemName: string; price: number }[] =
       [];
