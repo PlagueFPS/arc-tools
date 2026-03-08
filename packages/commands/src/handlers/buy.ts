@@ -1,8 +1,7 @@
-import { fetchTraders } from "@arctools/arc-data";
+import { getTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const buyHandler = Effect.fn("Command.buyHandler")(
   function* (query: string) {
@@ -14,7 +13,7 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
 
     const potentialId = query.toLowerCase().replace(/ /g, "-");
     const normalizedQuery = normalize(query);
-    const traders = yield* fetchTraders();
+    const traders = yield* getTraders();
 
     const matches: { traderName: string; itemName: string; price: number }[] =
       [];
@@ -40,21 +39,20 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
       return yield* Effect.succeed(`[Warn] No trader sells: ${query}`);
     }
 
-    const lines = matches.map((m) => {
-      switch (m.traderName) {
-        case "Shani":
-          return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} cred.`;
-        case "Celeste":
-          return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} seeds`;
-        default:
-          return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} coins`;
-      }
-    });
+    const response = matches
+      .map((m) => {
+        switch (m.traderName) {
+          case "Shani":
+            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} cred.`;
+          case "Celeste":
+            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} seeds`;
+          default:
+            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} coins`;
+        }
+      })
+      .join(", ");
 
-    return yield* Effect.succeed(lines.join(", "));
+    return yield* Effect.succeed(response);
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

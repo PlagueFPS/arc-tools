@@ -1,8 +1,7 @@
-import { fetchItem } from "@arctools/arc-data";
-import { sortByDesc } from "@arctools/utils";
+import { getItem } from "@arctools/arc-data";
+import { normalize, slugify, sortByDesc } from "@arctools/utils";
 import { Effect, Option } from "effect";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const recycleToHandler = Effect.fn("Command.recycleToHandler")(
   function* (search: string) {
@@ -12,11 +11,10 @@ export const recycleToHandler = Effect.fn("Command.recycleToHandler")(
       );
     }
 
-    const potentialId = search.toLowerCase().replace(/ /g, "-");
     const item = yield* Effect.filterOrElse(
-      fetchItem({ id: potentialId, includeComponents: true }),
+      getItem({ id: slugify(search), includeComponents: true }),
       (result) => Option.isSome(result),
-      () => fetchItem({ search, includeComponents: true }),
+      () => getItem({ search: normalize(search), includeComponents: true }),
     );
 
     if (Option.isNone(item)) {
@@ -33,21 +31,13 @@ export const recycleToHandler = Effect.fn("Command.recycleToHandler")(
       return yield* Effect.succeed(`No items recycle to ${item.value.name}`);
     }
 
-    const items = item.value.recycle_from.value.map((entry) => ({
-      name: entry.item.name,
-      amount: entry.quantity,
-    }));
-
-    const formattedItems = sortByDesc(items, (i) => i.amount)
-      .map((i) => `${i.name} (x${i.amount})`)
+    const items = sortByDesc(item.value.recycle_from.value, (i) => i.quantity)
+      .map((entry) => `${entry.item.name} (x${entry.quantity})`)
       .join(", ");
 
     return yield* Effect.succeed(
-      `These items recycle to ${item.value.name}: ${formattedItems}`,
+      `These items recycle to ${item.value.name}: ${items}`,
     );
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

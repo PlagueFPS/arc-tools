@@ -1,7 +1,7 @@
-import { fetchItem } from "@arctools/arc-data";
+import { getItem } from "@arctools/arc-data";
+import { normalize, slugify } from "@arctools/utils";
 import { Effect, Option } from "effect";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const findHandler = Effect.fn("Command.findHandler")(
   function* (search: string) {
@@ -11,12 +11,10 @@ export const findHandler = Effect.fn("Command.findHandler")(
       );
     }
 
-    const potentialId = search.toLowerCase().replace(/ /g, "-");
-
     const item = yield* Effect.filterOrElse(
-      fetchItem({ id: potentialId, includeComponents: true }),
+      getItem({ id: slugify(search), includeComponents: true }),
       (result) => Option.isSome(result),
-      () => fetchItem({ search, includeComponents: true }),
+      () => getItem({ search: normalize(search), includeComponents: true }),
     );
 
     if (Option.isNone(item)) {
@@ -46,8 +44,5 @@ export const findHandler = Effect.fn("Command.findHandler")(
 
     return yield* Effect.succeed(`${item.value.name} ${parts.join(" and ")}.`);
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

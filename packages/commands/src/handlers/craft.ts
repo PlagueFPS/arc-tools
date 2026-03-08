@@ -1,7 +1,7 @@
-import { fetchItem } from "@arctools/arc-data";
+import { getItem } from "@arctools/arc-data";
+import { normalize, slugify } from "@arctools/utils";
 import { Effect, Option } from "effect";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const craftHandler = Effect.fn("Command.craftHandler")(
   function* (search: string) {
@@ -11,11 +11,10 @@ export const craftHandler = Effect.fn("Command.craftHandler")(
       );
     }
 
-    const potentialId = search.toLowerCase().replace(/ /g, "-");
     const item = yield* Effect.filterOrElse(
-      fetchItem({ id: potentialId, includeComponents: true }),
+      getItem({ id: slugify(search), includeComponents: true }),
       (result) => Option.isSome(result),
-      () => fetchItem({ search, includeComponents: true }),
+      () => getItem({ search: normalize(search), includeComponents: true }),
     );
 
     if (Option.isNone(item)) {
@@ -39,8 +38,5 @@ export const craftHandler = Effect.fn("Command.craftHandler")(
       `You must have ${item.value.workbench.value} and the following items to craft ${item.value.name}: ${components}`,
     );
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

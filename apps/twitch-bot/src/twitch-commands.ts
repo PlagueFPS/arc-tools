@@ -1,4 +1,4 @@
-import { commands } from "@arctools/commands";
+import { CommandRuntime, commands } from "@arctools/commands";
 import { parseMessageParams } from "@arctools/utils";
 import { createBotCommand } from "@twurple/easy-bot";
 import { Effect, Schema } from "effect";
@@ -18,15 +18,15 @@ export const twitchCommands = commands.map((def) =>
       });
     }).pipe(
       Effect.annotateLogs({ command: def.name }),
+      Effect.tapCause((cause) => Effect.logError(cause)),
       Effect.catchTag("CommandError", (error) =>
         Effect.tryPromise({
           try: () => reply(error.message),
           catch: (cause) => new ReplyError({ cause }),
         }),
       ),
-      Effect.tapCause((cause) => Effect.logError(cause)),
       Effect.ignore,
-      Effect.runPromise,
+      CommandRuntime.runPromise,
     );
   }),
 );

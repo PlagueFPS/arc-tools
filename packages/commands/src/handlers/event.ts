@@ -1,8 +1,7 @@
-import { fetchEvents, selectEvent } from "@arctools/arc-data";
+import { getEvents, selectEvent } from "@arctools/arc-data";
 import { formatMinutes, normalize } from "@arctools/utils";
-import { Effect } from "effect";
+import { Clock, Effect, Option } from "effect";
 import { CommandError } from "../lib/command-error";
-import { CommandLayer } from "../lib/layers";
 
 export const eventHandler = Effect.fn("Command.eventHandler")(
   function* (search: string) {
@@ -12,36 +11,34 @@ export const eventHandler = Effect.fn("Command.eventHandler")(
       );
     }
 
-    let normalizedSearch = normalize(search.trim());
+    let normalizedSearch = normalize(search);
     if (normalizedSearch.includes("queen")) {
       normalizedSearch = "harvester";
     }
 
-    const events = yield* fetchEvents();
-    const match = selectEvent(events, normalizedSearch);
-    if (!match) {
+    const match = yield* getEvents().pipe(
+      Effect.flatMap((events) => selectEvent(events, normalizedSearch)),
+    );
+    if (Option.isNone(match)) {
       return yield* Effect.succeed(
         `[Warn] No event or map found matching: ${normalizedSearch}`,
       );
     }
 
-    const now = Date.now();
-    const base = `${match.name} on ${match.map}`;
+    const now = yield* Clock.currentTimeMillis;
+    const base = `${match.value.name} on ${match.value.map}`;
 
-    if (match.startTime <= now && now <= match.endTime) {
-      const remaining = match.endTime - now;
+    if (match.value.startTime <= now && now <= match.value.endTime) {
+      const remaining = match.value.endTime - now;
       return yield* Effect.succeed(
         `${base} is active now (ends in ${formatMinutes(remaining)})`,
       );
     }
 
-    const startsIn = match.startTime - now;
+    const startsIn = match.value.startTime - now;
     return yield* Effect.succeed(
       `${base} starts in ${formatMinutes(startsIn)}`,
     );
   },
-  (self) =>
-    Effect.mapError(self, (cause) => new CommandError({ cause })).pipe(
-      Effect.provide(CommandLayer),
-    ),
+  (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );
