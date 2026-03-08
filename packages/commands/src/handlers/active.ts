@@ -4,7 +4,7 @@ import { Clock, Effect } from "effect";
 import { CommandError } from "../lib/command-error";
 
 export const activeHandler = Effect.fn("Command.activeHandler")(
-  function* () {
+  function* (_input: string) {
     const events = yield* getEvents();
     const now = yield* Clock.currentTimeMillis;
     const active = events.filter((e) => e.startTime <= now && now <= e.endTime);

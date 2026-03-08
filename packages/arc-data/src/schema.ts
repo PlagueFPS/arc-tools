@@ -19,7 +19,10 @@ const OptionFromOptionalNullish = <S extends Schema.Schema<unknown>>(
         decode: (oe) =>
           oe.pipe(Option.filter(Predicate.isNotNullish), Option.some),
         encode: Option.flatten,
-      }) as any, // biome-lint()
+      }) as SchemaTransformation.Transformation<
+        Option.Option<S["Type"]>,
+        S["Type"] | null | undefined
+      >,
     ),
   );
 

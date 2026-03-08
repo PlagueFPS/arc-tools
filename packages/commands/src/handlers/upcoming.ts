@@ -4,7 +4,7 @@ import { Clock, Duration, Effect } from "effect";
 import { CommandError } from "../lib/command-error";
 
 export const upcomingHandler = Effect.fn("Command.upcomingHandler")(
-  function* () {
+  function* (_input: string) {
     const events = yield* getEvents();
     const now = yield* Clock.currentTimeMillis;
     const twoHoursFromNow = now + Duration.hours(2).pipe(Duration.toMillis);

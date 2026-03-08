@@ -26,7 +26,8 @@ export const formatMinutes = (ms: number): string => {
 export const normalize = (s: string) => s.toLowerCase().replace(/\s/g, "");
 
 /** Transforms a string into a slug: lowercase, no spaces, hyphens instead of spaces */
-export const slugify = (s: string) => s.toLowerCase().replace(/\s/g, "-");
+export const slugify = (s: string) =>
+  s.trim().toLowerCase().replace(/\s/g, "-");
 
 /** Sorts an array of items by a given key in descending order */
 export const sortByDesc = <T>(items: readonly T[], key: (item: T) => number) =>
