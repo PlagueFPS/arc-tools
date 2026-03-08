@@ -1,7 +1,6 @@
-export { CommandError } from "./lib/command-error.js";
-export { CommandLayer } from "./lib/layers.js";
+export { CommandError } from "./lib/command-error";
+export { CommandRuntime } from "./lib/runtime";
 export {
-  type CommandArgs,
   type CommandDefinition,
   commands,
   type SlashOption,

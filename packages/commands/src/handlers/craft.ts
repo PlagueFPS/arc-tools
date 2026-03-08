@@ -1,22 +1,20 @@
 import { fetchItem } from "@arctools/arc-data";
+import { normalize, slugify } from "@arctools/utils";
 import { Effect, Option } from "effect";
-import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
 
 export const craftHandler = Effect.fn("Command.craftHandler")(
-  function* (args: CommandArgs) {
-    const search = args.search;
+  function* (search: string) {
     if (!search) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!craft sensors')",
       );
     }
 
-    const potentialId = search.toLowerCase().replace(/ /g, "-");
     const item = yield* Effect.filterOrElse(
-      fetchItem({ id: potentialId, includeComponents: true }),
+      fetchItem({ id: slugify(search), includeComponents: true }),
       (result) => Option.isSome(result),
-      () => fetchItem({ search, includeComponents: true }),
+      () => fetchItem({ search: normalize(search), includeComponents: true }),
     );
 
     if (Option.isNone(item)) {

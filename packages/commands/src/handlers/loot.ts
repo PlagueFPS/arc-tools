@@ -1,12 +1,10 @@
 import { fetchArc } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect, Option } from "effect";
-import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
 
 export const lootHandler = Effect.fn("Command.lootHandler")(
-  function* (args: CommandArgs) {
-    const query = args.search;
+  function* (query: string) {
     if (!query) {
       return yield* Effect.succeed(
         "Please provide an arc name (e.g. '!loot bastion')",

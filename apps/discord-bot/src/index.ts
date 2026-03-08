@@ -1,4 +1,4 @@
-import { CommandLayer, commands } from "@arctools/commands";
+import { CommandRuntime, commands } from "@arctools/commands";
 import { BunRuntime } from "@effect/platform-bun";
 import { Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
 import { Config, Effect, Redacted, Schedule, Schema } from "effect";
@@ -32,9 +32,10 @@ const runDiscordBot = Effect.fn("DiscordBot")(function* () {
 
   const discordCommands = toDiscordPayload(commands);
   yield* Effect.tryPromise({
-    try: () =>
+    try: (signal) =>
       rest.put(Routes.applicationCommands(clientId), {
         body: discordCommands,
+        signal,
       }),
     catch: (cause) => new CommandRegisterError({ cause }),
   }).pipe(
@@ -42,9 +43,10 @@ const runDiscordBot = Effect.fn("DiscordBot")(function* () {
       times: 3,
       schedule: Schedule.fixed("200 millis"),
     }),
+    Effect.tap(() =>
+      Effect.log("Successfully registered application (/) commands."),
+    ),
   );
-
-  yield* Effect.log("Successfully registered application (/) commands.");
 
   client.on(Events.ClientReady, (c) =>
     Effect.runFork(Effect.log(`Logged in as ${c.user.tag}`)),
@@ -54,19 +56,15 @@ const runDiscordBot = Effect.fn("DiscordBot")(function* () {
     if (!interaction.isChatInputCommand()) return;
     return await handleInteractionCreate(interaction).pipe(
       Effect.annotateLogs({ interaction: interaction.commandName }),
-      Effect.tapCause((cause) => Effect.logError(cause)),
-      Effect.ignore,
-      Effect.provide(CommandLayer),
-      Effect.runPromise,
+      Effect.ignore({ log: "Error" }),
+      CommandRuntime.runPromise,
     );
   });
 
   client.on(Events.MessageCreate, async (message) => {
     return await handleMessageCreate(message).pipe(
-      Effect.tapCause((cause) => Effect.logError(cause)),
-      Effect.ignore,
-      Effect.provide(CommandLayer),
-      Effect.runPromise,
+      Effect.ignore({ log: "Error" }),
+      CommandRuntime.runPromise,
     );
   });
 

@@ -42,17 +42,17 @@ export const handleInteractionCreate = Effect.fn("handleInteractionCreate")(
       }),
     );
 
-    const result = yield* command.value.handler({ search });
+    const result = yield* command.value.handler(search);
     return yield* Effect.tryPromise({
       try: () => interaction.reply({ content: result }),
       catch: (cause) => new ReplyError({ cause }),
     });
   },
   (self, interaction) =>
-    Effect.catchTag(self, "CommandError", (cause) =>
+    Effect.catchTag(self, "CommandError", (error) =>
       Effect.tryPromise({
         try: () =>
-          interaction.reply({ content: cause.message, flags: "Ephemeral" }),
+          interaction.reply({ content: error.message, flags: "Ephemeral" }),
         catch: (cause) => new ReplyError({ cause }),
       }),
     ),
@@ -81,7 +81,7 @@ export const handleMessageCreate = Effect.fn("handleMessageCreate")(function* (
 
   const search = parseMessageParams(commandArgs);
   const result = yield* command.value
-    .handler({ search })
+    .handler(search)
     .pipe(
       Effect.catchTag("CommandError", (error) => Effect.succeed(error.message)),
     );

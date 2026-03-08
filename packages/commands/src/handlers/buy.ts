@@ -1,12 +1,10 @@
 import { fetchTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
-import type { CommandArgs } from "../lib/command-args";
 import { CommandError } from "../lib/command-error";
 
 export const buyHandler = Effect.fn("Command.buyHandler")(
-  function* (args: CommandArgs) {
-    const query = args.search;
+  function* (query: string) {
     if (!query) {
       return yield* Effect.succeed(
         "Please provide an item (e.g. '!buy sensors')",
@@ -41,18 +39,20 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
       return yield* Effect.succeed(`[Warn] No trader sells: ${query}`);
     }
 
-    const lines = matches.map((m) => {
-      switch (m.traderName) {
-        case "Shani":
-          return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} cred.`;
-        case "Celeste":
-          return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} seeds`;
-        default:
-          return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} coins`;
-      }
-    });
+    const response = matches
+      .map((m) => {
+        switch (m.traderName) {
+          case "Shani":
+            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} cred.`;
+          case "Celeste":
+            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} seeds`;
+          default:
+            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} coins`;
+        }
+      })
+      .join(", ");
 
-    return yield* Effect.succeed(lines.join(", "));
+    return yield* Effect.succeed(response);
   },
   (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

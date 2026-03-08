@@ -1,13 +1,13 @@
 import { normalize } from "@arctools/utils";
-import { Effect } from "effect";
+import { Array as Arr, Clock, Effect, Option } from "effect";
 import { HttpClientResponse } from "effect/unstable/http";
 import { type Event, EventAPIResponse } from "./schema";
 import { arcHttpClient } from "./utils";
 
 /**
- * Fetches all events from the event schedule API
+ * Gets all events from the event schedule API
  */
-export const fetchEvents = Effect.fn("ArcData.fetchEvents")(function* () {
+export const getEvents = Effect.fn("ArcData.getEvents")(function* () {
   const httpClient = yield* arcHttpClient;
   const response = yield* httpClient
     .get("/events-schedule")
@@ -18,26 +18,27 @@ export const fetchEvents = Effect.fn("ArcData.fetchEvents")(function* () {
 /**
  * Selects the best matching event: prefers currently active, else closest upcoming
  */
-export const selectEvent = (
+export const selectEvent = Effect.fn("ArcData.selectEvent")(function* (
   events: readonly Event[],
   search: string,
-): Event | null => {
-  const normalizedSearch = normalize(search.trim());
-  const byName = events.filter((e) =>
+) {
+  const normalizedSearch = normalize(search);
+  const eventsByName = Arr.filter(events, (e) =>
     normalize(e.name).includes(normalizedSearch),
   );
-  const matches =
-    byName.length > 0
-      ? byName
-      : events.filter((e) => normalize(e.map).includes(normalizedSearch));
-  if (matches.length === 0) return null;
+  if (eventsByName.length === 0) return Option.none();
 
-  const now = Date.now();
-  const active = matches.find((e) => e.startTime <= now && now <= e.endTime);
-  if (active) return active;
+  const now = yield* Clock.currentTimeMillis;
+  const activeEvent = Arr.findFirst(
+    eventsByName,
+    (e) => e.startTime <= now && now <= e.endTime,
+  );
+  if (Option.isNone(activeEvent)) {
+    const upcoming = Arr.filter(eventsByName, (e) => e.startTime > now).sort(
+      (a, b) => a.startTime - b.startTime,
+    );
+    return Arr.head(upcoming);
+  }
 
-  const upcoming = matches
-    .filter((e) => e.startTime > now)
-    .sort((a, b) => a.startTime - b.startTime);
-  return upcoming[0] ?? null;
-};
+  return activeEvent;
+});

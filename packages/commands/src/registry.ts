@@ -9,10 +9,6 @@ import { recycleHandler } from "./handlers/recycle";
 import { recycleToHandler } from "./handlers/recycle-to";
 import { sellHandler } from "./handlers/sell";
 import { upcomingHandler } from "./handlers/upcoming";
-import type { CommandArgs } from "./lib/command-args";
-
-export type { CommandArgs };
-
 import type { CommandError } from "./lib/command-error";
 
 export interface SlashOption {
@@ -26,15 +22,13 @@ export interface CommandDefinition<R = unknown> {
   readonly name: string;
   readonly description: string;
   readonly usage: string;
-  readonly slashOptions: SlashOption[];
-  readonly handler: (
-    args: CommandArgs,
-  ) => Effect.Effect<string, CommandError, R>;
+  readonly slashOptions: readonly SlashOption[];
+  readonly handler: (input: string) => Effect.Effect<string, CommandError, R>;
 }
 
-export function defineCommand<R>(
-  def: CommandDefinition<R>,
-): CommandDefinition<R> {
+export function defineCommand<R, const D extends CommandDefinition<R>>(
+  def: D,
+): D {
   return def;
 }
 
@@ -131,4 +125,4 @@ export const commands = [
     slashOptions: [],
     handler: activeHandler,
   }),
-] as const;
+];
