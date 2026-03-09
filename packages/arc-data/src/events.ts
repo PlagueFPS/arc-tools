@@ -31,7 +31,7 @@ export const selectEvent = Effect.fn("ArcData.selectEvent")(function* (
   const now = yield* Clock.currentTimeMillis;
   const activeEvent = Arr.findFirst(
     eventsByName,
-    (e) => e.startTime <= now && now <= e.endTime,
+    (e) => e.startTime <= now && now < e.endTime,
   );
   if (Option.isNone(activeEvent)) {
     const upcoming = Arr.filter(eventsByName, (e) => e.startTime > now).sort(
