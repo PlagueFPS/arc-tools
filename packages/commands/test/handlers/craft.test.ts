@@ -27,7 +27,7 @@ describe("craftHandler", () => {
   it.effect("returns cannot be crafted when workbench missing", () =>
     Effect.gen(function* () {
       const result = yield* run({
-        items: [item({ workbench: null, components: null })],
+        items: [item({ workbench: null })],
       })("item");
       assert.strictEqual(result, "Item cannot be crafted.");
     }),

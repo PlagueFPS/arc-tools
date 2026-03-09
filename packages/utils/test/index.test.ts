@@ -108,6 +108,15 @@ describe("slugify", () => {
     expect(slugify("hello!")).toBe("hello");
   });
 
+  it("normalizes underscores and repeated hyphens", () => {
+    expect(slugify("a__b")).toBe("a-b");
+    expect(slugify("a----b")).toBe("a-b");
+  });
+
+  it("removes leading and trailing hyphens", () => {
+    expect(slugify("--test--")).toBe("test");
+  });
+
   it("handles empty string", () => {
     expect(slugify("")).toBe("");
   });

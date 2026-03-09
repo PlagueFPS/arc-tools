@@ -2,6 +2,7 @@ import { createMockHttpClientLayer } from "@arctools/testing";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { resolveItem } from "../../src/handlers/utils.js";
+import { item } from "../fixtures.js";
 
 const runWithMock =
   (mock: Parameters<typeof createMockHttpClientLayer>[0]) =>
@@ -12,19 +13,6 @@ const runWithMock =
     resolveItem(search, params).pipe(
       Effect.provide(createMockHttpClientLayer(mock)),
     );
-
-const item = (overrides: Record<string, unknown> = {}) => ({
-  id: "power-cell",
-  name: "Power Cell",
-  value: 50,
-  workbench: null,
-  loot_area: null,
-  components: null,
-  recycle_components: null,
-  recycle_from: null,
-  dropped_by: null,
-  ...overrides,
-});
 
 describe("resolveItem", () => {
   it.effect("slug lookup succeeds without fallback", () =>
