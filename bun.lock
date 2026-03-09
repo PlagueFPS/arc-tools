@@ -10,7 +10,7 @@
         "@effect/vitest": "4.0.0-beta.27",
         "turbo": "^2.8.13",
         "typescript": "5.9.3",
-        "vitest": "^4.0.18",
+        "vitest": "4.0.18",
       },
     },
     "apps/discord-bot": {
@@ -28,7 +28,7 @@
         "@arctools/typescript-config": "workspace:*",
         "@effect/vitest": "4.0.0-beta.27",
         "typescript": "5.9.3",
-        "vitest": "^4.0.18",
+        "vitest": "4.0.18",
       },
     },
     "apps/twitch-bot": {
@@ -50,7 +50,7 @@
         "@effect/vitest": "4.0.0-beta.27",
         "drizzle-kit": "^0.31.9",
         "typescript": "5.9.3",
-        "vitest": "^4.0.18",
+        "vitest": "4.0.18",
       },
     },
     "packages/arc-data": {
@@ -64,8 +64,8 @@
         "@arctools/testing": "workspace:*",
         "@arctools/typescript-config": "workspace:*",
         "@effect/vitest": "4.0.0-beta.27",
-        "typescript": "latest",
-        "vitest": "^4.0.0",
+        "typescript": "5.9.3",
+        "vitest": "4.0.18",
       },
     },
     "packages/commands": {
@@ -80,8 +80,8 @@
         "@arctools/testing": "workspace:*",
         "@arctools/typescript-config": "workspace:*",
         "@effect/vitest": "4.0.0-beta.27",
-        "typescript": "latest",
-        "vitest": "^4.0.0",
+        "typescript": "5.9.3",
+        "vitest": "4.0.18",
       },
     },
     "packages/testing": {
@@ -93,7 +93,7 @@
       },
       "devDependencies": {
         "@arctools/typescript-config": "workspace:*",
-        "typescript": "latest",
+        "typescript": "5.9.3",
       },
     },
     "packages/typescript-config": {
@@ -105,8 +105,8 @@
       "version": "0.0.0",
       "devDependencies": {
         "@arctools/typescript-config": "workspace:*",
-        "typescript": "latest",
-        "vitest": "^4.0.0",
+        "typescript": "5.9.3",
+        "vitest": "4.0.18",
       },
     },
   },

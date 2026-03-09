@@ -21,6 +21,6 @@
     "@arctools/typescript-config": "workspace:*",
     "@effect/vitest": "4.0.0-beta.27",
     "typescript": "5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "4.0.18"
   }
 }
