@@ -2,8 +2,9 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { selectEvent } from "../src/events.js";
+import type { Event } from "../src/schema.js";
 
-const event = (overrides: Record<string, unknown> = {}) => ({
+const event = (overrides: Partial<Event> = {}) => ({
   name: "Prospecting Probes",
   map: "Bastion",
   startTime: 1000,
