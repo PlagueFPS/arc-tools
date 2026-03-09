@@ -1,7 +1,7 @@
-import { getItem } from "@arctools/arc-data";
-import { normalize, slugify, sortByDesc } from "@arctools/utils";
+import { sortByDesc } from "@arctools/utils";
 import { Effect, Option } from "effect";
 import { CommandError } from "../lib/command-error";
+import { resolveItem } from "./utils";
 
 export const recycleToHandler = Effect.fn("Command.recycleToHandler")(
   function* (search: string) {
@@ -11,12 +11,7 @@ export const recycleToHandler = Effect.fn("Command.recycleToHandler")(
       );
     }
 
-    const item = yield* Effect.filterOrElse(
-      getItem({ id: slugify(search), includeComponents: true }),
-      (result) => Option.isSome(result),
-      () => getItem({ search: normalize(search), includeComponents: true }),
-    );
-
+    const item = yield* resolveItem(search, { includeComponents: true });
     if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }
