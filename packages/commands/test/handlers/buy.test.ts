@@ -36,7 +36,7 @@ describe("buyHandler", () => {
       })("power-cell");
       assert.strictEqual(
         result,
-        "You can buy a Power Cell from Lance for 50 coins",
+        "Power Cell can be purchased from Lance for 50 coins",
       );
     }),
   );
@@ -60,7 +60,7 @@ describe("buyHandler", () => {
       })("sensors");
       assert.strictEqual(
         result,
-        "You can buy a Advanced Sensors from Shani for 100 cred.",
+        "Advanced Sensors can be purchased from Shani for 100 cred.",
       );
     }),
   );
