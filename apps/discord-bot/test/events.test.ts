@@ -5,6 +5,15 @@ import { handleMessageCreate } from "../src/events.js";
 import { createMockMessage, createMockReply } from "./fixtures.js";
 
 const emptyMockLayer = createMockHttpClientLayer({});
+const mockLayer = createMockHttpClientLayer({
+  traders: {
+    Apollo: [{ id: "item", name: "Item", trader_price: 100 }],
+    Celeste: [],
+    Lance: [],
+    Shani: [{ id: "sensors", name: "Sensors", trader_price: 100 }],
+    TianWen: [],
+  },
+});
 
 describe("handleMessageCreate", () => {
   layer(emptyMockLayer)((it) => {
@@ -64,11 +73,12 @@ describe("handleMessageCreate", () => {
           content: "!BUY item",
           reply,
         });
-        yield* handleMessageCreate(message);
+        yield* handleMessageCreate(message).pipe(Effect.provide(mockLayer));
         assert.strictEqual(reply.calls.length, 1);
         const first = reply.calls[0];
         assert.isDefined(first);
-        assert.match(first?.content, /No trader sells|cred|coins|seeds/);
+        assert.include(first.content, "Item");
+        assert.include(first.content, "coin");
       }),
     );
   });
@@ -80,19 +90,7 @@ describe("handleMessageCreate", () => {
         content: "!buy sensors",
         reply,
       });
-      yield* handleMessageCreate(message).pipe(
-        Effect.provide(
-          createMockHttpClientLayer({
-            traders: {
-              Apollo: [],
-              Celeste: [],
-              Lance: [],
-              Shani: [{ id: "sensors", name: "Sensors", trader_price: 100 }],
-              TianWen: [],
-            },
-          }),
-        ),
-      );
+      yield* handleMessageCreate(message).pipe(Effect.provide(mockLayer));
       assert.strictEqual(reply.calls.length, 1);
       const first = reply.calls[0];
       assert.isDefined(first);

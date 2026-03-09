@@ -50,7 +50,7 @@ describe("upcomingHandler", () => {
       const idxLater = result.indexOf("Later");
       assert.isTrue(
         idxEarlier >= 0,
-        "Eariler should be present in the response",
+        "Earlier should be present in the response",
       );
       assert.isTrue(idxLater >= 0, "Later should be present in the response");
       assert.isTrue(idxEarlier < idxLater);
