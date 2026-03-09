@@ -1,7 +1,7 @@
 import { fetchArc } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect, Option } from "effect";
-import { CommandError } from "../lib/command-error";
+import { CommandError } from "../lib/command-error.js";
 
 export const lootHandler = Effect.fn("Command.lootHandler")(
   function* (query: string) {

@@ -9,8 +9,8 @@ import {
   Schema,
   ServiceMap,
 } from "effect";
-import { twitchTokens } from "@/db/schema";
-import { Database } from "@/services/db";
+import { twitchTokens } from "../db/schema.js";
+import { Database } from "./db.js";
 
 const TokenDataSchema = Schema.Struct({
   accessToken: Schema.String,
@@ -27,7 +27,8 @@ const TokenDataSchema = Schema.Struct({
   }),
 );
 
-const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
+/** Decodes snake_case DB row to token data. Exported for testing. */
+export const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
 
 class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()(
   "DatabaseError",

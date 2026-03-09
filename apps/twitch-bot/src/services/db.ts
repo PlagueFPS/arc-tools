@@ -1,7 +1,7 @@
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { Config, Effect, Layer, Option, Redacted, ServiceMap } from "effect";
-import * as schema from "@/db/schema";
+import * as schema from "../db/schema.js";
 
 export class Database extends ServiceMap.Service<Database>()(
   "twitch-bot/services/db/Database",

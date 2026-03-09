@@ -1,7 +1,7 @@
 import { Array as Arr, Effect } from "effect";
 import { HttpClientResponse, UrlParams } from "effect/unstable/http";
-import { ArcsAPIResponse } from "./schema";
-import { arcHttpClient } from "./utils";
+import { ArcsAPIResponse } from "./schema.js";
+import { arcHttpClient } from "./utils.js";
 
 export interface ArcsAPIParams {
   /** The ID of the arc */

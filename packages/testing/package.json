@@ -1,0 +1,24 @@
+{
+  "name": "@arctools/testing",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@arctools/utils": "workspace:*",
+    "effect": "4.0.0-beta.27"
+  },
+  "devDependencies": {
+    "@arctools/typescript-config": "workspace:*",
+    "typescript": "5.9.3"
+  }
+}

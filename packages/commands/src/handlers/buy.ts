@@ -1,7 +1,7 @@
 import { getTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
-import { CommandError } from "../lib/command-error";
+import { CommandError } from "../lib/command-error.js";
 
 export const buyHandler = Effect.fn("Command.buyHandler")(
   function* (query: string) {
@@ -43,11 +43,11 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
       .map((m) => {
         switch (m.traderName) {
           case "Shani":
-            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} cred.`;
+            return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} cred.`;
           case "Celeste":
-            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} seeds`;
+            return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} seeds`;
           default:
-            return `You can buy a ${m.itemName} from ${m.traderName} for ${m.price} coins`;
+            return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} coins`;
         }
       })
       .join(", ");

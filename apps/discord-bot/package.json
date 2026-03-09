@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@arctools/commands": "workspace:*",
@@ -16,7 +17,10 @@
     "effect": "4.0.0-beta.27"
   },
   "devDependencies": {
+    "@arctools/testing": "workspace:*",
     "@arctools/typescript-config": "workspace:*",
-    "typescript": "latest"
+    "@effect/vitest": "4.0.0-beta.27",
+    "typescript": "5.9.3",
+    "vitest": "4.0.18"
   }
 }

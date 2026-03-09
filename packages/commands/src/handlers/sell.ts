@@ -1,6 +1,6 @@
 import { Effect, Option } from "effect";
-import { CommandError } from "../lib/command-error";
-import { resolveItem } from "./utils";
+import { CommandError } from "../lib/command-error.js";
+import { resolveItem } from "./utils.js";
 
 export const sellHandler = Effect.fn("Command.sellHandler")(
   function* (search: string) {

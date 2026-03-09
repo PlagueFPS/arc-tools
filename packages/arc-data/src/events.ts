@@ -1,8 +1,8 @@
 import { normalize } from "@arctools/utils";
 import { Array as Arr, Clock, Effect, Option } from "effect";
 import { HttpClientResponse } from "effect/unstable/http";
-import { type Event, EventAPIResponse } from "./schema";
-import { arcHttpClient } from "./utils";
+import { type Event, EventAPIResponse } from "./schema.js";
+import { arcHttpClient } from "./utils.js";
 
 /**
  * Gets all events from the event schedule API
@@ -31,7 +31,7 @@ export const selectEvent = Effect.fn("ArcData.selectEvent")(function* (
   const now = yield* Clock.currentTimeMillis;
   const activeEvent = Arr.findFirst(
     eventsByName,
-    (e) => e.startTime <= now && now <= e.endTime,
+    (e) => e.startTime <= now && now < e.endTime,
   );
   if (Option.isNone(activeEvent)) {
     const upcoming = Arr.filter(eventsByName, (e) => e.startTime > now).sort(
