@@ -81,4 +81,22 @@ describe("upcomingHandler", () => {
       assert.strictEqual(result, "No upcoming events");
     }),
   );
+
+  it.effect("includes events exactly 2h away", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(0);
+      const result = yield* run({
+        events: [
+          event({
+            name: "Harvester",
+            map: "Dam",
+            startTime: 7200_000,
+            endTime: 7300_000,
+          }),
+        ],
+      })("");
+      assert.include(result, "Harvester on Dam");
+      assert.include(result, "starts in 2h");
+    }),
+  );
 });

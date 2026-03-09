@@ -1,10 +1,9 @@
 import { createMockHttpClientLayer } from "@arctools/testing";
-import { assert, describe, it, layer } from "@effect/vitest";
+import { assert, describe, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { handleMessageCreate } from "../src/events.js";
 import { createMockMessage, createMockReply } from "./fixtures.js";
 
-const emptyMockLayer = createMockHttpClientLayer({});
 const mockLayer = createMockHttpClientLayer({
   traders: {
     Apollo: [{ id: "item", name: "Item", trader_price: 100 }],
@@ -16,7 +15,7 @@ const mockLayer = createMockHttpClientLayer({
 });
 
 describe("handleMessageCreate", () => {
-  layer(emptyMockLayer)((it) => {
+  layer(mockLayer)((it) => {
     it.effect("ignores bot authors", () =>
       Effect.gen(function* () {
         const reply = createMockReply();
@@ -73,7 +72,7 @@ describe("handleMessageCreate", () => {
           content: "!BUY item",
           reply,
         });
-        yield* handleMessageCreate(message).pipe(Effect.provide(mockLayer));
+        yield* handleMessageCreate(message);
         assert.strictEqual(reply.calls.length, 1);
         const first = reply.calls[0];
         assert.isDefined(first);
@@ -81,21 +80,21 @@ describe("handleMessageCreate", () => {
         assert.include(first.content, "coin");
       }),
     );
-  });
 
-  it.effect("replies with handler output for known command", () =>
-    Effect.gen(function* () {
-      const reply = createMockReply();
-      const message = createMockMessage({
-        content: "!buy sensors",
-        reply,
-      });
-      yield* handleMessageCreate(message).pipe(Effect.provide(mockLayer));
-      assert.strictEqual(reply.calls.length, 1);
-      const first = reply.calls[0];
-      assert.isDefined(first);
-      assert.include(first?.content, "Sensors");
-      assert.include(first?.content, "cred");
-    }),
-  );
+    it.effect("replies with handler output for known command", () =>
+      Effect.gen(function* () {
+        const reply = createMockReply();
+        const message = createMockMessage({
+          content: "!buy sensors",
+          reply,
+        });
+        yield* handleMessageCreate(message);
+        assert.strictEqual(reply.calls.length, 1);
+        const first = reply.calls[0];
+        assert.isDefined(first);
+        assert.include(first?.content, "Sensors");
+        assert.include(first?.content, "cred");
+      }),
+    );
+  });
 });
