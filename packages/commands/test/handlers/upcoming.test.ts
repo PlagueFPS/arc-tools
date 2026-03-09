@@ -61,7 +61,10 @@ describe("upcomingHandler", () => {
     Effect.gen(function* () {
       yield* TestClock.setTime(60_000);
       const result = yield* run({
-        events: [event({ startTime: 60_000, endTime: 120_000 })],
+        events: [
+          event({ startTime: 60_000, endTime: 120_000 }),
+          event({ startTime: 59_999, endTime: 120_000 }),
+        ],
       })("");
       assert.strictEqual(result, "No upcoming events");
     }),
