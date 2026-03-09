@@ -1,8 +1,5 @@
 # ARCToolsBot
-This is a monorepo containing the Twitch and Discord chat bots providing ARC Raiders information on items, 
-events/map conditions, crafts, and more.
-
-> **Note:** This project is a work in progress and is not yet cloud-hosted.
+Monorepo containing the Twitch and Discord chat bots providing ARC Raiders information.
 
 ## Commands
 
@@ -16,8 +13,10 @@ events/map conditions, crafts, and more.
 | **recycle** | Get the items granted for recycling an item | `!recycle <item>` |
 | **recycleto** | Get all items that recycle into a specific item | `!recycleto <item>` |
 | **event** | Get currently active or upcoming events by event or map name | `!event <event or map>` |
-| **upcoming** | Display all upcoming events within the next 2 hours | `!upcoming` |
-| **active** | Display all currently active events | `!active` |
+| **upcoming** | Get all upcoming events within the next 2 hours | `!upcoming` |
+| **active** | Get all currently active events | `!active` |
+
+> **Note:** all commands are also available as slash commands on Discord.
 
 ## Attribution
 Special thanks to [Metaforge](http://metaforge.app/arc-raiders) for providing the data/APIs used to provide this information.
