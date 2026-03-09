@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { HttpClientResponse } from "effect/unstable/http";
-import { TradersAPIResponse } from "./schema";
-import { arcHttpClient } from "./utils";
+import { TradersAPIResponse } from "./schema.js";
+import { arcHttpClient } from "./utils.js";
 
 /**
  * Gets the traders from the API

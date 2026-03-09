@@ -1,8 +1,8 @@
 import { BunRuntime } from "@effect/platform-bun";
 import { Bot } from "@twurple/easy-bot";
 import { Effect } from "effect";
-import { AuthProvider } from "@/services/auth";
-import { twitchCommands } from "./twitch-commands";
+import { AuthProvider } from "./services/auth.js";
+import { twitchCommands } from "./twitch-commands.js";
 
 const runTwitchBot = Effect.fn("TwitchBot")(function* () {
   yield* Effect.log("Twitch Bot Running..");

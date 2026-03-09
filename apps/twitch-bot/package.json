@@ -28,6 +28,6 @@
     "@effect/vitest": "4.0.0-beta.27",
     "drizzle-kit": "^0.31.9",
     "typescript": "5.9.3",
-    "vitest": "^4.0.0"
+    "vitest": "^4.0.18"
   }
 }

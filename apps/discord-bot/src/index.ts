@@ -2,8 +2,8 @@ import { CommandRuntime, commands } from "@arctools/commands";
 import { BunRuntime } from "@effect/platform-bun";
 import { Client, Events, GatewayIntentBits, REST, Routes } from "discord.js";
 import { Config, Effect, Redacted, Schedule, Schema } from "effect";
-import { handleInteractionCreate, handleMessageCreate } from "./events";
-import { toDiscordPayload } from "./slash-adapter";
+import { handleInteractionCreate, handleMessageCreate } from "./events.js";
+import { toDiscordPayload } from "./slash-adapter.js";
 
 class CommandRegisterError extends Schema.TaggedErrorClass<CommandRegisterError>()(
   "CommandRegisterError",

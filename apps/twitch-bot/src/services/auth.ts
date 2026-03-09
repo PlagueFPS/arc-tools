@@ -9,8 +9,8 @@ import {
   Schema,
   ServiceMap,
 } from "effect";
-import { twitchTokens } from "@/db/schema";
-import { Database } from "@/services/db";
+import { twitchTokens } from "../db/schema.js";
+import { Database } from "./db.js";
 
 const TokenDataSchema = Schema.Struct({
   accessToken: Schema.String,

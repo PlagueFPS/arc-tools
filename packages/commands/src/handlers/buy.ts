@@ -1,7 +1,7 @@
 import { getTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
 import { Effect } from "effect";
-import { CommandError } from "../lib/command-error";
+import { CommandError } from "../lib/command-error.js";
 
 export const buyHandler = Effect.fn("Command.buyHandler")(
   function* (query: string) {
