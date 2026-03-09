@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
     "dev": "tsc --watch",
     "check-types": "tsc --noEmit"
   },
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^3.0.0"
   }
 }

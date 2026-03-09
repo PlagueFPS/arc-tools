@@ -27,7 +27,13 @@ export const normalize = (s: string) => s.toLowerCase().replace(/\s/g, "");
 
 /** Transforms a string into a slug: lowercase, no spaces, hyphens instead of spaces */
 export const slugify = (s: string) =>
-  s.trim().toLowerCase().replace(/\s/g, "-");
+  s
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "") // Remove all non-word characters except spaces and hyphens
+    .replace(/[\s_]+/g, "-") // Replace spaces and underscores with a single hyphen
+    .replace(/--+/g, "-") // Replace multiple hyphens with a single hyphen
+    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
 
 /** Sorts an array of items by a given key in descending order */
 export const sortByDesc = <T>(items: readonly T[], key: (item: T) => number) =>

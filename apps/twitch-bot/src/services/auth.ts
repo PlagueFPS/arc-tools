@@ -27,7 +27,8 @@ const TokenDataSchema = Schema.Struct({
   }),
 );
 
-const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
+/** Decodes snake_case DB row to token data. Exported for testing. */
+export const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
 
 class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()(
   "DatabaseError",

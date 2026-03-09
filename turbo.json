@@ -27,6 +27,10 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
     "//#format-and-lint": {},
     "//#format-and-lint:fix": {
       "cache": false
