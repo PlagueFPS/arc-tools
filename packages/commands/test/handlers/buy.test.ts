@@ -49,7 +49,11 @@ describe("buyHandler", () => {
           Celeste: [],
           Lance: [],
           Shani: [
-            { id: "advanced-sensors", name: "Advanced Sensors", trader_price: 100 },
+            {
+              id: "advanced-sensors",
+              name: "Advanced Sensors",
+              trader_price: 100,
+            },
           ],
           TianWen: [],
         },

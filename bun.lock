@@ -24,10 +24,11 @@
         "effect": "4.0.0-beta.27",
       },
       "devDependencies": {
+        "@arctools/testing": "workspace:*",
         "@arctools/typescript-config": "workspace:*",
         "@effect/vitest": "4.0.0-beta.27",
-        "typescript": "latest",
-        "vitest": "^4.0.0",
+        "typescript": "5.9.3",
+        "vitest": "^4.0.18",
       },
     },
     "apps/twitch-bot": {
@@ -49,7 +50,7 @@
         "@effect/vitest": "4.0.0-beta.27",
         "drizzle-kit": "^0.31.9",
         "typescript": "5.9.3",
-        "vitest": "^4.0.0",
+        "vitest": "^4.0.18",
       },
     },
     "packages/arc-data": {
@@ -60,6 +61,7 @@
         "effect": "4.0.0-beta.27",
       },
       "devDependencies": {
+        "@arctools/testing": "workspace:*",
         "@arctools/typescript-config": "workspace:*",
         "@effect/vitest": "4.0.0-beta.27",
         "typescript": "latest",
@@ -75,10 +77,23 @@
         "effect": "4.0.0-beta.27",
       },
       "devDependencies": {
+        "@arctools/testing": "workspace:*",
         "@arctools/typescript-config": "workspace:*",
         "@effect/vitest": "4.0.0-beta.27",
         "typescript": "latest",
         "vitest": "^4.0.0",
+      },
+    },
+    "packages/testing": {
+      "name": "@arctools/testing",
+      "version": "0.0.0",
+      "dependencies": {
+        "@arctools/utils": "workspace:*",
+        "effect": "4.0.0-beta.27",
+      },
+      "devDependencies": {
+        "@arctools/typescript-config": "workspace:*",
+        "typescript": "latest",
       },
     },
     "packages/typescript-config": {
@@ -99,6 +114,8 @@
     "@arctools/arc-data": ["@arctools/arc-data@workspace:packages/arc-data"],
 
     "@arctools/commands": ["@arctools/commands@workspace:packages/commands"],
+
+    "@arctools/testing": ["@arctools/testing@workspace:packages/testing"],
 
     "@arctools/typescript-config": ["@arctools/typescript-config@workspace:packages/typescript-config"],
 

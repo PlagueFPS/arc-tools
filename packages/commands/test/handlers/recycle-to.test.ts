@@ -54,7 +54,10 @@ describe("recycleToHandler", () => {
           }),
         ],
       })("item");
-      assert.strictEqual(result, "These items recycle to Item: Metal (x5), Scrap (x2)");
+      assert.strictEqual(
+        result,
+        "These items recycle to Item: Metal (x5), Scrap (x2)",
+      );
     }),
   );
 });

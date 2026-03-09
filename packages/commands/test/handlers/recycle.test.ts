@@ -55,7 +55,10 @@ describe("recycleHandler", () => {
           }),
         ],
       })("item");
-      assert.strictEqual(result, "These items are granted for recycling Item: B (x3), C (x2), A (x1)");
+      assert.strictEqual(
+        result,
+        "These items are granted for recycling Item: B (x3), C (x2), A (x1)",
+      );
     }),
   );
 });

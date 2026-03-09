@@ -59,7 +59,10 @@ describe("findHandler", () => {
           }),
         ],
       })("item");
-      assert.strictEqual(result, "Item can be found in Cargo areas and can be dropped by Bastion.");
+      assert.strictEqual(
+        result,
+        "Item can be found in Cargo areas and can be dropped by Bastion.",
+      );
     }),
   );
 

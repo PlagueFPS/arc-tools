@@ -1,12 +1,10 @@
 {
-  "name": "@arctools/arc-data",
+  "name": "@arctools/testing",
   "version": "0.0.0",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
-    "dev": "tsc --watch",
     "check-types": "tsc --noEmit"
   },
   "exports": {
@@ -20,10 +18,7 @@
     "effect": "4.0.0-beta.27"
   },
   "devDependencies": {
-    "@arctools/testing": "workspace:*",
     "@arctools/typescript-config": "workspace:*",
-    "@effect/vitest": "4.0.0-beta.27",
-    "typescript": "latest",
-    "vitest": "^4.0.0"
+    "typescript": "latest"
   }
 }

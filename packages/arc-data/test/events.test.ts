@@ -82,18 +82,25 @@ describe("selectEvent", () => {
     }),
   );
 
-  it.effect("exact boundary - event at endTime hands off to next same event", () =>
-    Effect.gen(function* () {
-      yield* TestClock.setTime(2000);
-      const result = yield* selectEvent(
-				[
-					event({ name: "A", map: "Dam", startTime: 1000, endTime: 2000 }),
-					event({ name: "A", map: "Spaceport", startTime: 2000, endTime: 3000 })
-				],
-        "a",
-			);
-      const match = Option.getOrThrow(result);
-      assert.strictEqual(match.startTime, 2000);
-    }),
+  it.effect(
+    "exact boundary - event at endTime hands off to next same event",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(2000);
+        const result = yield* selectEvent(
+          [
+            event({ name: "A", map: "Dam", startTime: 1000, endTime: 2000 }),
+            event({
+              name: "A",
+              map: "Spaceport",
+              startTime: 2000,
+              endTime: 3000,
+            }),
+          ],
+          "a",
+        );
+        const match = Option.getOrThrow(result);
+        assert.strictEqual(match.startTime, 2000);
+      }),
   );
 });

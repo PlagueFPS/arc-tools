@@ -1,7 +1,7 @@
+import { createMockHttpClientLayer } from "@arctools/testing";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { resolveItem } from "../../src/handlers/utils.js";
-import { createMockHttpClientLayer } from "../mock-arc-data.js";
 
 const runWithMock =
   (mock: Parameters<typeof createMockHttpClientLayer>[0]) =>

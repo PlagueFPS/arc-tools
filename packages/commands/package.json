@@ -13,10 +13,6 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
-    },
-    "./test": {
-      "types": "./test/mock-arc-data.ts",
-      "default": "./test/mock-arc-data.ts"
     }
   },
   "dependencies": {
@@ -25,6 +21,7 @@
     "effect": "4.0.0-beta.27"
   },
   "devDependencies": {
+    "@arctools/testing": "workspace:*",
     "@arctools/typescript-config": "workspace:*",
     "@effect/vitest": "4.0.0-beta.27",
     "typescript": "latest",

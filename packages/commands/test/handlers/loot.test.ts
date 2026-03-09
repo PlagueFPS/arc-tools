@@ -46,7 +46,10 @@ describe("lootHandler", () => {
           }),
         ],
       })("three word arc");
-      assert.strictEqual(result, "Three Word Arcs drop the following items: Loot Item");
+      assert.strictEqual(
+        result,
+        "Three Word Arcs drop the following items: Loot Item",
+      );
     }),
   );
 

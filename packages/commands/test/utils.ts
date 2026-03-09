@@ -1,7 +1,7 @@
+import { createMockHttpClientLayer, type MockData } from "@arctools/testing";
 import { Effect } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 import type { CommandError } from "../src/index.js";
-import { createMockHttpClientLayer, type MockData } from "./mock-arc-data.js";
 
 /**
  * Creates a runner that executes a string-in, string-out handler with a mock HTTP layer.

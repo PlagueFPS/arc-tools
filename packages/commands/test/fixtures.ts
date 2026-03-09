@@ -1,4 +1,4 @@
-import type { MockArc, MockEvent, MockItem } from "./mock-arc-data.js";
+import type { MockArc, MockEvent, MockItem } from "@arctools/testing";
 
 const baseItem: MockItem = {
   id: "item",

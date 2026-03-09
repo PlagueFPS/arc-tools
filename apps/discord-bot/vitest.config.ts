@@ -1,5 +1,5 @@
-import { mergeConfig } from "vitest/config"
-import shared from "../../vitest.shared.ts"
+import { mergeConfig } from "vitest/config";
+import shared from "../../vitest.shared.ts";
 
 export default mergeConfig(shared, {
   resolve: {
@@ -7,4 +7,4 @@ export default mergeConfig(shared, {
       "@": new URL("./src", import.meta.url).pathname,
     },
   },
-})
+});

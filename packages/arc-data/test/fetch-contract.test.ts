@@ -1,92 +1,33 @@
-import { BASE_API_URL } from "@arctools/utils";
+import { createMockHttpClientLayer } from "@arctools/testing";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { Effect, Option } from "effect";
 import { fetchArc, getEvents, getItem, getTraders } from "../src/index.js";
 
-const baseUrl = `${BASE_API_URL.replace(/\/$/, "")}/`;
-
-const mockClient = HttpClient.make((request) =>
-  Effect.sync(() => {
-    const url = request.url;
-    if (!url.startsWith(baseUrl)) {
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(JSON.stringify({ error: "unexpected" }), { status: 404 }),
-      );
-    }
-    const path = url.slice(baseUrl.length).split("?")[0];
-    if (path === "traders") {
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(
-          JSON.stringify({
-            data: {
-              Apollo: [{ id: "a", name: "A", trader_price: 1 }],
-              Celeste: [],
-              Lance: [],
-              Shani: [],
-              TianWen: [],
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-    }
-    if (path === "items") {
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(
-          JSON.stringify({
-            data: [{ id: "item", name: "Item", value: 10 }],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-    }
-    if (path === "arcs") {
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: "bastion",
-                name: "Bastion",
-                loot: [{ item: { id: "x", name: "X" } }],
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-    }
-    if (path === "events-schedule") {
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(
-          JSON.stringify({
-            data: [
-              {
-                name: "Event",
-                map: "Map",
-                startTime: 1000,
-                endTime: 2000,
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-    }
-    return HttpClientResponse.fromWeb(
-      request,
-      new Response(JSON.stringify({ error: "not found" }), { status: 404 }),
-    );
-  }),
-);
-
-const mockLayer = Layer.succeed(HttpClient.HttpClient, mockClient);
+const mockLayer = createMockHttpClientLayer({
+  traders: {
+    Apollo: [{ id: "a", name: "A", trader_price: 1 }],
+    Celeste: [],
+    Lance: [],
+    Shani: [],
+    TianWen: [],
+  },
+  items: [{ id: "item", name: "Item", value: 10 }],
+  arcs: [
+    {
+      id: "bastion",
+      name: "Bastion",
+      loot: [{ item: { id: "x", name: "X" } }],
+    },
+  ],
+  events: [
+    {
+      name: "Event",
+      map: "Map",
+      startTime: 1000,
+      endTime: 2000,
+    },
+  ],
+});
 
 describe("fetch contract", () => {
   it.effect("getTraders decodes and returns data", () =>
@@ -110,19 +51,9 @@ describe("fetch contract", () => {
 
   it.effect("getItem returns none for empty response", () =>
     Effect.gen(function* () {
-      const emptyClient = HttpClient.make((req) =>
-        Effect.succeed(
-          HttpClientResponse.fromWeb(
-            req,
-            new Response(JSON.stringify({ data: [] }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          ),
-        ),
-      );
+      const emptyLayer = createMockHttpClientLayer({});
       const result = yield* getItem({ id: "missing" }).pipe(
-        Effect.provide(Layer.succeed(HttpClient.HttpClient, emptyClient)),
+        Effect.provide(emptyLayer),
       );
       assert.isTrue(Option.isNone(result));
     }),

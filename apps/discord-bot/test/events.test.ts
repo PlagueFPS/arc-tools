@@ -1,4 +1,4 @@
-import { createMockHttpClientLayer } from "@arctools/commands/test";
+import { createMockHttpClientLayer } from "@arctools/testing";
 import { assert, describe, it, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { handleMessageCreate } from "../src/events.js";
