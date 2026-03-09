@@ -1,11 +1,8 @@
+import { createMockHttpClientLayer } from "@arctools/commands/test";
 import { assert, describe, it, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { handleMessageCreate } from "../src/events.js";
-import {
-  createMockHttpClientLayer,
-  createMockMessage,
-  createMockReply,
-} from "./fixtures.js";
+import { createMockMessage, createMockReply } from "./fixtures.js";
 
 const emptyMockLayer = createMockHttpClientLayer({});
 

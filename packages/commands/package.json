@@ -13,6 +13,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./test": {
+      "types": "./test/mock-arc-data.ts",
+      "default": "./test/mock-arc-data.ts"
     }
   },
   "dependencies": {
