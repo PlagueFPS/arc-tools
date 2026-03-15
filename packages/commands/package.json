@@ -18,12 +18,12 @@
   "dependencies": {
     "@arctools/arc-data": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "effect": "4.0.0-beta.27"
+    "effect": "4.0.0-beta.32"
   },
   "devDependencies": {
     "@arctools/testing": "workspace:*",
     "@arctools/typescript-config": "workspace:*",
-    "@effect/vitest": "4.0.0-beta.27",
+    "@effect/vitest": "4.0.0-beta.32",
     "typescript": "5.9.3",
     "vitest": "4.0.18"
   }
