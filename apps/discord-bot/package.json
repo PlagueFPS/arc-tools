@@ -12,14 +12,14 @@
   "dependencies": {
     "@arctools/commands": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "@effect/platform-bun": "4.0.0-beta.27",
+    "@effect/platform-bun": "4.0.0-beta.32",
     "discord.js": "^14.25.1",
-    "effect": "4.0.0-beta.27"
+    "effect": "4.0.0-beta.32"
   },
   "devDependencies": {
     "@arctools/testing": "workspace:*",
     "@arctools/typescript-config": "workspace:*",
-    "@effect/vitest": "4.0.0-beta.27",
+    "@effect/vitest": "4.0.0-beta.32",
     "typescript": "5.9.3",
     "vitest": "4.0.18"
   }

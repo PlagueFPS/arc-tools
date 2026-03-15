@@ -1,30 +1,4 @@
-import { Option, Predicate, Schema, SchemaTransformation } from "effect";
-
-/**
- * Schema for an optional key that may contain a nullish (null/undefined) value.
- * Produces a single Option<T> instead of Option<Option<T>>.
- *
- * Handles: missing key, undefined, null → Option.none()
- * Handles: present value → Option.some(value)
- *
- * @see Effect SCHEMA.md "Optional Property with Nullability"
- */
-const OptionFromOptionalNullish = <S extends Schema.Schema<unknown>>(
-  schema: S,
-) =>
-  Schema.optionalKey(Schema.NullishOr(schema)).pipe(
-    Schema.decodeTo(
-      Schema.Option(Schema.toType(schema)),
-      SchemaTransformation.transformOptional({
-        decode: (oe) =>
-          oe.pipe(Option.filter(Predicate.isNotNullish), Option.some),
-        encode: Option.flatten,
-      }) as SchemaTransformation.Transformation<
-        Option.Option<S["Type"]>,
-        S["Type"] | null | undefined
-      >,
-    ),
-  );
+import { Schema } from "effect";
 
 const ComponentSchema = Schema.Struct({
   quantity: Schema.Number,
@@ -74,11 +48,13 @@ export class Item extends Schema.Class<Item>("Item")({
   id: Schema.String,
   name: Schema.String,
   value: Schema.Number,
-  workbench: OptionFromOptionalNullish(Schema.String),
-  loot_area: OptionFromOptionalNullish(Schema.String),
-  components: OptionFromOptionalNullish(Schema.Array(ComponentSchema)),
-  recycle_components: OptionFromOptionalNullish(Schema.Array(ComponentSchema)),
-  recycle_from: OptionFromOptionalNullish(
+  workbench: Schema.OptionFromOptionalNullOr(Schema.String),
+  loot_area: Schema.OptionFromOptionalNullOr(Schema.String),
+  components: Schema.OptionFromOptionalNullOr(Schema.Array(ComponentSchema)),
+  recycle_components: Schema.OptionFromOptionalNullOr(
+    Schema.Array(ComponentSchema),
+  ),
+  recycle_from: Schema.OptionFromOptionalNullOr(
     Schema.Array(
       Schema.Struct({
         quantity: Schema.Number,
@@ -89,7 +65,7 @@ export class Item extends Schema.Class<Item>("Item")({
       }),
     ),
   ),
-  dropped_by: OptionFromOptionalNullish(
+  dropped_by: Schema.OptionFromOptionalNullOr(
     Schema.Array(
       Schema.Struct({
         arc: Schema.Struct({
