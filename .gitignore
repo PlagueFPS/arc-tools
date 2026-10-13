@@ -11,3 +11,8 @@ tokens.json
 .repos/*
 # Turborepo
 .turbo
+
+!.env.example
+.alchemy/
+.audit/
+.wrangler/

@@ -35,6 +35,31 @@ describe("resolveItem", () => {
     }),
   );
 
+  it.effect(
+    "lookup skips a different first item and uses the assembled query",
+    () =>
+      Effect.gen(function* () {
+        const layer = createMockHttpClientLayer({
+          items: [
+            item({ id: "decoy", name: "Decoy" }),
+            item({ id: "power-cell", name: "Power Cell" }),
+          ],
+        });
+        const exact = yield* resolveItem("power cell", { minimal: true }).pipe(
+          Effect.provide(layer),
+        );
+        const fallback = yield* resolveItem("cell", { minimal: true }).pipe(
+          Effect.provide(layer),
+        );
+        assert.strictEqual(Option.getOrThrow(exact).id, "power-cell");
+        assert.strictEqual(Option.getOrThrow(fallback).id, "power-cell");
+        const miss = yield* resolveItem("missing", { minimal: true }).pipe(
+          Effect.provide(layer),
+        );
+        assert.isTrue(Option.isNone(miss));
+      }),
+  );
+
   it.effect("both lookups miss returns none", () =>
     Effect.gen(function* () {
       const result = yield* runWithMock({})("nonexistent", { minimal: true });

@@ -1,5 +1,5 @@
 import { Array as Arr, Effect } from "effect";
-import { HttpClientResponse, UrlParams } from "effect/unstable/http";
+import { HttpClientResponse, UrlParams } from "effect/http";
 import { ArcsAPIResponse } from "./schema.js";
 import { arcHttpClient } from "./utils.js";
 

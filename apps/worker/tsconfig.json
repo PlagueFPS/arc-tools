@@ -1,0 +1,11 @@
+{
+  "extends": "@arctools/typescript-config/base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "types": ["bun"],
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "scripts", "test", "alchemy.run.ts", "vitest.config.ts"]
+}

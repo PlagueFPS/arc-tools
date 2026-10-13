@@ -4,7 +4,7 @@ import {
   HttpClient,
   type HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 
 export interface MockTraders {
   Apollo: Array<{ id: string; name: string; trader_price: number }>;
@@ -74,9 +74,9 @@ export function createMockHttpClientLayer(mock: MockData) {
   const baseUrl = `${BASE_API_URL.replace(/\/$/, "")}/`;
 
   const mockClient = HttpClient.make(
-    (request: HttpClientRequest.HttpClientRequest) =>
+    (request: HttpClientRequest.HttpClientRequest, assembledUrl) =>
       Effect.gen(function* () {
-        const url = request.url;
+        const url = assembledUrl.href;
         if (!url.startsWith(baseUrl)) {
           return HttpClientResponse.fromWeb(
             request,

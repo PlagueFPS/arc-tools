@@ -1,6 +1,6 @@
 import { normalize } from "@arctools/utils";
 import { Array as Arr, Clock, Effect, Option } from "effect";
-import { HttpClientResponse } from "effect/unstable/http";
+import { HttpClientResponse } from "effect/http";
 import { type Event, EventAPIResponse } from "./schema.js";
 import { arcHttpClient } from "./utils.js";
 

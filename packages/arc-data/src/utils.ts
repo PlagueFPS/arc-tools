@@ -1,6 +1,6 @@
 import { BASE_API_URL } from "@arctools/utils";
 import { Effect } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 
 export const arcHttpClient = Effect.gen(function* () {
   return (yield* HttpClient.HttpClient).pipe(

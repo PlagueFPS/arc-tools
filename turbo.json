@@ -4,20 +4,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
-      "outputs": ["dist/**", ".output/**"],
-      "passThroughEnv": [
-        "TWITCH_CLIENT_ID",
-        "TWITCH_CLIENT_SECRET",
-        "TWITCH_ACCESS_TOKEN",
-        "TWITCH_REFRESH_TOKEN",
-        "TWITCH_BOT_USER_ID",
-        "TWITCH_INITIAL_ACCESS_TOKEN",
-        "TWITCH_INITIAL_REFRESH_TOKEN",
-        "TURSO_CONNECTION_URL",
-        "TURSO_AUTH_TOKEN",
-        "DISCORD_BOT_TOKEN",
-        "DISCORD_CLIENT_ID"
-      ]
+      "outputs": ["dist/**", ".output/**"]
     },
     "dev": {
       "cache": false,
@@ -34,6 +21,11 @@
     "//#format-and-lint": {},
     "//#format-and-lint:fix": {
       "cache": false
+    },
+    "verify:worker": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": []
     }
   }
 }
