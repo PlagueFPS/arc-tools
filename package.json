@@ -8,7 +8,7 @@
   "packageManager": "bun@1.3.5",
   "scripts": {
     "build": "turbo run build",
-    "test": "turbo run test",
+    "test": "turbo run test && bun test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-response.test.ts",
     "dev": "alchemy dev",
     "dev:twitch": "turbo run dev --filter=twitch-bot",
     "dev:discord": "turbo run dev --filter=discord-bot",

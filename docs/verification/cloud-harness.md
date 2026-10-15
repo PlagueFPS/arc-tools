@@ -80,9 +80,62 @@ Every final cloud UUID poll observed a different UUID on its first successful sn
 
 The two combined runs and diagnostic deployment each retain `run.json`, `resources.json`, `result.json`, and `console.log` under `.cloud-tests/<stage>/`. Local check logs and the focused decision trail are under `.cloud-tests/`. The final console log is also `.cloud-tests/account-harness-final.log`. No failed result was overwritten or discarded.
 
+## Default verification discovery
+
+Accepted harness review P2 found that the root `test` script selected only Turborepo workspace tests. Both pure helper test files live outside those workspaces. The cloud runner selects `foundation.test.ts` explicitly, so it also omits these regressions. Before this follow-up, `bunx bun@1.3.5 run test` reported 181 workspace passes and 580 assertions without executing either helper file.
+
+The root `test` script now runs:
+
+```text
+turbo run test && bun test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-response.test.ts
+```
+
+CI and release already call `bun run test` and inherit this change. The explicit file paths select only the two pure helper suites. They run once after the workspace tests, outside Turborepo caching. No root Turbo test task or recursive script is added. The separate cloud runner remains unchanged.
+
+Verification used the pinned Bun 1.3.5 runtime:
+
+```text
+bunx bun@1.3.5 install --frozen-lockfile
+Passed. No lockfile change.
+
+TURBO_FORCE=true bunx bun@1.3.5 run test
+6 workspace tasks executed, 0 cached.
+181 workspace passes, 0 failures, 580 assertions across 24 files.
+8 helper passes, 0 failures, 73 assertions across 2 files.
+Total: 189 passes, 0 failures, 653 assertions across 26 files.
+
+bunx bun@1.3.5 run test
+6 workspace tasks reused cached logs.
+All 8 helper tests executed again, 0 failures, 73 assertions.
+
+bunx bun@1.3.5 run check-types
+7 successful cached workspace tasks. Root tsc --noEmit passed.
+
+bunx bun@1.3.5 run lint
+Biome checked 123 files. No fixes or errors.
+```
+
+Both changed default-command runs printed each helper name exactly once:
+
+```text
+tests/cloud/fixture-http.test.ts:
+(pass) only the observed Cloudflare placeholder on a disposable Worker is route readiness
+(pass) fixture and unrecognized edge failures stop POST without replaying a mutation or exposing its body
+(pass) transport loss after a POST has unknown execution and is never replayed
+(pass) successful HTTP with wrong content type, invalid JSON, or invalid business data is not retried
+(pass) raw binary and schema-decoded JSON responses retain their actual values
+(pass) reconstruction polls the observed UUID and preserves the new snapshot
+(pass) an unchanged UUID exhausts a bounded poll and a snapshot failure stops immediately
+tests/cloud/fixture-response.test.ts:
+(pass) only the requested native abort receives a 204 reconstruction acknowledgement
+8 pass, 0 fail, 73 expect() calls.
+```
+
+Full logs are local artifacts under `.cloud-tests/test-discovery/`, including `before.log`, `after-forced.log`, `after-cached.log`, `install.log`, `check-types.log`, and `lint.log`. Log checks confirmed 181 workspace tests and 580 assertions in each run, exactly eight unique helper names in each changed run, and no helper execution before the change. No cloud suite or deployment command ran for this wiring correction. Test assertions, helper logic, and application code are unchanged. Unit 4 remains blocked on the six separately owned account bugs and is not accepted by this evidence.
+
 ## Handoff
 
-The worktree is `/home/angel/.t3/worktrees/arc-tools/t3-d1243984`, branch `t3/d1243984`. Cherry-pick the harness correction after unit 4. The helper regression command above is explicit because the existing Turborepo workspace test command does not discover `tests/cloud/*.test.ts`. No CI or workspace-manifest change was made in this narrow fix. Root retains independent review and rerun.
+The original harness worktree is `/home/angel/.t3/worktrees/arc-tools/t3-d1243984`, branch `t3/d1243984`. Cherry-pick the harness correction after unit 4. Its original handoff required the explicit helper regression command because Turborepo did not discover these files. The discovery follow-up above adds them to the canonical root `test` script. Root retains independent review and rerun.
 
 ## Scope
 
