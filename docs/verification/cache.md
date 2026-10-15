@@ -134,6 +134,46 @@ It reported 149 passing tests, zero failures, and 377 assertions across 21 files
 
 The final provenance regression first failed with `Received: "Game data is temporarily unavailable. Please try again shortly."` because its stale ID miss was omitted from the error message. After the fix, `bun test packages/commands/test/execute.test.ts` reported five passes and zero failures. The complete pinned suite above then passed.
 
+## Absolute command deadline review fix
+
+The accepted core P1 is locally **VERIFIED** on 2026-10-15. Root's independent core review and integration remain pending. This follow-up does not complete the migration.
+
+The isolated branch starts at `a1ff8e5`. Original implementation `69d99524b2497e7aaeb1d35dac396dd05370203f` and evidence `7473b7e` were cherry-picked as `8ffe9cb` and `2573537`. The original checkout was not changed.
+
+Regression commit `3337632` demonstrates that the relative timeout permits a successful result after synchronous work crosses the absolute deadline. The existing cache/source fixture returns valid Sensors JSON from `Effect.sync`. A request-local Effect clock advances during that callback while its sleep scheduler remains under `TestClock` control. No wall-clock busy waits, real sleeps, global clock changes, or handler replacements are used.
+
+Six cases cover completion at 19, 20, and 100 milliseconds against a 20-millisecond deadline, each with fresh data and with a prior fallback ID miss. Before the fix, both 19-millisecond cases and the five existing execution tests pass. All four equality and overrun cases incorrectly return success.
+
+Fix commit `c51f9e9` adds five lines in `executeCommand`. Immediately before success, it rejects `Clock.currentTimeMillis >= input.deadline` with `CommandError` caused by `DataUnavailable({ resource: "command", reason: "deadline" })`. The error retains the execution's existing stale accumulator and cached-data message. The asynchronous timeout remains in place. Cache policy, storage, source adapters, and the ten command handlers are unchanged.
+
+The exact focused command is:
+
+```sh
+bunx bun@1.3.5 test packages/commands/test/execute.test.ts
+```
+
+Before the fix at `3337632`, its output ends with:
+
+```text
+ 7 pass
+ 4 fail
+ 47 expect() calls
+```
+
+After the fix at `c51f9e9`, it ends with:
+
+```text
+ 11 pass
+ 0 fail
+ 47 expect() calls
+```
+
+Additional checks passed. `bun run build` completed four tasks, with the changed commands package rebuilt and three unchanged tasks cached. `bun run check-types` completed seven tasks and root `tsc --noEmit`, with the changed commands package checked and six unchanged tasks cached. `bun run lint` checked 102 files with no fixes. The complete pinned-runtime command recorded above passed 155 tests with zero failures and 383 assertions across 21 files. It includes all original cache tests, request-local stale isolation, and exact outputs for all ten commands on two cache passes. `git diff --check` passed.
+
+The direct `bunx biome check docs/verification/cache.md` attempt returned `No files were processed` because this Biome configuration does not process Markdown. The evidence update was reviewed in the diff.
+
+No new cloud run was needed or performed for this pure command change. The imported cloud evidence is unchanged. No deployment, root audit edit, delegation, comment, or suppression was added. Synchronous work remains cooperative and cannot be preempted by the timeout callback. Its completed result now fails at or beyond the deadline. Transport response timing and subsequent migration gates still need their own verification.
+
 ## Real Cloudflare evidence
 
 The runner uses `alchemy/Test/Bun`, `Cloudflare.providers()`, and `Cloudflare.state()`. It passes an explicit unique stage and omits `dev`. Existing local-mode, stage, credential-isolation, teardown, journal, and API cleanup protections remain active. The account's Cloudflare-backed Alchemy control backend is retained.
