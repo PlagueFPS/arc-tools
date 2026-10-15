@@ -1,12 +1,51 @@
 # Account and release root review
 
-Unit 4 is not accepted or integrated. Root reviewed commit `4988f00b5d3ffe53abff89f6331ff1bb8f82b6dd` in `/home/angel/.t3/worktrees/arc-tools/t3-5b69d597`. Independent technical reviews and a cloud harness correction are pending.
+Unit 4 is not accepted or integrated. Root reviewed commit `4988f00b5d3ffe53abff89f6331ff1bb8f82b6dd` in `/home/angel/.t3/worktrees/arc-tools/t3-5b69d597`. Both technical reviews are complete. Account corrections and a cloud harness correction are in progress.
 
 ## Local verification
 
 Root ran the full local suite with Bun 1.3.5. All 181 tests passed with 580 assertions across 24 files. Forced build and typecheck passed all 11 tasks without cache hits. Root TypeScript checking, a direct Biome check of 119 files, frozen installation, and diff whitespace checks passed.
 
-The comment reviewer inspected all 27 changed paths and found no comments, suppressions, or required deletions. Independent GPT-6.1-Sol and Gemini 3.8 Flash High technical reviews are still running. They cover account authorization and concurrency, safe send outcomes, registration reconciliation, release fencing, and fixture fidelity.
+The comment reviewer inspected all 27 changed paths and found no comments, suppressions, or required deletions. Independent GPT-6.1-Sol and Gemini 3.8 Flash High technical reviews cover account authorization and concurrency, safe send outcomes, registration reconciliation, release fencing, and fixture fidelity. Their findings are assessed below.
+
+## Technical review synthesis
+
+The intent is an environment-bound account owner with recoverable credentials, idempotent subscription setup, bounded safe dispatch, and release-time command reconciliation. The reviews assess that implementation. Signed ingress and legacy deletion remain later units.
+
+### Act on
+
+GPT-6.1-Sol reproduced six blocking defects. Root inspected the supporting paths. The account correction delegate owns all six and the repeated-setup case independently identified by Gemini.
+
+| Area | Finding | Required correction |
+| --- | --- | --- |
+| Credential recovery | A reconstructed object with a session and an active token lease can finish its alarm without scheduling another native alarm. | Preserve the next credential action across a consumed alarm and lease contention. Verify the actual alarm handler. |
+| Credential generation | A late validation response can restore a token invalidated by a concurrent send's 401. | Fence validation against invalidation of its source session. |
+| Setup repair | A 401 from `/users` leaves the rejected session cached as valid. | Apply generation-aware invalidation throughout setup. |
+| Subscription binding | A remote create that succeeds before an interrupted response can be adopted under a later signing-secret binding. | Persist enough binding intent before mutation to prevent false adoption after repeated rotation. |
+| Registration drift | Global command GET omits full localization dictionaries, so localization drift can be invisible. | Request complete localizations for both comparison and readback, with provider-faithful tests. |
+| OAuth capacity | A distinct sender and 32 broadcasters require more states than the current bound permits. Repeated setup also accumulates states until capacity is exhausted. | Allocate bounded states by current authorization subjects and make repeated setup usable. |
+
+Discord documents `with_localizations` as false by default. [Get global application commands](https://docs.discord.com/developers/interactions/application-commands#get-global-application-commands). Cloudflare documents that a running alarm has no next scheduled alarm unless the handler schedules one, and warns that constructor scheduling can interfere with an existing alarm. [Durable Object alarms](https://developers.cloudflare.com/durable-objects/api/alarms/).
+
+### Consider
+
+Gemini identified a real launch limit. The account retains at most 64 attempt records until ten minutes after their deadlines. Further attempts can encounter capacity before the remote rate limit. This bounded rejection is not a violation of the 20-per-30-second safety limit, which is a maximum rather than a throughput promise. The agreed launch is a few quiet channels. Retain the bound for now and include it in the final launch-capacity assessment. Do not lower the shared retention constant indiscriminately because it also controls revoked-subscription tombstones.
+
+### Noted
+
+The cloud provider fixture creates subscriptions already enabled. Pure tests cover an enabled observation racing a stale pending list. Signed challenge-to-notification behavior remains a required unit 3 and live-provider gate. No claim of full webhook lifecycle verification follows from unit 4's fixtures.
+
+Malformed authenticated operator input currently produces a sanitized 503 rather than a 400. Gemini identified this API distinction. It does not invalidate the bounded, authenticated operation or require expanding this correction wave.
+
+### Dismissed
+
+Gemini recommends changing the manifest's omitted `required` default to match the old Discord adapter. All existing registry options explicitly set `required: true`, so the alleged present behavior regression does not occur. The obsolete adapter is removed in unit 5. Changing the new default solely to match that adapter adds no current guarantee.
+
+### Agreement and disagreement
+
+Both models identified OAuth state capacity and repeated-setup problems. Gemini's general pass assessments for credential recovery and secret rotation do not refute GPT-6.1-Sol's specific interleaving reproductions. Those defects remain blockers. Comment review is clear. No reviewer verdict substitutes for root runtime checks.
+
+Both correction tasks initially stopped at a provider usage limit. On 2026-10-15 at approximately 20:31 UTC, root verified that T3 had automatically resumed both tasks in their existing isolated worktrees. The harness checkout contains unfinished test-only edits; the account checkout contains the imported unit 4 implementation. Neither task is accepted as completed, and no duplicate writer was started.
 
 ## Independent cloud run
 
@@ -24,4 +63,4 @@ The run deployed six Workers and six SQLite Durable Object namespaces. Teardown 
 
 ## Remaining gates
 
-Inspect the independent technical findings, review the harness correction, and independently rerun the corrected cloud suite before acceptance. Live provider grants after onboarding-token expiry, signed EventSub delivery, chat timing, Discord registration/privacy/timing, CI environment configuration, and operating cost remain unverified. Signed ingress is unit 3; legacy deletion and final composition are unit 5.
+Review the six account corrections and the harness correction, then independently rerun the corrected local and cloud suites before acceptance. Live provider grants after onboarding-token expiry, signed EventSub delivery, chat timing, Discord registration/privacy/timing, CI environment configuration, and operating cost remain unverified. Signed ingress is unit 3; legacy deletion and final composition are unit 5.
