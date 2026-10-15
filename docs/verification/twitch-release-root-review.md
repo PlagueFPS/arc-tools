@@ -64,3 +64,13 @@ The run deployed six Workers and six SQLite Durable Object namespaces. Teardown 
 ## Remaining gates
 
 Review the six account corrections and the harness correction, then independently rerun the corrected local and cloud suites before acceptance. Live provider grants after onboarding-token expiry, signed EventSub delivery, chat timing, Discord registration/privacy/timing, CI environment configuration, and operating cost remain unverified. Signed ingress is unit 3; legacy deletion and final composition are unit 5.
+
+## Harness correction received
+
+The harness worker returned `f4e57261807087d231ab4a41a6f981245f709fee` in `/home/angel/.t3/worktrees/arc-tools/t3-d1243984`. It changes tests and evidence only. Root read the shared HTTP boundary, reconstruction acknowledgement, changed callers, and evidence. Root independently ran 189 local tests with 653 assertions, including eight new harness regressions. Root TypeScript checking and a direct Biome check passed.
+
+The correction classifies only a precise missing-Worker HTML response as pre-execution readiness failure. Classification requires a disposable test hostname, 404, HTML content type, Cloudflare server header, no fixture response marker, and the exact observed body SHA-256. It retries within a bounded request budget. Fixture errors, other 404s, 500s, redirects, unknown transport execution, parsing failures, and schema failures stop. Reconstruction acknowledgement accepts only the expected native abort error. The UUID observation polls a bounded condition while retaining the persisted-state and alarm assertions.
+
+The worker's final cloud stage `test-account-15e5217e-e077475f24a3` records 14 passes and 222 assertions with verified teardown. It captured the exact missing-Worker response on several GET and POST fixture routes between successful responses. This supports the narrow readiness classification. It does not prove what caused the original unchecked reset failure. The lower assertion counter moves repeated HTTP checks into a fail-fast decoder; root's technical review must still confirm that domain assertions remain intact.
+
+Fresh technical and comment reviews of the harness patch are running. Root will run the real-cloud suite after combining the reviewed harness and account corrections. Running the same cloud suite before those account changes would not verify the pending account fixes. The helper regressions currently need an explicit test command; default CI discovery remains a review consideration.
