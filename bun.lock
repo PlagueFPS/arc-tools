@@ -72,12 +72,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@arctools/utils": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
         "effect": "4.0.4",
       },
       "devDependencies": {
-        "@arctools/testing": "workspace:*",
         "@arctools/typescript-config": "workspace:*",
-        "alchemy": "2.0.0-beta.83",
         "typescript": "5.9.3",
       },
     },
@@ -100,6 +99,7 @@
       "name": "@arctools/testing",
       "version": "0.0.0",
       "dependencies": {
+        "@arctools/arc-data": "workspace:*",
         "@arctools/utils": "workspace:*",
         "effect": "4.0.4",
       },

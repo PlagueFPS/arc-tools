@@ -1,4 +1,4 @@
 import { ManagedRuntime } from "effect";
-import { FetchHttpClient } from "effect/http";
+import { CommandLayer } from "./layers.js";
 
-export const CommandRuntime = ManagedRuntime.make(FetchHttpClient.layer);
+export const CommandRuntime = ManagedRuntime.make(CommandLayer);

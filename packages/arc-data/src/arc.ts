@@ -1,31 +1,12 @@
 import { Array as Arr, Effect } from "effect";
-import { HttpClientResponse, UrlParams } from "effect/http";
-import { ArcsAPIResponse } from "./schema.js";
-import { arcHttpClient } from "./utils.js";
+import { ArcData, type ArcsAPIParams } from "./data-service.js";
 
-export interface ArcsAPIParams {
-  /** The ID of the arc */
-  id?: string;
-  /** The search query for the arc */
-  search?: string;
-}
+export type { ArcsAPIParams } from "./data-service.js";
 
-/**
- * Fetches an arc from the API
- * @param searchParams - The search parameters
- * @returns The arc data based on search params
- */
 export const fetchArc = Effect.fn("ArcData.fetchArc")(function* (
-  searchParams: ArcsAPIParams,
+  params: ArcsAPIParams,
 ) {
-  const httpClient = yield* arcHttpClient;
-  const response = yield* httpClient
-    .get("/arcs", {
-      urlParams: UrlParams.fromInput({
-        ...searchParams,
-        includeLoot: true,
-      }),
-    })
-    .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(ArcsAPIResponse)));
-  return Arr.head(response.data);
+  const data = yield* ArcData;
+  const result = yield* data.arcs(params);
+  return Arr.head(result.value);
 });

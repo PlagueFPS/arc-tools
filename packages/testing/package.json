@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@arctools/utils": "workspace:*",
-    "effect": "4.0.4"
+    "effect": "4.0.4",
+    "@arctools/arc-data": "workspace:*"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",

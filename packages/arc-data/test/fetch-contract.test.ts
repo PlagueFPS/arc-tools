@@ -1,10 +1,16 @@
 import { describe, expect } from "bun:test";
-import { createMockHttpClientLayer } from "@arctools/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer, Option } from "effect";
-import { fetchArc, getEvents, getItem, getTraders } from "../src/index.js";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import {
+  fetchArc,
+  getEvents,
+  getItem,
+  getTraders,
+  layerUncached,
+} from "../src/index.js";
 
-const mockLayer = createMockHttpClientLayer({
+const fixture = {
   traders: {
     Apollo: [{ id: "a", name: "A", trader_price: 1 }],
     Celeste: [],
@@ -28,7 +34,28 @@ const mockLayer = createMockHttpClientLayer({
       endTime: 2000,
     },
   ],
-});
+};
+const mockLayer = layerUncached.pipe(
+  Layer.provide(
+    Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) => {
+        const resource = new URL(request.url).pathname.split("/").at(-1);
+        const data =
+          resource === "items"
+            ? fixture.items
+            : resource === "arcs"
+              ? fixture.arcs
+              : resource === "traders"
+                ? fixture.traders
+                : fixture.events;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, Response.json({ data })),
+        );
+      }),
+    ),
+  ),
+);
 
 const { test } = Test.make({ providers: Layer.empty });
 
@@ -57,7 +84,21 @@ describe("fetch contract", () => {
   test(
     "getItem returns none for empty response",
     Effect.gen(function* () {
-      const emptyLayer = createMockHttpClientLayer({});
+      const emptyLayer = layerUncached.pipe(
+        Layer.provide(
+          Layer.succeed(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({ data: [] }),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
       const result = yield* getItem({ id: "missing" }).pipe(
         Effect.provide(emptyLayer),
       );

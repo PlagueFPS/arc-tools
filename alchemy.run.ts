@@ -25,6 +25,27 @@ export default Alchemy.Stack(
         () => import("./tests/cloud/probe.js"),
       );
       const probe = yield* ProbeWorker;
+      if (stage.startsWith("test-cache-")) {
+        const { CacheFixtureWorker } = yield* Effect.promise(
+          () => import("./tests/cloud/cache-fixture.js"),
+        );
+        const { MetaforgeWorker } = yield* Effect.promise(
+          () => import("./tests/cloud/metaforge.js"),
+        );
+        const source = yield* MetaforgeWorker;
+        const cache = yield* CacheFixtureWorker;
+        return {
+          stage,
+          url: bot.url,
+          workerName: bot.workerName,
+          probeUrl: probe.url,
+          probeWorkerName: probe.workerName,
+          cacheUrl: cache.url,
+          cacheWorkerName: cache.workerName,
+          sourceUrl: source.url,
+          sourceWorkerName: source.workerName,
+        };
+      }
       return {
         stage,
         url: bot.url,

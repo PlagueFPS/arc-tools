@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { Schema } from "effect";
 import { CloudSettings, cloudSettings } from "./cloud-settings.js";
 
+const suite = process.argv[2] === "foundation" ? "foundation" : "cache";
 const cleanupOnly = process.argv[2] === "cleanup";
 let settings: CloudSettings;
 if (cleanupOnly) {
@@ -29,7 +30,7 @@ if (cleanupOnly) {
     .slice(0, 8);
   settings = cloudSettings({
     ...process.env,
-    ARC_CLOUD_STAGE: `test-foundation-${worktree}-${run}`,
+    ARC_CLOUD_STAGE: `test-${suite}-${worktree}-${run}`,
     ARC_CLOUD_RUN: run,
   });
 }
@@ -73,7 +74,7 @@ const env = {
 };
 cloudSettings(env);
 console.info(
-  `Cloudflare foundation stage ${settings.stage}, profile ${settings.profile}`,
+  `Cloudflare ${suite} stage ${settings.stage}, profile ${settings.profile}`,
 );
 async function execute(command: string[]) {
   const child = Bun.spawn(command, {
@@ -106,8 +107,6 @@ try {
     JSON.stringify({ ...settings, testResult, cleanupResult }, null, 2),
   );
 }
-console.info(
-  `Foundation tests exit ${testResult}; cleanup exit ${cleanupResult}`,
-);
+console.info(`Cloud tests exit ${testResult}; cleanup exit ${cleanupResult}`);
 console.info(`Retry cleanup with bun run test:cloud:cleanup ${settings.stage}`);
 process.exit(testResult || cleanupResult);

@@ -36,7 +36,7 @@ export class TradersAPIResponse extends Schema.Class<TradersAPIResponse>(
 export class Arc extends Schema.Class<Arc>("Arc")({
   id: Schema.String,
   name: Schema.String,
-  loot: Schema.OptionFromNullishOr(Schema.Array(ArcLootSchema)),
+  loot: Schema.OptionFromOptionalNullOr(Schema.Array(ArcLootSchema)),
 }) {}
 export class ArcsAPIResponse extends Schema.Class<ArcsAPIResponse>(
   "ArcsAPIResponse",

@@ -20,9 +20,10 @@ const options = {
   stage: settings.stage,
   profile: settings.profile,
 };
-const { test, beforeAll, afterAll, deploy, destroy } = Test.make(options);
+export const { test, beforeAll, afterAll, deploy, destroy } =
+  Test.make(options);
 
-const stack = beforeAll(
+export const stack = beforeAll(
   deploy(Stack).pipe(
     Effect.flatMap(
       Schema.decodeUnknownEffect(
@@ -31,6 +32,10 @@ const stack = beforeAll(
           probeUrl: Schema.String,
           workerName: Schema.String,
           probeWorkerName: Schema.String,
+          cacheUrl: Schema.optional(Schema.String),
+          cacheWorkerName: Schema.optional(Schema.String),
+          sourceUrl: Schema.optional(Schema.String),
+          sourceWorkerName: Schema.optional(Schema.String),
         }),
       ),
     ),
@@ -43,17 +48,20 @@ beforeAll(
     const deployed = yield* stack;
     const ready = yield* HttpClient.get(`${deployed.probeUrl}/snapshot`).pipe(
       Effect.flatMap((response) =>
-        response.status === 200
+        response.status === 200 &&
+        response.headers["content-type"]?.includes("application/json")
           ? Effect.succeed(response)
           : response.text.pipe(
               Effect.flatMap((body) =>
                 Effect.fail(
-                  new Error(`Probe activation ${response.status}: ${body}`),
+                  new Error(
+                    `Probe activation ${response.status}: ${body.slice(0, 512)}`,
+                  ),
                 ),
               ),
             ),
       ),
-      Effect.retry({ times: 6, schedule: Schedule.spaced("1 second") }),
+      Effect.retry({ times: 60, schedule: Schedule.spaced("1 second") }),
     );
     expect(ready.status).toBe(200);
     const namespaces = yield* Core.withProviders(
@@ -71,10 +79,26 @@ beforeAll(
     );
     expect(probeNamespaces.length).toBe(1);
     expect(probeNamespaces[0]?.useSqlite).toBeTrue();
+    const workerNames = [
+      deployed.workerName,
+      deployed.probeWorkerName,
+      ...[deployed.cacheWorkerName, deployed.sourceWorkerName].filter(
+        (name) => name !== undefined,
+      ),
+    ];
+    const stackNamespaces = namespaces.filter((namespace) =>
+      workerNames.includes(namespace.script ?? ""),
+    );
+    if (settings.stage.startsWith("test-cache-")) {
+      expect(stackNamespaces.length).toBe(3);
+      expect(
+        stackNamespaces.every((namespace) => namespace.useSqlite),
+      ).toBeTrue();
+    }
     const evidence = yield* Schema.decodeUnknownEffect(CloudResourceEvidence)({
       stage: settings.stage,
-      workers: [deployed.workerName, deployed.probeWorkerName],
-      namespaces: probeNamespaces.map((namespace) => namespace.id),
+      workers: workerNames,
+      namespaces: stackNamespaces.map((namespace) => namespace.id),
     });
     yield* Effect.promise(() =>
       writeFile(
@@ -86,7 +110,7 @@ beforeAll(
       ),
     );
   }),
-  { timeout: 60_000 },
+  { timeout: 90_000 },
 );
 
 afterAll(destroy(Stack), { timeout: 180_000 });
@@ -184,3 +208,8 @@ test(
   }),
   { timeout: 60_000 },
 );
+
+if (settings.stage.startsWith("test-cache-")) {
+  const { registerCacheTests } = await import("./cache-cases.js");
+  registerCacheTests({ stack, test });
+}

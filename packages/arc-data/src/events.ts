@@ -1,18 +1,14 @@
 import { normalize } from "@arctools/utils";
 import { Array as Arr, Clock, Effect, Option } from "effect";
-import { HttpClientResponse } from "effect/http";
-import { type Event, EventAPIResponse } from "./schema.js";
-import { arcHttpClient } from "./utils.js";
+import { ArcData } from "./data-service.js";
+import type { Event } from "./schema.js";
 
 /**
  * Gets all events from the event schedule API
  */
 export const getEvents = Effect.fn("ArcData.getEvents")(function* () {
-  const httpClient = yield* arcHttpClient;
-  const response = yield* httpClient
-    .get("/events-schedule")
-    .pipe(Effect.flatMap(HttpClientResponse.schemaBodyJson(EventAPIResponse)));
-  return response.data;
+  const data = yield* ArcData;
+  return (yield* data.events()).value;
 });
 
 /**

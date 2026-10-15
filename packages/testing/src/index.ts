@@ -1,3 +1,4 @@
+import { layerUncached } from "@arctools/arc-data";
 import { BASE_API_URL } from "@arctools/utils";
 import { Effect, Layer } from "effect";
 import {
@@ -162,5 +163,7 @@ export function createMockHttpClientLayer(mock: MockData) {
       }),
   );
 
-  return Layer.succeed(HttpClient.HttpClient, mockClient);
+  return layerUncached.pipe(
+    Layer.provideMerge(Layer.succeed(HttpClient.HttpClient, mockClient)),
+  );
 }

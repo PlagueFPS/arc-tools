@@ -53,6 +53,8 @@ await Core.run(
         const names = [
           `arc-tools-bot-${settings.stage}`,
           `arc-tools-probe-${settings.stage}`,
+          `arc-tools-cache-${settings.stage}`,
+          `arc-tools-metaforge-${settings.stage}`,
           ...evidence.workers,
         ];
         const workers = yield* Workers.listScripts
