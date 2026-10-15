@@ -1,5 +1,7 @@
 # Account and release review corrections
 
+This is the correction worker's original record. That worker did not run cloud tests. [Account integration verification](account-integration.md) records the later combined checkout, strict native reconstruction acknowledgement, local checks, failed cloud attempts, and cleanup. Native account alarm recovery remains NOT VERIFIED.
+
 This branch starts at root `d8d291b` and cherry-picks unit 4 as `5b5cd91`. The original unit 4 commit is `4988f00b5d3ffe53abff89f6331ff1bb8f82b6dd`. Its checkout was read only. Commit `165a0d6` records failing regressions before the production fixes.
 
 The six findings from independent review A are addressed locally. Unit 4 remains unaccepted pending independent review and runtime checks. Review B findings are outside this report. Signed ingress and tenants remain unit 3. Final wiring and deletion remain unit 5. The full migration is incomplete.

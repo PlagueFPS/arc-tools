@@ -1,5 +1,7 @@
 # Twitch account and Discord release verification
 
+This is the original unit 4 worker record. Its historical cloud passes do not verify the subsequently corrected account implementation. [Account integration verification](account-integration.md) records the combined commits, the corrected 33-state OAuth bound and subscription-intent adoption rule, local results, and the open native cloud gate. Unit 4 remains unaccepted.
+
 Unit 4 starts at `9a19eacc2a62dfbf54cc5d2e1ede8f18367d472f`. Unit 4 implementation gates are VERIFIED locally and on real Cloudflare with controlled providers. Root owns review and integration. Unit 3 and unit 5 remain outstanding.
 
 ## Architecture recorded before implementation

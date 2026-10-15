@@ -1,5 +1,7 @@
 # Cloud test transport and reconstruction evidence
 
+This is the original harness and discovery record. [Account integration verification](account-integration.md) records its combination with the account corrections. The combined default command passes 200 pure tests. The earlier cloud passes below do not verify the newly added native account alarm case, whose combined cloud gate remains open.
+
 This is a test-harness correction on top of unit 4, cherry-picked as `c204d2c` from `4988f00b5d3ffe53abff89f6331ff1bb8f82b6dd`. The worker branch starts at root `c260bc1`. Application code, account policy, provider adapters, release workflows, stack wiring, manifests, and the approved migration plan are unchanged by this correction. Root owns independent review and acceptance.
 
 ## Failure evidence and causal limits
