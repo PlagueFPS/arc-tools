@@ -7,7 +7,14 @@ export class BotApi extends HttpApi.make("arc-tools").add(
       success: Schema.Struct({
         status: Schema.Literal("foundation"),
         stage: Schema.String,
+        revision: Schema.String,
+        manifestHash: Schema.String,
       }),
     }),
+  ),
+  HttpApiGroup.make("operator").add(
+    HttpApiEndpoint.post("setup", "/ops/setup"),
+    HttpApiEndpoint.post("status", "/ops/status"),
+    HttpApiEndpoint.get("oauth", "/oauth/twitch/callback"),
   ),
 ) {}

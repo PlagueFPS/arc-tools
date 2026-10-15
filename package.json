@@ -18,7 +18,9 @@
     "check-types": "turbo run check-types && tsc --noEmit",
     "test:cloud": "bun run scripts/cloud-test.ts",
     "test:cloud:cleanup": "bun run scripts/cloud-test.ts cleanup",
-    "deploy": "alchemy deploy"
+    "deploy": "alchemy deploy",
+    "ops": "bun run scripts/ops.ts",
+    "sync:discord": "bun run scripts/sync-discord-commands.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.15",

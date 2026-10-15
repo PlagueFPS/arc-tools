@@ -3,7 +3,12 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { Schema } from "effect";
 import { CloudSettings, cloudSettings } from "./cloud-settings.js";
 
-const suite = process.argv[2] === "foundation" ? "foundation" : "cache";
+const suite =
+  process.argv[2] === "foundation"
+    ? "foundation"
+    : process.argv[2] === "cache"
+      ? "cache"
+      : "account";
 const cleanupOnly = process.argv[2] === "cleanup";
 let settings: CloudSettings;
 if (cleanupOnly) {
@@ -83,7 +88,7 @@ async function execute(command: string[]) {
     stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",
-    timeout: 300_000,
+    timeout: 600_000,
   });
   return await child.exited;
 }

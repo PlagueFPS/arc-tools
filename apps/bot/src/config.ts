@@ -43,7 +43,9 @@ export const EnvironmentConfig = Schema.Union([
     stage: TestStage,
     senderKind: Schema.Literal("synthetic"),
     senderLogin: Schema.Literal("fixture_sender"),
-    channelLogins: Schema.Tuple([Schema.Literal("fixture_channel")]),
+    channelLogins: Schema.NonEmptyArray(
+      Schema.String.check(Schema.isPattern(/^fixture_[a-z0-9_]{1,17}$/)),
+    ).check(Schema.isMaxLength(32)),
     twitchClientId: Schema.Literal("fixture-twitch"),
     discordApplicationId: Schema.Literal("fixture-discord"),
   }),
@@ -94,3 +96,19 @@ export const runtimeConfig = Effect.gen(function* () {
     operatorSecret,
   };
 });
+
+export const accountRuntimeConfig = Effect.gen(function* () {
+  const config = yield* runtimeConfig;
+  const publicUrl = yield* Config.String("ARC_PUBLIC_URL").pipe(
+    Config.withDefault(""),
+  );
+  return {
+    ...config,
+    publicUrl: publicUrl.replace(/\/$/, ""),
+    webhookReady: false,
+  };
+});
+
+export const buildRevision = Config.String("ARC_BUILD_REVISION").pipe(
+  Config.withDefault("unreleased"),
+);

@@ -55,6 +55,8 @@ await Core.run(
           `arc-tools-probe-${settings.stage}`,
           `arc-tools-cache-${settings.stage}`,
           `arc-tools-metaforge-${settings.stage}`,
+          `arc-tools-account-${settings.stage}`,
+          `arc-tools-provider-${settings.stage}`,
           ...evidence.workers,
         ];
         const workers = yield* Workers.listScripts

@@ -25,7 +25,10 @@ export default Alchemy.Stack(
         () => import("./tests/cloud/probe.js"),
       );
       const probe = yield* ProbeWorker;
-      if (stage.startsWith("test-cache-")) {
+      if (
+        stage.startsWith("test-cache-") ||
+        stage.startsWith("test-account-")
+      ) {
         const { CacheFixtureWorker } = yield* Effect.promise(
           () => import("./tests/cloud/cache-fixture.js"),
         );
@@ -34,6 +37,31 @@ export default Alchemy.Stack(
         );
         const source = yield* MetaforgeWorker;
         const cache = yield* CacheFixtureWorker;
+        if (stage.startsWith("test-account-")) {
+          const { TwitchProviderFixture } = yield* Effect.promise(
+            () => import("./tests/cloud/twitch-provider-fixture.js"),
+          );
+          const { AccountFixtureWorker } = yield* Effect.promise(
+            () => import("./tests/cloud/account-fixture.js"),
+          );
+          const provider = yield* TwitchProviderFixture;
+          const account = yield* AccountFixtureWorker;
+          return {
+            stage,
+            url: bot.url,
+            workerName: bot.workerName,
+            probeUrl: probe.url,
+            probeWorkerName: probe.workerName,
+            cacheUrl: cache.url,
+            cacheWorkerName: cache.workerName,
+            sourceUrl: source.url,
+            sourceWorkerName: source.workerName,
+            accountUrl: account.url,
+            accountWorkerName: account.workerName,
+            providerUrl: provider.url,
+            providerWorkerName: provider.workerName,
+          };
+        }
         return {
           stage,
           url: bot.url,

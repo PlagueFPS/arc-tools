@@ -7,6 +7,7 @@ import * as Core from "alchemy/Test/Core";
 import { Effect, Schedule, Schema, Stream } from "effect";
 import { HttpClient } from "effect/http";
 import Stack from "../../alchemy.run.js";
+import { manifestHash } from "../../apps/bot/src/discord-manifest.js";
 import {
   CloudResourceEvidence,
   cloudSettings,
@@ -36,11 +37,15 @@ export const stack = beforeAll(
           cacheWorkerName: Schema.optional(Schema.String),
           sourceUrl: Schema.optional(Schema.String),
           sourceWorkerName: Schema.optional(Schema.String),
+          accountUrl: Schema.optional(Schema.String),
+          accountWorkerName: Schema.optional(Schema.String),
+          providerUrl: Schema.optional(Schema.String),
+          providerWorkerName: Schema.optional(Schema.String),
         }),
       ),
     ),
   ),
-  { timeout: 180_000 },
+  { timeout: 240_000 },
 );
 
 beforeAll(
@@ -82,15 +87,24 @@ beforeAll(
     const workerNames = [
       deployed.workerName,
       deployed.probeWorkerName,
-      ...[deployed.cacheWorkerName, deployed.sourceWorkerName].filter(
-        (name) => name !== undefined,
-      ),
+      ...[
+        deployed.cacheWorkerName,
+        deployed.sourceWorkerName,
+        deployed.accountWorkerName,
+        deployed.providerWorkerName,
+      ].filter((name) => name !== undefined),
     ];
     const stackNamespaces = namespaces.filter((namespace) =>
       workerNames.includes(namespace.script ?? ""),
     );
     if (settings.stage.startsWith("test-cache-")) {
-      expect(stackNamespaces.length).toBe(3);
+      expect(stackNamespaces.length).toBe(4);
+      expect(
+        stackNamespaces.every((namespace) => namespace.useSqlite),
+      ).toBeTrue();
+    }
+    if (settings.stage.startsWith("test-account-")) {
+      expect(stackNamespaces.length).toBe(6);
       expect(
         stackNamespaces.every((namespace) => namespace.useSqlite),
       ).toBeTrue();
@@ -137,6 +151,8 @@ test(
     expect(yield* health.json).toEqual({
       status: "foundation",
       stage: settings.stage,
+      revision: "unreleased",
+      manifestHash: yield* manifestHash,
     });
     const bytes = new Uint8Array([
       0, 255, 13, 10, 32, 123, 34, 120, 34, 58, 49, 125, 10,
@@ -209,7 +225,14 @@ test(
   { timeout: 60_000 },
 );
 
-if (settings.stage.startsWith("test-cache-")) {
+if (
+  settings.stage.startsWith("test-cache-") ||
+  settings.stage.startsWith("test-account-")
+) {
   const { registerCacheTests } = await import("./cache-cases.js");
   registerCacheTests({ stack, test });
+}
+if (settings.stage.startsWith("test-account-")) {
+  const { registerAccountTests } = await import("./account-cases.js");
+  registerAccountTests({ stack, test });
 }
