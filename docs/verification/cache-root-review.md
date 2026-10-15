@@ -23,3 +23,11 @@ A fresh isolated implementation delegate owns the fix and deterministic regressi
 ## Remaining gates
 
 Review and independently verify the fix before accepting or integrating unit 2. GitHub cloud-test credential configuration remains unverified. Live Twitch and Discord behavior, privacy, response timing, command synchronization, and operating cost remain outside this unit's verified scope.
+
+## Deadline correction verification
+
+The fresh delegate returned regression commit `3337632`, fix `c51f9e9`, and evidence `f98f7b1` in `/home/angel/.t3/worktrees/arc-tools/t3-f1835b35`. The application change adds a final absolute-clock check and preserves the existing timeout and stale flag. Tests use an injected clock to cover completion at 19, 20, and 100 milliseconds against a 20-millisecond deadline for both fresh and fallback data.
+
+Root independently reran all 155 tests with 383 assertions. Forced build and typecheck passed all 11 tasks without cache hits. Root TypeScript checking and a direct Biome check of 102 files passed. Root repeated the original synchronous-source probe and observed `Failure` with `DataUnavailable`, resource `command`, and reason `deadline` after expiry. The earlier implementation returned `Success` in the same probe.
+
+Fresh technical and comment reviews of the correction are pending. Cache implementation and cloud fixtures are unchanged by this fix. The prior cloud evidence still applies to those artifacts. Synchronous work remains cooperative and can finish late; the new acceptance check rejects that late result. End-to-end protocol timing remains unverified.
