@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test";
 import { makeFixture } from "@arctools/arc-data/testing";
 import * as Test from "alchemy/Test/Bun";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { Clock, Deferred, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { executeCommand } from "../src/execute.js";
 
@@ -16,6 +16,81 @@ const execute = (
 ) => executeCommand({ command, input, deadline });
 
 describe("cached command execution", () => {
+  for (const stale of [false, true]) {
+    for (const elapsed of [19, 20, 100]) {
+      test(
+        `synchronous completion at ${elapsed}ms with stale=${stale} respects the absolute 20ms deadline`,
+        Effect.gen(function* () {
+          const fixture = yield* makeFixture();
+          if (stale) {
+            fixture.body({ data: [] });
+            yield* fixture.data.items({ id: "missing", minimal: true });
+            yield* TestClock.setTime(day);
+          }
+          const startedAt = stale ? day : 0;
+          let now = startedAt;
+          const scheduledClock = yield* Clock.Clock;
+          const clock: Clock.Clock = {
+            currentTimeMillis: Effect.sync(() => now),
+            currentTimeMillisUnsafe: () => now,
+            currentTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
+            currentTimeNanosUnsafe: () => BigInt(now) * 1_000_000n,
+            monotonicTimeNanos: scheduledClock.monotonicTimeNanos,
+            monotonicTimeNanosUnsafe: () =>
+              scheduledClock.monotonicTimeNanosUnsafe(),
+            sleep: (duration) => scheduledClock.sleep(duration),
+          };
+          fixture.respond((url) =>
+            url.searchParams.get("id") === "missing"
+              ? Effect.succeed(new Response("offline", { status: 503 }))
+              : Effect.sync(() => {
+                  now = startedAt + elapsed;
+                  return Response.json({
+                    data: [{ id: "sensors", name: "Sensors", value: 10 }],
+                  });
+                }),
+          );
+          const result = yield* execute(
+            "sell",
+            stale ? "missing" : "sensors",
+            startedAt + 20,
+          ).pipe(
+            Effect.provide(fixture.layer),
+            Effect.provideService(Clock.Clock, clock),
+            Effect.result,
+          );
+          if (elapsed < 20) {
+            expect(result).toMatchObject({
+              _tag: "Success",
+              success: {
+                text: stale
+                  ? "Sensors can be sold for 10 coins each [Using cached data]"
+                  : "Sensors can be sold for 10 coins each",
+                stale,
+              },
+            });
+          } else {
+            expect(result).toMatchObject({
+              _tag: "Failure",
+              failure: {
+                _tag: "CommandError",
+                cause: {
+                  _tag: "DataUnavailable",
+                  resource: "command",
+                  reason: "deadline",
+                },
+                stale,
+                message: stale
+                  ? "Game data is temporarily unavailable. Please try again shortly. [Using cached data]"
+                  : "Game data is temporarily unavailable. Please try again shortly.",
+              },
+            });
+          }
+        }),
+      );
+    }
+  }
+
   test(
     "each concurrent execution owns its stale indication, including stale lookup misses",
     Effect.gen(function* () {
