@@ -552,17 +552,18 @@ export function registerAccountTests({
         ),
       });
       const preparedResponse = yield* post(`${u.account}/native-alarm/prepare`);
-      const prepared = yield* Effect.promise(() =>
-        preparedResponse.json(),
-      ).pipe(
-        Effect.flatMap(
-          Schema.decodeUnknownEffect(
-            Schema.Struct({ instance: Schema.String, until: Schema.Number }),
-          ),
-        ),
+      const prepared = yield* json(
+        preparedResponse,
+        Schema.Struct({ instance: Schema.String, until: Schema.Number }),
       );
       const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
-      yield* post(`${u.account}/native-alarm/reconstruct`);
+      expect(
+        (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
+      ).toBe(204);
+      yield* reconstructedSnapshot(
+        get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
+        prepared.instance,
+      );
       const recovered = yield* get(
         `${u.account}/native-alarm/snapshot`,
         snapshotSchema,

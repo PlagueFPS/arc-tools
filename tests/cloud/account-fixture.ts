@@ -263,12 +263,10 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
           json(nativeObject().nativeAlarmSnapshot()),
         )
         .handleRaw("nativeReconstruct", () =>
-          nativeObject()
-            .reconstruct()
-            .pipe(
-              Effect.catchCause(() => Effect.void),
-              Effect.as(HttpServerResponse.empty({ status: 204 })),
-            ),
+          acknowledgeReconstruction(
+            nativeObject().reconstruct(),
+            "account reconstruction fixture",
+          ),
         )
         .handleRaw("complete", ({ request }) =>
           input(request, OAuthCompletion).pipe(
