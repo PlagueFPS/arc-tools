@@ -257,7 +257,14 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
         .handleRaw("status", () => json(object().status()))
         .handleRaw("snapshot", () => json(object().snapshot()))
         .handleRaw("nativePrepare", () =>
-          json(nativeObject().prepareNativeAlarm()),
+          json(nativeObject().prepareNativeAlarm()).pipe(
+            Effect.tapCause((cause) =>
+              Effect.logError(
+                "Native account fixture preparation failed",
+                cause,
+              ),
+            ),
+          ),
         )
         .handleRaw("nativeSnapshot", () =>
           json(nativeObject().nativeAlarmSnapshot()),

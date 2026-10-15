@@ -381,7 +381,13 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
         .handleRaw("snapshot", () =>
           object().snapshot().pipe(Effect.map(HttpServerResponse.jsonUnsafe)),
         )
-        .handleRaw("token", ({ request }) => provider(request))
+        .handleRaw("token", ({ request }) =>
+          provider(request).pipe(
+            Effect.tapCause((cause) =>
+              Effect.logError("Controlled token fixture failed", cause),
+            ),
+          ),
+        )
         .handleRaw("validate", ({ request }) => provider(request))
         .handleRaw("users", ({ request }) => provider(request))
         .handleRaw("list", ({ request }) => provider(request))
