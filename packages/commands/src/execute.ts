@@ -61,6 +61,11 @@ export const executeCommand = Effect.fn("Command.execute")(function* (
     ),
   );
   const usedFallback = yield* Ref.get(stale);
+  if ((yield* Clock.currentTimeMillis) >= input.deadline)
+    return yield* new CommandError({
+      cause: new DataUnavailable({ resource: "command", reason: "deadline" }),
+      stale: usedFallback,
+    });
   return {
     text: usedFallback ? `${text} [Using cached data]` : text,
     stale: usedFallback,
