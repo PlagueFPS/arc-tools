@@ -78,3 +78,11 @@ Fresh technical and comment reviews of the harness patch passed its runtime beha
 Root inspected the one-line script change and independently ran `TURBO_FORCE=true bunx bun@1.3.5 run test`. Six uncached workspace tasks ran all 181 existing tests, followed by eight helper tests under Bun 1.3.5. All 189 tests and 653 assertions passed. The correction changes only the root script and its evidence document. No cloud deployment was needed to verify discovery.
 
 Root will run the real-cloud suite after combining the reviewed harness and account corrections. Running the same cloud suite before those account changes would not verify the pending account fixes. The account corrections and combined acceptance gate remain open.
+
+## Account corrections received
+
+The account worker returned regression commit `165a0d6` and correction commit `90231bd` in `/home/angel/.t3/worktrees/arc-tools/t3-8c90ffc4`. Root read the correction evidence and production diff, then independently ran all 192 local tests with 701 assertions. All passed. The correction adds eleven local regressions while preserving the original 181 tests and ten command fixtures.
+
+The changes fence credential validation against an explicit 401, invalidate rejected setup credentials, persist subscription binding intent before creation, allocate OAuth batches atomically within derived capacity, request full Discord localizations, and synchronize native alarms with their persisted intent. A new fixture case exercises the actual credential alarm after native reconstruction. It has not yet run on Cloudflare in this correction branch.
+
+A fresh integration owner is combining the original unit, harness, default-test discovery, and account corrections in an isolated checkout. Root identified that the newly added native reconstruction route still suppressed all abort causes in the account-only branch. The active integrator received a clarification to apply the already-required exact abort acknowledgement to that new route as well. Combined cloud evidence and fresh reviews remain required. No account correction has been accepted or integrated into root.
