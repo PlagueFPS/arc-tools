@@ -1,0 +1,3 @@
+ts	phase	decision	why	evidence	result
+2026-10-15T10:39:37Z	frame	Begin delegated implementation after shared-understanding confirmation	The user confirmed the revised environment and cloud-testing plan; root remains orchestrator	docs/cloudflare-migration-plan.md	open
+2026-10-15T10:39:37Z	workflow	Verify foundation before parallel bot implementation	Platform compatibility and the cloud harness affect every later unit	docs/cloudflare-migration-plan.md	open
