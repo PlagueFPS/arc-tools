@@ -2,12 +2,14 @@ import { expect } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import {
+  canonicalManifest,
   commandManifest,
   manifestHash,
   normalizeManifest,
   RemoteCommands,
 } from "../src/discord-manifest.js";
 import { syncCommands } from "../src/discord-sync.js";
+import { digest } from "../src/provider-http.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 const fixture = Effect.fnUntraced(function* () {
@@ -21,11 +23,14 @@ const fixture = Effect.fnUntraced(function* () {
     rateLimits: 0,
     badReadback: false,
     changeAfterWrite: false,
+    localizedReadback: false,
+    fullReads: 0,
   };
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
-      const path = new URL(request.url).pathname;
+      const url = new URL(request.url);
+      const path = url.pathname;
       if (path === "/health")
         return Response.json({
           stage: "staging",
@@ -42,15 +47,37 @@ const fixture = Effect.fnUntraced(function* () {
         control.writes++;
         const raw = await request.json();
         control.remote = Schema.decodeUnknownSync(RemoteCommands)(raw);
+        if (control.localizedReadback)
+          control.remote = control.remote.map((command) => ({
+            ...command,
+            name_localizations: { de: "falsch" },
+          }));
         if (control.changeAfterWrite) control.revision = "commit-newer";
         return Response.json(control.remote);
       }
       control.reads++;
+      const full = url.searchParams.get("with_localizations") === "true";
+      if (full) control.fullReads++;
       return Response.json(
         control.badReadback
           ? []
           : control.remote.map((command) => ({
               ...command,
+              ...(!full
+                ? {
+                    name_localizations: undefined,
+                    description_localizations: undefined,
+                    options: command.options?.map((option) => ({
+                      ...option,
+                      name_localizations: undefined,
+                      description_localizations: undefined,
+                      choices: option.choices?.map((choice) => ({
+                        ...choice,
+                        name_localizations: undefined,
+                      })),
+                    })),
+                  }
+                : {}),
               id: "server-id",
               application_id: "fixture-discord",
               version: "server-version",
@@ -72,6 +99,73 @@ const fixture = Effect.fnUntraced(function* () {
     options: { api: endpoint },
   };
 });
+
+test(
+  "full localization reads detect and remove drift on commands, options and choices",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const desired = Schema.decodeUnknownSync(RemoteCommands)([
+      {
+        ...commandManifest[0],
+        name: "buy",
+        options: [
+          {
+            type: 3,
+            name: "item",
+            description: "Item name",
+            choices: [{ name: "Sensor", value: "sensor" }],
+          },
+        ],
+      },
+    ]);
+    f.control.hash = yield* digest(canonicalManifest(desired));
+    const options = { ...f.options, desired };
+    for (const location of [
+      "name",
+      "description",
+      "option-name",
+      "option-description",
+      "choice",
+    ]) {
+      f.control.remote = desired.map((command) => ({
+        ...command,
+        ...(location === "name"
+          ? { name_localizations: { de: "kaufen" } }
+          : {}),
+        ...(location === "description"
+          ? { description_localizations: { de: "Kaufen" } }
+          : {}),
+        options: command.options?.map((option) => ({
+          ...option,
+          ...(location === "option-name"
+            ? { name_localizations: { de: "objekt" } }
+            : {}),
+          ...(location === "option-description"
+            ? { description_localizations: { de: "Objekt" } }
+            : {}),
+          choices: option.choices?.map((choice) => ({
+            ...choice,
+            ...(location === "choice"
+              ? { name_localizations: { de: "Sensoren" } }
+              : {}),
+          })),
+        })),
+      }));
+      expect(
+        (yield* syncCommands(f.release, { ...options, checkOnly: true })).drift,
+      ).toBeTrue();
+      expect((yield* syncCommands(f.release, options)).changed).toBeTrue();
+      expect((yield* syncCommands(f.release, options)).changed).toBeFalse();
+    }
+    expect(f.control.writes).toBe(5);
+    expect(f.control.fullReads).toBe(f.control.reads);
+    f.control.remote = [];
+    f.control.localizedReadback = true;
+    expect(
+      (yield* syncCommands(f.release, options).pipe(Effect.flip)).code,
+    ).toBe("readback");
+  }),
+);
 
 test(
   "manifest owns all ten guild-only slash definitions and string options",
