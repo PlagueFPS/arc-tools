@@ -12,7 +12,7 @@ import {
   SubscriptionObservation,
   TwitchAccount,
 } from "./twitch-contracts.js";
-import { TwitchProvider } from "./twitch-provider.js";
+import { type Subscription, TwitchProvider } from "./twitch-provider.js";
 import {
   type AccountState,
   AccountStore,
@@ -76,13 +76,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       state.nextCredentialCheck = null;
     }
   });
+  const invalidateSession = (state: AccountState, generation: string) => {
+    if (current(state) && state.session?.generation === generation) {
+      state.session = null;
+      state.tokenLease = null;
+      state.tokenRetryAt = 0;
+      state.nextCredentialCheck = null;
+    }
+  };
   const invalidate = (generation: string) =>
-    store.update((state) => {
-      if (current(state) && state.session?.generation === generation) {
-        state.session = null;
-        state.nextCredentialCheck = null;
-      }
-    });
+    store.update((state) => invalidateSession(state, generation));
   const appToken = Effect.fn("TwitchAccount.token")(
     function* () {
       const now = yield* Clock.currentTimeMillis;
@@ -134,10 +137,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           token,
           expiresAt: completed + validation.expires_in * 1000,
           validatedAt: completed,
-          generation: owner,
+          generation:
+            claim.session?.token === token ? claim.session.generation : owner,
         };
         const accepted = yield* store.update((state) => {
-          if (!current(state) || state.tokenLease?.owner !== owner)
+          if (
+            !current(state) ||
+            state.tokenLease?.owner !== owner ||
+            state.session?.generation !== claim.session?.generation
+          )
             return false;
           state.session = session;
           state.tokenLease = null;
@@ -150,7 +158,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           return true;
         });
         if (!accepted) return yield* new AccountError({ code: "stale" });
-        validatedGeneration = owner;
+        validatedGeneration = session.generation;
         return session;
       });
       return yield* acquire().pipe(
@@ -244,6 +252,22 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     channels: readonly string[],
     generation: number,
   ) {
+    const bound = (
+      subscription: Subscription,
+      state: Pick<AccountState, "subscriptions" | "subscriptionIntents">,
+    ) => {
+      const channel = subscription.condition.broadcaster_user_id ?? "";
+      const record = state.subscriptions[channel];
+      const binding =
+        record?.id === subscription.id
+          ? record
+          : state.subscriptionIntents[channel];
+      return (
+        binding?.binding === config.subscriptionBinding &&
+        binding.senderId === sender &&
+        binding.callback === config.callback
+      );
+    };
     const assertOwner = Effect.fnUntraced(function* () {
       const now = yield* Clock.currentTimeMillis;
       const valid = yield* store.update(
@@ -256,9 +280,10 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       if (!valid) return yield* new AccountError({ code: "stale" });
     });
     let remote = yield* provider.list(token);
-    const owned = yield* store.update((state) =>
-      Object.values(state.subscriptions),
-    );
+    const ownership = yield* store.update((state) => ({
+      subscriptions: state.subscriptions,
+      subscriptionIntents: state.subscriptionIntents,
+    }));
     for (const subscription of remote) {
       const ours =
         subscription.type === "channel.chat.message" &&
@@ -268,11 +293,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         channels.includes(subscription.condition.broadcaster_user_id ?? "") &&
         subscription.condition.user_id === sender &&
         subscription.transport.callback === config.callback;
-      const changedSecret = owned.some(
-        (record) =>
-          record.id === subscription.id &&
-          record.binding !== config.subscriptionBinding,
-      );
+      const changedSecret = !bound(subscription, ownership);
       if (
         ours &&
         (!desired || changedSecret || !liveSubscription(subscription.status))
@@ -303,7 +324,23 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           liveSubscription(subscription.status),
       );
       if (!exists) {
-        yield* assertOwner();
+        const now = yield* Clock.currentTimeMillis;
+        const intended = yield* store.update((state) => {
+          if (
+            !current(state) ||
+            state.setupLease?.owner !== owner ||
+            state.authGeneration !== generation ||
+            state.setupLease.until <= now
+          )
+            return false;
+          state.subscriptionIntents[channel] = {
+            senderId: sender,
+            callback: config.callback,
+            binding: config.subscriptionBinding,
+          };
+          return true;
+        });
+        if (!intended) return yield* new AccountError({ code: "stale" });
         yield* provider.create(token, channel, sender);
       }
     }
@@ -322,6 +359,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
             subscription.condition.broadcaster_user_id === channel &&
             subscription.condition.user_id === sender &&
             liveSubscription(subscription.status) &&
+            bound(subscription, state) &&
             !state.revoked[subscription.id],
         );
         if (found)
@@ -369,13 +407,24 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const generation = yield* store.update((state) => state.authGeneration);
     const run = Effect.fnUntraced(function* () {
       const session = yield* appToken();
+      const authenticated = Effect.fnUntraced(function* <A>(
+        operation: Effect.Effect<A, AccountError>,
+      ) {
+        return yield* operation.pipe(
+          Effect.tapError((error) =>
+            error.code === "client"
+              ? invalidate(session.generation)
+              : Effect.void,
+          ),
+        );
+      });
       const logins = [
         ...new Set([
           config.identity.senderLogin,
           ...config.identity.channelLogins,
         ]),
       ];
-      const users = yield* provider.users(session.token, logins);
+      const users = yield* authenticated(provider.users(session.token, logins));
       const sender = users.find(
         (user) => user.login === config.identity.senderLogin,
       );
@@ -395,10 +444,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         if (!current(state) || state.setupLease?.owner !== owner) return false;
         state.sender = sender;
         state.channels = resolved;
+        state.subscriptionIntents = Object.fromEntries(
+          Object.entries(state.subscriptionIntents).filter(([id]) =>
+            resolved.some((channel) => channel.id === id),
+          ),
+        );
         return true;
       });
       if (!accepted) return yield* new AccountError({ code: "stale" });
       const authorizations: SetupResult["authorizations"][number][] = [];
+      const states: AccountState["oauth"][number][] = [];
       for (const user of users) {
         const roles: ("sender" | "broadcaster")[] = [];
         const scopes: string[] = [];
@@ -417,30 +472,17 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         if (!needed) continue;
         const nonce = `${crypto.randomUUID()}${crypto.randomUUID()}`;
         const hash = yield* digest(nonce);
-        const stored = yield* store.update((state) => {
-          if (
-            !current(state) ||
-            state.setupLease?.owner !== owner ||
-            state.oauth.length >= policy.maxOAuth
-          )
-            return false;
-          state.oauth = [
-            ...state.oauth,
-            {
-              digest: hash,
-              operator,
-              revision: config.revision,
-              generation: state.authGeneration,
-              userId: user.id,
-              login: user.login,
-              roles,
-              scopes,
-              expiresAt: now + policy.oauthMs,
-            },
-          ];
-          return true;
+        states.push({
+          digest: hash,
+          operator,
+          revision: config.revision,
+          generation,
+          userId: user.id,
+          login: user.login,
+          roles,
+          scopes,
+          expiresAt: now + policy.oauthMs,
         });
-        if (!stored) return yield* new AccountError({ code: "capacity" });
         const params = new URLSearchParams({
           client_id: config.identity.twitchClientId,
           redirect_uri: config.redirect,
@@ -455,18 +497,41 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           url: `https://id.twitch.tv/oauth2/authorize?${params}`,
         });
       }
+      const allocatedAt = yield* Clock.currentTimeMillis;
+      const stored = yield* store.update((state) => {
+        if (
+          !current(state) ||
+          state.setupLease?.owner !== owner ||
+          state.setupLease.until <= allocatedAt ||
+          state.authGeneration !== generation
+        )
+          return "stale";
+        reclaim(state, allocatedAt);
+        const retained =
+          state.oauth.length + states.length <= policy.maxOAuth
+            ? state.oauth
+            : state.oauth.filter(
+                (entry) =>
+                  entry.operator === operator &&
+                  entry.revision === config.revision &&
+                  entry.generation === generation &&
+                  !granted(state, entry.userId, entry.scopes) &&
+                  !states.some((next) => next.userId === entry.userId),
+              );
+        if (retained.length + states.length > policy.maxOAuth)
+          return "capacity";
+        state.oauth = [...retained, ...states];
+        return "stored";
+      });
+      if (stored !== "stored") return yield* new AccountError({ code: stored });
       if (authorizations.length === 0 && config.webhookReady) {
-        yield* reconcile(
-          owner,
-          session.token,
-          sender.id,
-          resolved.map((channel) => channel.id),
-          generation,
-        ).pipe(
-          Effect.tapError((error) =>
-            error.code === "client"
-              ? invalidate(session.generation)
-              : Effect.void,
+        yield* authenticated(
+          reconcile(
+            owner,
+            session.token,
+            sender.id,
+            resolved.map((channel) => channel.id),
+            generation,
           ),
         );
       }
@@ -653,6 +718,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         };
         return { kind: "outcome", outcome: { kind: "rejected" } } as const;
       }
+      if (state.session?.generation !== session.generation) {
+        const retryAt = now + 100;
+        return {
+          kind: "outcome",
+          outcome: (retryAt < valid.deadline
+            ? { kind: "retryable", retryAt: Deadline.make(retryAt) }
+            : { kind: "expired" }) satisfies DispatchOutcome,
+        } as const;
+      }
       const retryAt = reserveAt(state, channel.id, now);
       if (retryAt > now) {
         if (retryAt >= valid.deadline) {
@@ -720,14 +794,8 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           break;
         case "limited":
         case "unauthorized": {
-          if (
-            result.kind === "unauthorized" &&
-            current(state) &&
-            state.session?.generation === session.generation
-          ) {
-            state.session = null;
-            state.nextCredentialCheck = null;
-          }
+          if (result.kind === "unauthorized")
+            invalidateSession(state, session.generation);
           const retryAt =
             result.kind === "limited" ? result.retryAt : completed + 100;
           if (result.kind === "limited")
@@ -777,9 +845,17 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
           yield* store.update((state) => {
-            if (current(state) && state.session === null)
+            if (current(state))
               state.nextCredentialCheck =
-                state.credentialFailures < 3 ? now + 60_000 : null;
+                state.credentialFailures < 3
+                  ? Math.max(
+                      now + 1,
+                      state.tokenLease?.until ??
+                        state.nextCredentialCheck ??
+                        now + 60_000,
+                      state.tokenRetryAt,
+                    )
+                  : null;
           });
         }),
       ),

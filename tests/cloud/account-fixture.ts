@@ -16,6 +16,7 @@ import {
   SubscriptionObservation,
 } from "../../apps/bot/src/twitch-contracts.js";
 import { makeProvider } from "../../apps/bot/src/twitch-provider.js";
+import { AccountState, policy } from "../../apps/bot/src/twitch-state.js";
 import {
   acknowledgeReconstruction,
   identifyFixtureResponse,
@@ -54,11 +55,14 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
       const realClock = yield* Clock.Clock;
       let time =
         (yield* state.storage.get<number>("fixtureTime")) ?? Date.now();
+      let realtime =
+        (yield* state.storage.get<boolean>("fixtureRealtime")) ?? false;
+      const now = () => (realtime ? Date.now() : time);
       const clock: Clock.Clock = {
-        currentTimeMillis: Effect.sync(() => time),
-        currentTimeMillisUnsafe: () => time,
-        currentTimeNanos: Effect.sync(() => BigInt(time) * 1_000_000n),
-        currentTimeNanosUnsafe: () => BigInt(time) * 1_000_000n,
+        currentTimeMillis: Effect.sync(now),
+        currentTimeMillisUnsafe: now,
+        currentTimeNanos: Effect.sync(() => BigInt(now()) * 1_000_000n),
+        currentTimeNanosUnsafe: () => BigInt(now()) * 1_000_000n,
         monotonicTimeNanos: realClock.monotonicTimeNanos,
         monotonicTimeNanosUnsafe: () => realClock.monotonicTimeNanosUnsafe(),
         sleep: (duration) => realClock.sleep(duration),
@@ -114,6 +118,63 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         observe: (input: SubscriptionObservation) =>
           run(account.observeSubscription(input)),
         credential: () => run(account.alarm()),
+        alarm: Effect.fnUntraced(function* () {
+          const entryAlarm = yield* state.storage.getAlarm();
+          const runs =
+            ((yield* state.storage.get<number>("fixtureAlarmRuns")) ?? 0) + 1;
+          yield* state.storage.put("fixtureAlarmRuns", runs);
+          yield* run(account.alarm());
+          const persisted = yield* state.storage.get<unknown>("account:v1");
+          const record = yield* Schema.decodeUnknownEffect(AccountState)(
+            persisted,
+          ).pipe(Effect.orDie);
+          yield* state.storage.put("fixtureAlarmObservation", {
+            runs,
+            entryAlarm,
+            intended: record.nextCredentialCheck,
+            native: yield* state.storage.getAlarm(),
+          });
+        }),
+        prepareNativeAlarm: Effect.fnUntraced(function* () {
+          realtime = true;
+          yield* state.storage.put("fixtureRealtime", true);
+          const setup = yield* run(account.setup("fixture-operator-digest"));
+          if (setup.kind !== "success")
+            return yield* Effect.die("Native alarm setup failed");
+          const until = Date.now() + policy.tokenLeaseMs;
+          yield* state.storage
+            .transaction(
+              Effect.gen(function* () {
+                const raw = yield* state.storage.get<unknown>("account:v1");
+                const record = yield* Schema.decodeUnknownEffect(AccountState)(
+                  raw,
+                ).pipe(Effect.orDie);
+                const intended = Date.now() + 1_500;
+                yield* state.storage.put("account:v1", {
+                  ...record,
+                  tokenLease: { owner: "interrupted-fixture", until },
+                  nextCredentialCheck: intended,
+                });
+                yield* state.storage.setAlarm(intended);
+              }),
+            )
+            .pipe(Effect.orDie);
+          return { instance, until };
+        }),
+        nativeAlarmSnapshot: Effect.fnUntraced(function* () {
+          const raw = yield* state.storage.get<unknown>("account:v1");
+          const record = yield* Schema.decodeUnknownEffect(AccountState)(
+            raw,
+          ).pipe(Effect.orDie);
+          return {
+            instance,
+            intended: record.nextCredentialCheck,
+            native: yield* state.storage.getAlarm(),
+            lease: record.tokenLease,
+            observation:
+              (yield* state.storage.get("fixtureAlarmObservation")) ?? null,
+          };
+        }),
         time: Effect.fnUntraced(function* (next: number) {
           time = next;
           yield* state.storage.put("fixtureTime", next);
@@ -159,6 +220,9 @@ class AccountApi extends HttpApi.make("account-fixture").add(
     HttpApiEndpoint.post("reconstruct", "/reconstruct"),
     HttpApiEndpoint.get("snapshot", "/snapshot"),
     HttpApiEndpoint.post("credential", "/credential"),
+    HttpApiEndpoint.post("nativePrepare", "/native-alarm/prepare"),
+    HttpApiEndpoint.post("nativeReconstruct", "/native-alarm/reconstruct"),
+    HttpApiEndpoint.get("nativeSnapshot", "/native-alarm/snapshot"),
   ),
 ) {}
 export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker>()(
@@ -175,6 +239,7 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
   Effect.gen(function* () {
     const objects = yield* AccountFixtureObject;
     const object = () => objects.getByName("environment");
+    const nativeObject = () => objects.getByName("native-alarm");
     const json = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(Effect.map(HttpServerResponse.jsonUnsafe));
     const input = Effect.fnUntraced(function* <A, I>(
@@ -191,6 +256,20 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
         .handleRaw("setup", () => json(object().setup()))
         .handleRaw("status", () => json(object().status()))
         .handleRaw("snapshot", () => json(object().snapshot()))
+        .handleRaw("nativePrepare", () =>
+          json(nativeObject().prepareNativeAlarm()),
+        )
+        .handleRaw("nativeSnapshot", () =>
+          json(nativeObject().nativeAlarmSnapshot()),
+        )
+        .handleRaw("nativeReconstruct", () =>
+          nativeObject()
+            .reconstruct()
+            .pipe(
+              Effect.catchCause(() => Effect.void),
+              Effect.as(HttpServerResponse.empty({ status: 204 })),
+            ),
+        )
         .handleRaw("complete", ({ request }) =>
           input(request, OAuthCompletion).pipe(
             Effect.flatMap((value) => json(object().complete(value))),

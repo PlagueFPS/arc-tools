@@ -131,11 +131,32 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
                 });
               return { status: 200, body: commands };
             }
+            const full = url.searchParams.get("with_localizations") === "true";
+            yield* observation(
+              full ? "discord-full-read" : "discord-partial-read",
+            );
+            const commands =
+              (yield* storage.get<RemoteCommands>("discord")) ?? [];
             return {
               status: 200,
               body: control.badDiscordReadback
                 ? []
-                : ((yield* storage.get<RemoteCommands>("discord")) ?? []),
+                : full
+                  ? commands
+                  : commands.map((command) => ({
+                      ...command,
+                      name_localizations: undefined,
+                      description_localizations: undefined,
+                      options: command.options?.map((option) => ({
+                        ...option,
+                        name_localizations: undefined,
+                        description_localizations: undefined,
+                        choices: option.choices?.map((choice) => ({
+                          ...choice,
+                          name_localizations: undefined,
+                        })),
+                      })),
+                    })),
             };
           }
           if (url.pathname === "/oauth/token") {

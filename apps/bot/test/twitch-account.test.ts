@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
@@ -10,6 +11,7 @@ import {
   Semaphore,
 } from "effect";
 import { EnvironmentConfig } from "../src/config.js";
+import { type AccountStorage, makeAccountStorage } from "../src/twitch.js";
 import { makeAccount, senderScopes } from "../src/twitch-account.js";
 import {
   type Account,
@@ -45,17 +47,33 @@ const harness = Effect.fnUntraced(function* (
   let time = initial;
   let raw: unknown = emptyState("");
   const mutex = yield* Semaphore.make(1);
-  const store = AccountStore.of({
-    update: (f) =>
+  let nativeAlarm: number | null = null;
+  const storage: AccountStorage = {
+    get: () => Effect.sync(() => structuredClone(raw)),
+    put: (_key, value) =>
       Effect.sync(() => {
-        const state: AccountState = Schema.decodeUnknownSync(AccountState)(
-          structuredClone(raw),
-        );
-        const result = f(state);
-        raw = Schema.encodeSync(AccountState)(state);
-        return result;
-      }).pipe(mutex.withPermit),
-  });
+        raw = structuredClone(value);
+      }),
+    transaction: (effect) => effect.pipe(mutex.withPermit),
+    getAlarm: () => Effect.sync(() => nativeAlarm),
+    setAlarm: (value) =>
+      Effect.sync(() => {
+        nativeAlarm = Number(value);
+      }),
+    deleteAlarm: () =>
+      Effect.sync(() => {
+        nativeAlarm = null;
+      }),
+  };
+  const store = yield* makeAccountStorage(storage).pipe(
+    Effect.provideService(RuntimeContext, {
+      Type: "test",
+      id: "account-storage",
+      env: {},
+      get: () => Effect.succeed(undefined),
+      set: (key) => Effect.succeed(key),
+    }),
+  );
   const noGate = (): Deferred.Deferred<void> | null => null;
   const defaultResult = (): SendResult => ({
     kind: "sent",
@@ -81,6 +99,8 @@ const harness = Effect.fnUntraced(function* (
     validationGate: noGate(),
     failCreate: false,
     failUsers: false,
+    usersFailure: null as "client" | "provider" | null,
+    usersGate: noGate(),
     usersTokens: [] as string[],
     sendTokens: [] as string[],
     remoteBindings: {} as Record<string, string>,
@@ -128,7 +148,9 @@ const harness = Effect.fnUntraced(function* (
     }),
     users: Effect.fnUntraced(function* (token, logins) {
       control.usersTokens.push(token);
-      if (control.failUsers) return yield* new AccountError({ code: "client" });
+      const failure = control.failUsers ? "client" : control.usersFailure;
+      if (control.usersGate) yield* Deferred.await(control.usersGate);
+      if (failure) return yield* new AccountError({ code: failure });
       return logins.map((login) => ({
         login,
         id:
@@ -215,6 +237,10 @@ const harness = Effect.fnUntraced(function* (
     },
     alarmAt: () =>
       Schema.decodeUnknownSync(AccountState)(raw).nextCredentialCheck,
+    nativeAlarmAt: () => nativeAlarm,
+    consumeAlarm: () => {
+      nativeAlarm = null;
+    },
     authorize: Effect.fnUntraced(function* (
       target: Account = account.service,
     ): Effect.fn.Return<SetupResult, AccountError> {
@@ -226,7 +252,17 @@ const harness = Effect.fnUntraced(function* (
             ? "100"
             : authorization.login === "fixture_channel"
               ? "200"
-              : "300";
+              : authorization.login === "fixture_other"
+                ? "300"
+                : String(
+                    400 +
+                      [
+                        ...new Set([
+                          identity.senderLogin,
+                          ...identity.channelLogins,
+                        ]),
+                      ].indexOf(authorization.login),
+                  );
         control.grantUser = user;
         control.grantLogin = authorization.login;
         control.grantScopes = url.searchParams.get("scope")?.split(" ") ?? [];
@@ -261,13 +297,32 @@ test(
       const recovered = yield* h.construct();
       const validations = h.control.validations;
       h.time(initial + 1);
+      h.consumeAlarm();
       yield* recovered.credentialAlarm();
       expect(h.control.validations).toBe(validations);
       expect(h.alarmAt()).toBe(until);
+      expect(h.nativeAlarmAt()).toBe(until);
       h.time(until);
+      h.consumeAlarm();
       yield* recovered.credentialAlarm();
       expect(h.control.validations).toBe(validations + 1);
       expect(h.alarmAt()).toBeGreaterThan(until);
+      expect(h.nativeAlarmAt()).toBe(h.alarmAt());
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "a consumed alarm is rearmed when a cached credential leaves the intended timestamp unchanged",
+  Effect.gen(function* () {
+    const h = yield* harness();
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      const intended = h.alarmAt();
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(h.alarmAt()).toBe(intended);
+      expect(h.nativeAlarmAt()).toBe(intended);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -390,6 +445,75 @@ test(
 );
 
 test(
+  "a late setup users 401 cannot invalidate a replacement session, and provider ambiguity preserves it",
+  Effect.gen(function* () {
+    const h = yield* harness();
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      h.control.usersFailure = "client";
+      h.control.usersGate = yield* Deferred.make<void>();
+      const users = h.control.usersTokens.length;
+      const setup = yield* h.account
+        .setup("operator-digest")
+        .pipe(Effect.flip, Effect.forkChild);
+      for (let i = 0; i < 100 && h.control.usersTokens.length === users; i++)
+        yield* Effect.yieldNow;
+      expect(h.control.usersTokens.length).toBe(users + 1);
+      h.control.result = { kind: "unauthorized" };
+      expect((yield* h.account.dispatch(h.send("setup-old-token"))).kind).toBe(
+        "retryable",
+      );
+      h.time(initial + 1000);
+      h.control.result = { kind: "sent", messageId: "replacement" };
+      expect((yield* h.account.dispatch(h.send("setup-new-token"))).kind).toBe(
+        "sent",
+      );
+      expect(h.control.mints).toBe(2);
+      yield* Deferred.succeed(h.control.usersGate, undefined);
+      expect((yield* Fiber.join(setup)).code).toBe("client");
+      expect((yield* h.account.status()).credential).toBe("valid");
+      h.control.usersGate = null;
+      h.control.usersFailure = "provider";
+      expect(
+        (yield* h.account.setup("operator-digest").pipe(Effect.flip)).code,
+      ).toBe("provider");
+      expect((yield* h.account.status()).credential).toBe("valid");
+      expect(h.control.mints).toBe(2);
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "validation completed before a late send 401 preserves the rejected token's generation",
+  Effect.gen(function* () {
+    const h = yield* harness();
+    yield* Effect.gen(function* () {
+      h.control.appExpires = 7200;
+      yield* h.authorize();
+      h.control.sendGate = yield* Deferred.make<void>();
+      h.control.result = { kind: "unauthorized" };
+      const send = yield* h.account
+        .dispatch(h.send("late-send-401"))
+        .pipe(Effect.forkChild);
+      for (let i = 0; i < 100 && h.control.sends === 0; i++)
+        yield* Effect.yieldNow;
+      expect(h.control.sends).toBe(1);
+      h.time(initial + 3_600_000);
+      yield* h.alarm();
+      yield* Deferred.succeed(h.control.sendGate, undefined);
+      yield* Fiber.join(send);
+      expect((yield* h.account.status()).credential).toBe("absent");
+      h.control.sendGate = null;
+      h.control.result = { kind: "sent", messageId: "minted" };
+      expect(
+        (yield* h.account.dispatch(h.send("after-late-send-401"))).kind,
+      ).toBe("sent");
+      expect(h.control.mints).toBe(2);
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
   "32 channels and a distinct sender allocate all links atomically across repeats and expiry",
   Effect.gen(function* () {
     const identity = Schema.decodeUnknownSync(EnvironmentConfig)({
@@ -424,6 +548,73 @@ test(
       expect(
         Schema.decodeUnknownSync(AccountState)(h.snapshot()).oauth.length,
       ).toBe(33);
+      expect((yield* h.authorize(recovered.service)).status.setup).toBe(
+        "ready",
+      );
+      expect(h.control.remote.length).toBe(32);
+      expect(
+        Schema.decodeUnknownSync(AccountState)(h.snapshot()).oauth.length,
+      ).toBe(0);
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "capacity recovery discards obsolete granted states before allocating newly revoked roles",
+  Effect.gen(function* () {
+    const h = yield* harness();
+    yield* Effect.gen(function* () {
+      const initialSetup = yield* h.account.setup("operator-digest");
+      for (const auth of initialSetup.authorizations.slice(0, 2)) {
+        const params = new URL(auth.url).searchParams;
+        h.control.grantUser = auth.login === "fixture_sender" ? "100" : "200";
+        h.control.grantLogin = auth.login;
+        h.control.grantScopes = params.get("scope")?.split(" ") ?? [];
+        yield* h.account.completeOAuth({
+          state: params.get("state") ?? "",
+          code: "code",
+          operator: "operator-digest",
+        });
+      }
+      let latest = "";
+      for (let i = 0; i < 32; i++) {
+        const setup = yield* h.account.setup("operator-digest");
+        expect(setup.authorizations.length).toBe(1);
+        latest =
+          new URL(setup.authorizations[0]?.url ?? "").searchParams.get(
+            "state",
+          ) ?? "";
+      }
+      h.control.grantUser = "300";
+      h.control.grantLogin = "fixture_other";
+      h.control.grantScopes = ["channel:bot"];
+      yield* h.account.completeOAuth({
+        state: latest,
+        code: "code",
+        operator: "operator-digest",
+      });
+      expect((yield* h.account.setup("operator-digest")).status.setup).toBe(
+        "ready",
+      );
+      const subscription = h.control.remote.find(
+        (sub) => sub.condition.broadcaster_user_id === "200",
+      );
+      if (!subscription)
+        return yield* Effect.die("Missing revoked subscription");
+      yield* h.account.observeSubscription({
+        id: subscription.id,
+        broadcasterId: Dispatch.fields.broadcasterId.make("200"),
+        senderId: "100",
+        status: "authorization_revoked",
+      });
+      expect(
+        (yield* h.account.setup("operator-digest")).authorizations.map(
+          (auth) => auth.login,
+        ),
+      ).toEqual(["fixture_sender", "fixture_channel"]);
+      expect(
+        Schema.decodeUnknownSync(AccountState)(h.snapshot()).oauth.length,
+      ).toBe(2);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );

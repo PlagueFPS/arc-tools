@@ -532,6 +532,82 @@ export function registerAccountTests({
     { timeout: 120_000 },
   );
   test(
+    "native account alarm recovers a reconstructed credential lease without losing its schedule",
+    Effect.gen(function* () {
+      const u = yield* urls;
+      const snapshotSchema = Schema.Struct({
+        instance: Schema.String,
+        intended: Schema.NullOr(Schema.Number),
+        native: Schema.NullOr(Schema.Number),
+        lease: Schema.NullOr(
+          Schema.Struct({ owner: Schema.String, until: Schema.Number }),
+        ),
+        observation: Schema.NullOr(
+          Schema.Struct({
+            runs: Schema.Number,
+            entryAlarm: Schema.NullOr(Schema.Number),
+            intended: Schema.NullOr(Schema.Number),
+            native: Schema.NullOr(Schema.Number),
+          }),
+        ),
+      });
+      const preparedResponse = yield* post(`${u.account}/native-alarm/prepare`);
+      const prepared = yield* Effect.promise(() =>
+        preparedResponse.json(),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(
+            Schema.Struct({ instance: Schema.String, until: Schema.Number }),
+          ),
+        ),
+      );
+      const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      yield* post(`${u.account}/native-alarm/reconstruct`);
+      const recovered = yield* get(
+        `${u.account}/native-alarm/snapshot`,
+        snapshotSchema,
+      ).pipe(
+        Effect.repeat({
+          until: (value) => value.observation !== null,
+          times: 30,
+          schedule: Schedule.spaced("100 millis"),
+        }),
+      );
+      expect(recovered.instance).not.toBe(prepared.instance);
+      expect(recovered.observation?.runs).toBe(1);
+      expect(recovered.observation?.entryAlarm).toBeNull();
+      expect(recovered.observation?.intended).toBe(prepared.until);
+      expect(recovered.observation?.native).toBe(prepared.until);
+      expect(recovered.native).toBe(prepared.until);
+      expect(
+        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
+          "GET /oauth/validate"
+        ],
+      ).toBe(before.calls["GET /oauth/validate"]);
+      const validated = yield* get(
+        `${u.account}/native-alarm/snapshot`,
+        snapshotSchema,
+      ).pipe(
+        Effect.repeat({
+          until: (value) =>
+            value.observation !== null && value.observation.runs >= 2,
+          times: 120,
+          schedule: Schedule.spaced("100 millis"),
+        }),
+      );
+      expect(validated.observation?.runs).toBe(2);
+      expect(validated.lease).toBeNull();
+      expect(validated.intended ?? 0).toBeGreaterThan(prepared.until);
+      expect(validated.native).toBe(validated.intended);
+      expect(
+        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
+          "GET /oauth/validate"
+        ],
+      ).toBe((before.calls["GET /oauth/validate"] ?? 0) + 1);
+    }),
+    { timeout: 90_000 },
+  );
+  test(
     "Discord cloud fixture reconciles the full registry and detects partial or stale releases",
     Effect.gen(function* () {
       const u = yield* urls;
@@ -564,6 +640,30 @@ export function registerAccountTests({
           "PUT /applications/fixture-discord/commands"
         ],
       ).toBe(written.calls["PUT /applications/fixture-discord/commands"]);
+      yield* post(`${u.provider}/control`, {
+        commands: commandManifest.map((command, index) =>
+          index === 0
+            ? {
+                ...command,
+                name_localizations: { de: "kaufen" },
+                options: command.options.map((option) => ({
+                  ...option,
+                  description_localizations: { de: "Objektname" },
+                })),
+              }
+            : command,
+        ),
+      });
+      expect(
+        (yield* syncCommands(release, { ...options, checkOnly: true })).drift,
+      ).toBeTrue();
+      expect((yield* syncCommands(release, options)).changed).toBeTrue();
+      expect((yield* syncCommands(release, options)).changed).toBeFalse();
+      const localized = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      expect(localized.calls["discord-full-read"]).toBe(
+        localized.calls["GET /applications/fixture-discord/commands"],
+      );
+      expect(localized.calls["discord-partial-read"] ?? 0).toBe(0);
       yield* post(`${u.provider}/control`, { badDiscordReadback: true });
       const failed = yield* syncCommands(release, options).pipe(Effect.flip);
       expect(failed.code).toBe("readback");

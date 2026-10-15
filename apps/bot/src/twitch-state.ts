@@ -61,6 +61,14 @@ export const AccountState = Schema.Struct({
   tokenRetryAt: Schema.Number,
   nextCredentialCheck: Schema.NullOr(Schema.Number),
   setupLease: Schema.NullOr(Lease),
+  subscriptionIntents: Schema.Record(
+    Schema.String,
+    Schema.Struct({
+      senderId: Schema.String,
+      callback: Schema.String,
+      binding: Schema.String,
+    }),
+  ),
   subscriptions: Schema.Record(
     Schema.String,
     Schema.Struct({
@@ -84,6 +92,7 @@ export type AccountState = {
   -readonly [K in keyof Persisted]: K extends
     | "grants"
     | "subscriptions"
+    | "subscriptionIntents"
     | "revoked"
     | "attempts"
     ? { -readonly [P in keyof Persisted[K]]: Persisted[K][P] }
@@ -101,6 +110,7 @@ export const emptyState = (revision: string): AccountState => ({
   tokenRetryAt: 0,
   nextCredentialCheck: null,
   setupLease: null,
+  subscriptionIntents: {},
   subscriptions: {},
   revoked: {},
   attempts: {},
@@ -114,9 +124,10 @@ export interface Store {
 export class AccountStore extends Context.Service<AccountStore, Store>()(
   "@arctools/AccountStore",
 ) {}
+const maxChannels = 32;
 export const policy = {
-  maxChannels: 32,
-  maxOAuth: 32,
+  maxChannels,
+  maxOAuth: maxChannels + 1,
   maxAttempts: 64,
   retentionMs: 600_000,
   oauthMs: 600_000,

@@ -70,7 +70,7 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
       for (let attempt = 0; attempt < 4; attempt++) {
         yield* fence(phase);
         const response = yield* request(
-          `${options.api ?? "https://discord.com/api/v10"}/applications/${encodeURIComponent(release.applicationId)}/commands`,
+          `${options.api ?? "https://discord.com/api/v10"}/applications/${encodeURIComponent(release.applicationId)}/commands${method === "GET" ? "?with_localizations=true" : ""}`,
           {
             method,
             headers: {

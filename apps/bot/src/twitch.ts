@@ -14,8 +14,23 @@ import {
 import { makeProvider, TwitchProvider } from "./twitch-provider.js";
 import { AccountState, AccountStore, emptyState } from "./twitch-state.js";
 
-export const makeAccountStorage = Effect.gen(function* () {
-  const { storage } = yield* Cloudflare.DurableObjectState;
+type NativeStorage = Cloudflare.DurableObjectState["Service"]["storage"];
+export type AccountStorage = Pick<
+  NativeStorage,
+  "getAlarm" | "setAlarm" | "deleteAlarm"
+> & {
+  readonly get: (key: string) => Effect.Effect<unknown, never, RuntimeContext>;
+  readonly put: (
+    key: string,
+    value: unknown,
+  ) => Effect.Effect<void, never, RuntimeContext>;
+  readonly transaction: <A, R>(
+    effect: Effect.Effect<A, never, R>,
+  ) => Effect.Effect<A, unknown, R | RuntimeContext>;
+};
+export const makeAccountStorage = Effect.fnUntraced(function* (
+  storage: AccountStorage,
+) {
   const runtime = yield* RuntimeContext;
   const provide = <A, E>(effect: Effect.Effect<A, E, RuntimeContext>) =>
     effect.pipe(Effect.provideService(RuntimeContext, runtime), Effect.orDie);
@@ -24,14 +39,13 @@ export const makeAccountStorage = Effect.gen(function* () {
       provide(
         storage.transaction(
           Effect.gen(function* () {
-            const raw = yield* storage.get<unknown>("account:v1");
+            const raw = yield* storage.get("account:v1");
             const state: AccountState =
               raw === undefined
                 ? emptyState("")
                 : yield* Schema.decodeUnknownEffect(AccountState)(raw).pipe(
                     Effect.orDie,
                   );
-            const alarm = state.nextCredentialCheck;
             const result = f(state);
             const encoded = yield* Schema.encodeEffect(AccountState)(
               state,
@@ -42,7 +56,7 @@ export const makeAccountStorage = Effect.gen(function* () {
             )
               return yield* Effect.die("Account storage capacity exceeded");
             yield* storage.put("account:v1", encoded);
-            if (alarm !== state.nextCredentialCheck)
+            if ((yield* storage.getAlarm()) !== state.nextCredentialCheck)
               yield* state.nextCredentialCheck === null
                 ? storage.deleteAlarm()
                 : storage.setAlarm(state.nextCredentialCheck);
@@ -56,9 +70,10 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
   config: Parameters<typeof makeAccount>[0],
   provider: typeof TwitchProvider.Service,
 ) {
-  const storage = yield* makeAccountStorage;
+  const { storage } = yield* Cloudflare.DurableObjectState;
+  const accountStore = yield* makeAccountStorage(storage);
   const account = yield* makeAccount(config).pipe(
-    Effect.provideService(AccountStore, storage),
+    Effect.provideService(AccountStore, accountStore),
     Effect.provideService(TwitchProvider, provider),
   );
   const reply = Effect.fnUntraced(function* <A, I>(
