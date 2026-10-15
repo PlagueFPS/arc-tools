@@ -14,6 +14,7 @@ import {
   RemoteCommands,
 } from "../../apps/bot/src/discord-manifest.js";
 import { Subscription } from "../../apps/bot/src/twitch-provider.js";
+import { identifyFixtureResponse } from "./fixture-response.js";
 
 const Grant = Schema.Struct({
   userId: Schema.String,
@@ -375,6 +376,9 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
+        Effect.map((handler) =>
+          handler.pipe(Effect.map(identifyFixtureResponse)),
+        ),
       ),
     };
   }),

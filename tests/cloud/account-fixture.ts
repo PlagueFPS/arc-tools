@@ -16,6 +16,10 @@ import {
   SubscriptionObservation,
 } from "../../apps/bot/src/twitch-contracts.js";
 import { makeProvider } from "../../apps/bot/src/twitch-provider.js";
+import {
+  acknowledgeReconstruction,
+  identifyFixtureResponse,
+} from "./fixture-response.js";
 import { TwitchProviderFixture } from "./twitch-provider-fixture.js";
 
 const Configure = Schema.Struct({
@@ -220,12 +224,10 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
             .pipe(Effect.as(HttpServerResponse.empty({ status: 204 }))),
         )
         .handleRaw("reconstruct", () =>
-          object()
-            .reconstruct()
-            .pipe(
-              Effect.catchCause(() => Effect.void),
-              Effect.as(HttpServerResponse.empty({ status: 204 })),
-            ),
+          acknowledgeReconstruction(
+            object().reconstruct(),
+            "account reconstruction fixture",
+          ),
         ),
     );
     return {
@@ -233,6 +235,9 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
+        Effect.map((handler) =>
+          handler.pipe(Effect.map(identifyFixtureResponse)),
+        ),
       ),
     };
   }),

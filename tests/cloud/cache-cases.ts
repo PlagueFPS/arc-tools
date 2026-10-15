@@ -1,6 +1,5 @@
 import { expect } from "bun:test";
 import { Effect, Fiber, Option, Schedule, Schema } from "effect";
-import { HttpClient } from "effect/http";
 import { EncodedRead } from "../../packages/arc-data/src/cache.js";
 import {
   DataUnavailable,
@@ -8,6 +7,7 @@ import {
 } from "../../packages/arc-data/src/data-service.js";
 import { ItemAPIResponse } from "../../packages/arc-data/src/schema.js";
 import { CacheSnapshot } from "./cache-fixture.js";
+import { get, json, post, reconstructedSnapshot } from "./fixture-http.js";
 import type * as Foundation from "./foundation.test.js";
 import { Observations, type SourceControl } from "./metaforge.js";
 
@@ -16,43 +16,10 @@ const ReadReply = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("failure"), error: DataUnavailable }),
 ]);
 const day = 86_400_000;
-class FixtureRouteNotReady extends Schema.TaggedError<FixtureRouteNotReady>()(
-  "FixtureRouteNotReady",
-  {},
-) {}
-const post = Effect.fnUntraced(
-  function* (url: string, body?: unknown) {
-    const response = yield* Effect.promise(() =>
-      fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    );
-    if (response.status === 404) return yield* new FixtureRouteNotReady();
-    if (!response.ok)
-      return yield* Effect.fail(
-        new Error(
-          `Fixture POST ${new URL(url).pathname}: ${response.status} ${(yield* Effect.promise(() => response.text())).slice(0, 512)}`,
-        ),
-      );
-    return response;
-  },
-  (effect) =>
-    effect.pipe(
-      Effect.retry({
-        while: (error) => error instanceof FixtureRouteNotReady,
-        times: 4,
-        schedule: Schedule.spaced("200 millis"),
-      }),
-    ),
-);
 
 const read = Effect.fnUntraced(function* (url: string, query: ResourceQuery) {
   const response = yield* post(`${url}/read`, query);
-  return yield* Effect.promise(() => response.json()).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(ReadReply)),
-  );
+  return yield* json(response, ReadReply);
 });
 const successful = Effect.fnUntraced(function* (
   url: string,
@@ -63,43 +30,8 @@ const successful = Effect.fnUntraced(function* (
   if (result.kind === "failure") return yield* result.error;
   return result.result;
 });
-const snapshot = Effect.fnUntraced(function* (url: string) {
-  const response = yield* HttpClient.get(`${url}/snapshot`).pipe(
-    Effect.flatMap((response) =>
-      response.status === 200 &&
-      response.headers["content-type"]?.includes("application/json")
-        ? Effect.succeed(response)
-        : response.text.pipe(
-            Effect.flatMap((body) =>
-              Effect.fail(
-                new Error(
-                  `Cache snapshot ${response.status}: ${body.slice(0, 512)}`,
-                ),
-              ),
-            ),
-          ),
-    ),
-    Effect.retry({ times: 30, schedule: Schedule.spaced("1 second") }),
-  );
-  expect(response.status).toBe(200);
-  return yield* response.json.pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(CacheSnapshot)),
-  );
-});
-const observations = Effect.fnUntraced(function* (url: string) {
-  const response = yield* HttpClient.get(`${url}/observations`).pipe(
-    Effect.flatMap((response) =>
-      response.status === 200 &&
-      response.headers["content-type"]?.includes("application/json")
-        ? Effect.succeed(response)
-        : Effect.fail(new FixtureRouteNotReady()),
-    ),
-    Effect.retry({ times: 30, schedule: Schedule.spaced("1 second") }),
-  );
-  return yield* response.json.pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(Observations)),
-  );
-});
+const snapshot = (url: string) => get(`${url}/snapshot`, CacheSnapshot);
+const observations = (url: string) => get(`${url}/observations`, Observations);
 const configure = (url: string, control: typeof SourceControl.Type) =>
   post(`${url}/control`, control);
 const query = (id: string): ResourceQuery => ({
@@ -142,7 +74,10 @@ export function registerCacheTests({
       expect(decoded.data[0]?.loot_area).toEqual(Option.some("Industrial"));
       expect(decoded.data[0]?.components).toEqual(Option.some([]));
       yield* post(`${url}/reconstruct`);
-      const after = yield* snapshot(url);
+      const after = yield* reconstructedSnapshot(
+        snapshot(url),
+        before.instance,
+      );
       expect(after.instance).not.toBe(before.instance);
       expect(after.rows).toEqual(before.rows);
       yield* post(`${url}/time`, day - 1);

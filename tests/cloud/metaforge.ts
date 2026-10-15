@@ -8,6 +8,7 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
 } from "effect/http-api";
+import { identifyFixtureResponse } from "./fixture-response.js";
 
 export const SourceControl = Schema.Struct({
   key: Schema.String,
@@ -164,6 +165,9 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
+        Effect.map((handler) =>
+          handler.pipe(Effect.map(identifyFixtureResponse)),
+        ),
       ),
     };
   }),

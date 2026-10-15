@@ -10,6 +10,7 @@ import {
   DispatchOutcome,
   SetupResult,
 } from "../../apps/bot/src/twitch-contracts.js";
+import { get, json, post, reconstructedSnapshot } from "./fixture-http.js";
 import type * as Foundation from "./foundation.test.js";
 import { ProviderSnapshot } from "./twitch-provider-fixture.js";
 
@@ -21,70 +22,18 @@ const Snapshot = Schema.Struct({
   onboardingRetained: Schema.Boolean,
   alarm: Schema.NullOr(Schema.Number),
 });
-class RouteNotReady extends Schema.TaggedError<RouteNotReady>()(
-  "RouteNotReady",
-  {},
-) {}
-const post = Effect.fnUntraced(
-  function* (url: string, body: unknown = {}) {
-    const result = yield* Effect.promise(() =>
-      fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
-    );
-    if (result.status === 404) return yield* new RouteNotReady();
-    if (!result.ok)
-      return yield* Effect.fail(
-        new Error(
-          `Fixture POST ${new URL(url).pathname} returned ${result.status}`,
-        ),
-      );
-    return result;
-  },
-  (effect) =>
-    effect.pipe(
-      Effect.retry({
-        while: (error) => error instanceof RouteNotReady,
-        times: 4,
-        schedule: Schedule.spaced("200 millis"),
-      }),
-    ),
-);
-const get = Effect.fnUntraced(function* <A, I>(
-  url: string,
-  schema: Schema.Codec<A, I>,
-) {
-  const result = yield* Effect.promise(() => fetch(url));
-  if (!result.ok)
-    return yield* Effect.fail(
-      new Error(
-        `Fixture GET ${new URL(url).pathname} returned ${result.status}`,
-      ),
-    );
-  return yield* Effect.promise(() => result.json()).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(schema)),
-  );
-});
 const rpc = Effect.fnUntraced(function* <A, I>(
   url: string,
   schema: Schema.Codec<A, I>,
   body: unknown = {},
 ) {
   const result = yield* post(url, body);
-  const decoded = yield* Effect.promise(() => result.json()).pipe(
-    Effect.flatMap(
-      Schema.decodeUnknownEffect(
-        Schema.Union([
-          Schema.Struct({ kind: Schema.Literal("success"), value: schema }),
-          Schema.Struct({
-            kind: Schema.Literal("failure"),
-            code: Schema.String,
-          }),
-        ]),
-      ),
-    ),
+  const decoded = yield* json(
+    result,
+    Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("success"), value: schema }),
+      Schema.Struct({ kind: Schema.Literal("failure"), code: Schema.String }),
+    ]),
   );
   if (decoded.kind === "failure")
     return yield* Effect.fail(
@@ -94,12 +43,9 @@ const rpc = Effect.fnUntraced(function* <A, I>(
 });
 const rawReply = Effect.fnUntraced(function* (url: string, body: unknown) {
   const response = yield* post(url, body);
-  return yield* Effect.promise(() => response.json()).pipe(
-    Effect.flatMap(
-      Schema.decodeUnknownEffect(
-        Schema.Struct({ kind: Schema.Literal("failure"), code: Schema.String }),
-      ),
-    ),
+  return yield* json(
+    response,
+    Schema.Struct({ kind: Schema.Literal("failure"), code: Schema.String }),
   );
 });
 const authorize = Effect.fnUntraced(function* (url: string) {
@@ -158,12 +104,8 @@ export function registerAccountTests({
     "account native storage binds OAuth identity/client, expiry, replay and config revision",
     Effect.gen(function* () {
       const u = yield* urls;
-      yield* get(`${u.provider}/snapshot`, ProviderSnapshot).pipe(
-        Effect.retry({ times: 60, schedule: Schedule.spaced("1 second") }),
-      );
-      yield* get(`${u.account}/snapshot`, Snapshot).pipe(
-        Effect.retry({ times: 60, schedule: Schedule.spaced("1 second") }),
-      );
+      yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      yield* get(`${u.account}/snapshot`, Snapshot);
       const now = Date.now() + 86_400_000;
       yield* post(`${u.account}/time`, now);
       for (const [field, override, expected] of [
@@ -324,8 +266,9 @@ export function registerAccountTests({
       yield* post(`${u.account}/reconstruct`);
       yield* post(`${u.provider}/control`, { holdCreate: false });
       expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
-      const reconstructed = yield* get(`${u.account}/snapshot`, Snapshot).pipe(
-        Effect.retry({ times: 3, schedule: Schedule.spaced("200 millis") }),
+      const reconstructed = yield* reconstructedSnapshot(
+        get(`${u.account}/snapshot`, Snapshot),
+        starting.instance,
       );
       expect(reconstructed.instance).not.toBe(starting.instance);
       yield* post(`${u.account}/time`, starting.time + 121_000);
@@ -422,8 +365,9 @@ export function registerAccountTests({
       yield* post(`${u.account}/reconstruct`);
       yield* post(`${u.provider}/control`, { holdSend: false });
       expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
-      const reconstructed = yield* get(`${u.account}/snapshot`, Snapshot).pipe(
-        Effect.retry({ times: 3, schedule: Schedule.spaced("200 millis") }),
+      const reconstructed = yield* reconstructedSnapshot(
+        get(`${u.account}/snapshot`, Snapshot),
+        snapshot.instance,
       );
       expect(reconstructed.instance).not.toBe(snapshot.instance);
       expect(

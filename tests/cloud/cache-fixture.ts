@@ -12,6 +12,10 @@ import { CacheRow } from "../../packages/arc-data/src/cache.js";
 import { makeCacheRpc } from "../../packages/arc-data/src/cloudflare.js";
 import { ResourceQuery } from "../../packages/arc-data/src/data-service.js";
 import { cachePolicy } from "../../packages/arc-data/src/source.js";
+import {
+  acknowledgeReconstruction,
+  identifyFixtureResponse,
+} from "./fixture-response.js";
 import { MetaforgeWorker } from "./metaforge.js";
 
 export const CacheSnapshot = Schema.Struct({
@@ -137,12 +141,10 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
             .pipe(Effect.as(HttpServerResponse.empty({ status: 204 }))),
         )
         .handleRaw("reconstruct", () =>
-          object()
-            .reconstruct()
-            .pipe(
-              Effect.catchCause(() => Effect.void),
-              Effect.as(HttpServerResponse.empty({ status: 204 })),
-            ),
+          acknowledgeReconstruction(
+            object().reconstruct(),
+            "cache reconstruction fixture",
+          ),
         )
         .handleRaw("snapshot", () =>
           object()
@@ -165,6 +167,9 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
+        Effect.map((handler) =>
+          handler.pipe(Effect.map(identifyFixtureResponse)),
+        ),
       ),
     };
   }),

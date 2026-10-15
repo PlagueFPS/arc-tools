@@ -5,13 +5,19 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Bun";
 import * as Core from "alchemy/Test/Core";
 import { Effect, Schedule, Schema, Stream } from "effect";
-import { HttpClient } from "effect/http";
 import Stack from "../../alchemy.run.js";
 import { manifestHash } from "../../apps/bot/src/discord-manifest.js";
 import {
   CloudResourceEvidence,
   cloudSettings,
 } from "../../scripts/cloud-settings.js";
+import {
+  get,
+  json,
+  post,
+  reconstructedSnapshot,
+  request,
+} from "./fixture-http.js";
 import { ProbeSnapshot } from "./probe.js";
 
 const settings = cloudSettings(process.env);
@@ -51,24 +57,7 @@ export const stack = beforeAll(
 beforeAll(
   Effect.gen(function* () {
     const deployed = yield* stack;
-    const ready = yield* HttpClient.get(`${deployed.probeUrl}/snapshot`).pipe(
-      Effect.flatMap((response) =>
-        response.status === 200 &&
-        response.headers["content-type"]?.includes("application/json")
-          ? Effect.succeed(response)
-          : response.text.pipe(
-              Effect.flatMap((body) =>
-                Effect.fail(
-                  new Error(
-                    `Probe activation ${response.status}: ${body.slice(0, 512)}`,
-                  ),
-                ),
-              ),
-            ),
-      ),
-      Effect.retry({ times: 60, schedule: Schedule.spaced("1 second") }),
-    );
-    expect(ready.status).toBe(200);
+    yield* get(`${deployed.probeUrl}/snapshot`, ProbeSnapshot);
     const namespaces = yield* Core.withProviders(
       Effect.gen(function* () {
         const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
@@ -129,26 +118,17 @@ beforeAll(
 
 afterAll(destroy(Stack), { timeout: 180_000 });
 
-const snapshot = Effect.fn(function* (url: string) {
-  const response = yield* Test.getWhenReady(`${url}/snapshot`, { times: 4 });
-  expect(response.status).toBe(200);
-  return yield* response.json.pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(ProbeSnapshot)),
-  );
-});
+const snapshot = (url: string) => get(`${url}/snapshot`, ProbeSnapshot);
 
 test(
   "raw HttpApi preserves every byte before JSON decoding",
   Effect.gen(function* () {
     const { probeUrl: url } = yield* stack;
-    expect(
-      (yield* Test.getWhenReady(`${url}/health`, { times: 6 })).status,
-    ).toBe(200);
+    expect((yield* request(`${url}/health`)).status).toBe(200);
     const application = yield* stack;
-    const health = yield* Test.getWhenReady(`${application.url}/health`, {
-      times: 6,
-    });
-    expect(yield* health.json).toEqual({
+    const health = yield* request(`${application.url}/health`);
+    expect(health.status).toBe(200);
+    expect(yield* Effect.promise(() => health.json())).toEqual({
       status: "foundation",
       stage: settings.stage,
       revision: "unreleased",
@@ -157,9 +137,10 @@ test(
     const bytes = new Uint8Array([
       0, 255, 13, 10, 32, 123, 34, 120, 34, 58, 49, 125, 10,
     ]);
-    const response = yield* Effect.promise(() =>
-      fetch(`${url}/raw`, { method: "POST", body: bytes }),
-    );
+    const response = yield* request(`${url}/raw`, {
+      method: "POST",
+      body: bytes,
+    });
     expect(response.status).toBe(200);
     expect(
       new Uint8Array(yield* Effect.promise(() => response.arrayBuffer())),
@@ -172,25 +153,25 @@ test(
   "SQLite, KV and alarm changes roll back and survive object reconstruction",
   Effect.gen(function* () {
     const { probeUrl: url } = yield* stack;
-    const response = yield* HttpClient.post(`${url}/prepare`);
+    const response = yield* post(`${url}/prepare`);
     expect(response.status).toBe(200);
-    const result = yield* response.json.pipe(
-      Effect.flatMap(
-        Schema.decodeUnknownEffect(
-          Schema.Struct({
-            rolledBack: Schema.Boolean,
-            before: Schema.Number,
-            snapshot: ProbeSnapshot,
-          }),
-        ),
-      ),
+    const result = yield* json(
+      response,
+      Schema.Struct({
+        rolledBack: Schema.Boolean,
+        before: Schema.Number,
+        snapshot: ProbeSnapshot,
+      }),
     );
     expect(result.rolledBack).toBeTrue();
     expect(result.snapshot.value).toBe("committed");
     expect(result.snapshot.attempts).toBe(0);
     expect(result.snapshot.alarm).toBe(result.before);
-    yield* HttpClient.post(`${url}/reset`);
-    const reconstructed = yield* snapshot(url).pipe(Effect.retry({ times: 3 }));
+    expect((yield* post(`${url}/reset`)).status).toBe(204);
+    const reconstructed = yield* reconstructedSnapshot(
+      snapshot(url),
+      result.snapshot.instance,
+    );
     expect(reconstructed.instance).not.toBe(result.snapshot.instance);
     expect(reconstructed.value).toBe("committed");
     expect(reconstructed.attempts).toBe(0);
@@ -203,13 +184,16 @@ test(
   "persisted alarm retries on Cloudflare after an intentional first failure",
   Effect.gen(function* () {
     const { probeUrl: url } = yield* stack;
-    const armed = yield* (yield* HttpClient.post(`${url}/arm`)).json.pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(ProbeSnapshot)),
-    );
+    const response = yield* post(`${url}/arm`);
+    expect(response.status).toBe(200);
+    const armed = yield* json(response, ProbeSnapshot);
     expect(armed.attempts).toBe(0);
     expect(armed.completed).toBeFalse();
     expect(armed.alarm).toBeNumber();
-    yield* HttpClient.post(`${url}/reset`);
+    expect((yield* post(`${url}/reset`)).status).toBe(204);
+    expect(
+      (yield* reconstructedSnapshot(snapshot(url), armed.instance)).instance,
+    ).not.toBe(armed.instance);
     const completed = yield* snapshot(url).pipe(
       Effect.repeat({
         until: (value) => value.completed,

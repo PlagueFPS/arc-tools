@@ -8,6 +8,10 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
 } from "effect/http-api";
+import {
+  acknowledgeReconstruction,
+  identifyFixtureResponse,
+} from "./fixture-response.js";
 
 export const ProbeSnapshot = Schema.Struct({
   instance: Schema.String,
@@ -163,12 +167,10 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
             ),
         )
         .handleRaw("reset", () =>
-          object()
-            .reset()
-            .pipe(
-              Effect.catchCause(() => Effect.void),
-              Effect.as(HttpServerResponse.empty({ status: 204 })),
-            ),
+          acknowledgeReconstruction(
+            object().reset(),
+            "foundation reconstruction probe",
+          ),
         )
         .handleRaw("arm", () =>
           object()
@@ -206,6 +208,9 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
+        Effect.map((handler) =>
+          handler.pipe(Effect.map(identifyFixtureResponse)),
+        ),
       ),
     };
   }),
