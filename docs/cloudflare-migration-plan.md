@@ -165,6 +165,8 @@ Free-tier acceptance uses the actual launch configuration and observed counters.
 
 ## Synthesis and verification status
 
+Implementation sequencing after acceptance of foundation and cache runs unit 4 before unit 3. The account and release-sync owner establishes the real Twitch dispatch contract before the tenant owner consumes it. This avoids a temporary production sender adapter and keeps one writer for shared stack and test-harness files. Unit scope and acceptance gates remain unchanged.
+
 Candidate A is the base. Root and the independent cross-judge agree on its durable admission, per-work generations, account-level send ledger, and earliest-action recovery. Candidate B's early Twitch acknowledgement, post-deadline recovery, unvalidated generic contracts, and invented timing claims are rejected.
 
 The latest user corrections supersede both candidates' unconditional Discord deferral and static guild enrollment assumptions. Discord now returns direct responses, guilds route without enrollment, Twitch identities/channels are environment-based, registration runs automatically after deployment, and Alchemy Bun integration tests run on real Cloudflare resources with cloud-backed state and per-run teardown. Separate developer-portal applications are confirmed. The earlier callback-plus-202 design was valid under Discord's documentation but is no longer the selected baseline. A broad per-tenant semaphore remains rejected because durable per-work claims protect correctness without serializing unrelated network waits.

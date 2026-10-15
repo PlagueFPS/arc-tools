@@ -1,6 +1,6 @@
 # Cache root review
 
-Unit 2 remains blocked by the command deadline defect below. Root independently checked the implementation at `7473b7e` in `/home/angel/.t3/worktrees/arc-tools/t3-3c977d3b`. The implementation has not been integrated into the root branch.
+Unit 2 is accepted and integrated with the deadline correction. Root independently checked the original implementation at `7473b7e` and the corrected implementation at `f98f7b1`. The findings and correction history follow.
 
 ## Verified checks
 
@@ -22,7 +22,7 @@ A fresh isolated implementation delegate owns the fix and deterministic regressi
 
 ## Remaining gates
 
-Review and independently verify the fix before accepting or integrating unit 2. GitHub cloud-test credential configuration remains unverified. Live Twitch and Discord behavior, privacy, response timing, command synchronization, and operating cost remain outside this unit's verified scope.
+GitHub cloud-test credential configuration remains unverified. Live Twitch and Discord behavior, privacy, response timing, command synchronization, and operating cost remain outside this unit's verified scope.
 
 ## Deadline correction verification
 
@@ -30,4 +30,6 @@ The fresh delegate returned regression commit `3337632`, fix `c51f9e9`, and evid
 
 Root independently reran all 155 tests with 383 assertions. Forced build and typecheck passed all 11 tasks without cache hits. Root TypeScript checking and a direct Biome check of 102 files passed. Root repeated the original synchronous-source probe and observed `Failure` with `DataUnavailable`, resource `command`, and reason `deadline` after expiry. The earlier implementation returned `Success` in the same probe.
 
-Fresh technical and comment reviews of the correction are pending. Cache implementation and cloud fixtures are unchanged by this fix. The prior cloud evidence still applies to those artifacts. Synchronous work remains cooperative and can finish late; the new acceptance check rejects that late result. End-to-end protocol timing remains unverified.
+Fresh GPT-6.1-Sol technical and comment reviews passed. The technical reviewer replayed the earlier failing module and independently checked asynchronous timeout behavior and stale preservation. There are no unresolved blocking findings. Cache implementation and cloud fixtures are unchanged by this fix. The prior cloud evidence still applies to those artifacts. Synchronous work remains cooperative and can finish late; the new acceptance check rejects that late result. End-to-end protocol timing remains unverified.
+
+Root integrated the original implementation and evidence as `7a51ed2` and `543a8f2`, then the regression, fix, and updated evidence as `48d0fad`, `e4e2b12`, and `c8a76ee`. A comparison with `f98f7b1` found no differences outside root planning, audit, and verification records. Frozen installation passed in the root checkout.
