@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export class CommandError extends Schema.TaggedErrorClass<CommandError>()(
+export class CommandError extends Schema.TaggedError<CommandError>()(
   "CommandError",
   {
     cause: Schema.Unknown,

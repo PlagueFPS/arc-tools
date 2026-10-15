@@ -1,6 +1,7 @@
+import { describe, expect } from "bun:test";
 import { createMockHttpClientLayer } from "@arctools/testing";
-import { assert, describe, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer, Option } from "effect";
 import { fetchArc, getEvents, getItem, getTraders } from "../src/index.js";
 
 const mockLayer = createMockHttpClientLayer({
@@ -29,52 +30,59 @@ const mockLayer = createMockHttpClientLayer({
   ],
 });
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("fetch contract", () => {
-  it.effect("getTraders decodes and returns data", () =>
+  test(
+    "getTraders decodes and returns data",
     Effect.gen(function* () {
       const result = yield* getTraders().pipe(Effect.provide(mockLayer));
       const first = result.Apollo[0];
-      assert.isDefined(first);
-      assert.strictEqual(first?.name, "A");
+      expect(first).toBeDefined();
+      expect(first?.name).toBe("A");
     }),
   );
 
-  it.effect("getItem decodes and returns head", () =>
+  test(
+    "getItem decodes and returns head",
     Effect.gen(function* () {
       const result = yield* getItem({ id: "item" }).pipe(
         Effect.provide(mockLayer),
       );
       const item = Option.getOrThrow(result);
-      assert.strictEqual(item.name, "Item");
+      expect(item.name).toBe("Item");
     }),
   );
 
-  it.effect("getItem returns none for empty response", () =>
+  test(
+    "getItem returns none for empty response",
     Effect.gen(function* () {
       const emptyLayer = createMockHttpClientLayer({});
       const result = yield* getItem({ id: "missing" }).pipe(
         Effect.provide(emptyLayer),
       );
-      assert.isTrue(Option.isNone(result));
+      expect(Option.isNone(result)).toBeTrue();
     }),
   );
 
-  it.effect("fetchArc decodes and returns head", () =>
+  test(
+    "fetchArc decodes and returns head",
     Effect.gen(function* () {
       const result = yield* fetchArc({ id: "bastion" }).pipe(
         Effect.provide(mockLayer),
       );
       const arc = Option.getOrThrow(result);
-      assert.strictEqual(arc.name, "Bastion");
+      expect(arc.name).toBe("Bastion");
     }),
   );
 
-  it.effect("getEvents decodes and returns data", () =>
+  test(
+    "getEvents decodes and returns data",
     Effect.gen(function* () {
       const result = yield* getEvents().pipe(Effect.provide(mockLayer));
       const first = result[0];
-      assert.isDefined(first);
-      assert.strictEqual(first?.name, "Event");
+      expect(first).toBeDefined();
+      expect(first?.name).toBe("Event");
     }),
   );
 });

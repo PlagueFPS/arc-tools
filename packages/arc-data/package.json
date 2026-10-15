@@ -5,25 +5,21 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
+    "test": "bun test ./test",
     "dev": "tsc --watch",
     "check-types": "tsc --noEmit"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    }
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@arctools/utils": "workspace:*",
-    "effect": "4.0.0-beta.32"
+    "effect": "4.0.4"
   },
   "devDependencies": {
     "@arctools/testing": "workspace:*",
     "@arctools/typescript-config": "workspace:*",
-    "@effect/vitest": "4.0.0-beta.32",
     "typescript": "5.9.3",
-    "vitest": "4.0.18"
+    "alchemy": "2.0.0-beta.83"
   }
 }

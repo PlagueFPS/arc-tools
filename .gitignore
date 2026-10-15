@@ -11,3 +11,6 @@ tokens.json
 .repos/*
 # Turborepo
 .turbo
+
+.alchemy/
+.cloud-tests/

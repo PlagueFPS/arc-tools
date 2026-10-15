@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { HttpClientResponse } from "effect/unstable/http";
+import { HttpClientResponse } from "effect/http";
 import { TradersAPIResponse } from "./schema.js";
 import { arcHttpClient } from "./utils.js";
 

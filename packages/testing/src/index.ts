@@ -4,7 +4,7 @@ import {
   HttpClient,
   type HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 
 export interface MockTraders {
   Apollo: Array<{ id: string; name: string; trader_price: number }>;

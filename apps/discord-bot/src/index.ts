@@ -5,20 +5,20 @@ import { Config, Effect, Redacted, Schedule, Schema } from "effect";
 import { handleInteractionCreate, handleMessageCreate } from "./events.js";
 import { toDiscordPayload } from "./slash-adapter.js";
 
-class CommandRegisterError extends Schema.TaggedErrorClass<CommandRegisterError>()(
+class CommandRegisterError extends Schema.TaggedError<CommandRegisterError>()(
   "CommandRegisterError",
   {
     cause: Schema.Unknown,
   },
 ) {}
 
-class LoginError extends Schema.TaggedErrorClass<LoginError>()("LoginError", {
+class LoginError extends Schema.TaggedError<LoginError>()("LoginError", {
   cause: Schema.Unknown,
 }) {}
 
 const runDiscordBot = Effect.fn("DiscordBot")(function* () {
-  const botToken = yield* Config.redacted("DISCORD_BOT_TOKEN");
-  const clientId = yield* Config.string("DISCORD_CLIENT_ID");
+  const botToken = yield* Config.Redacted("DISCORD_BOT_TOKEN");
+  const clientId = yield* Config.String("DISCORD_CLIENT_ID");
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,

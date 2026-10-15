@@ -2,12 +2,12 @@ import { RefreshingAuthProvider } from "@twurple/auth";
 import { eq } from "drizzle-orm";
 import {
   Config,
+  Context,
   Effect,
   Layer,
   Redacted,
   Schedule,
   Schema,
-  ServiceMap,
 } from "effect";
 import { twitchTokens } from "../db/schema.js";
 import { Database } from "./db.js";
@@ -30,31 +30,31 @@ const TokenDataSchema = Schema.Struct({
 /** Decodes snake_case DB row to token data. Exported for testing. */
 export const decodeTokenData = Schema.decodeUnknownEffect(TokenDataSchema);
 
-class DatabaseError extends Schema.TaggedErrorClass<DatabaseError>()(
+class DatabaseError extends Schema.TaggedError<DatabaseError>()(
   "DatabaseError",
   {
     cause: Schema.Unknown,
   },
 ) {}
 
-class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError", {
+class AuthError extends Schema.TaggedError<AuthError>()("AuthError", {
   cause: Schema.Unknown,
 }) {}
 
-export class AuthProvider extends ServiceMap.Service<AuthProvider>()(
+export class AuthProvider extends Context.Service<AuthProvider>()(
   "twitch-bot/services/auth/AuthProvider",
   {
     make: Effect.gen(function* () {
       const db = yield* Database;
-      const clientId = yield* Config.string("TWITCH_CLIENT_ID");
-      const clientSecret = yield* Config.redacted("TWITCH_CLIENT_SECRET");
-      const initialAccessToken = yield* Config.redacted(
+      const clientId = yield* Config.String("TWITCH_CLIENT_ID");
+      const clientSecret = yield* Config.Redacted("TWITCH_CLIENT_SECRET");
+      const initialAccessToken = yield* Config.Redacted(
         "TWITCH_INITIAL_ACCESS_TOKEN",
       );
-      const initialRefreshToken = yield* Config.redacted(
+      const initialRefreshToken = yield* Config.Redacted(
         "TWITCH_INITIAL_REFRESH_TOKEN",
       );
-      const botUserId = yield* Config.string("TWITCH_BOT_USER_ID");
+      const botUserId = yield* Config.String("TWITCH_BOT_USER_ID");
 
       const tokenDataFromDB = yield* Effect.tryPromise({
         try: () =>

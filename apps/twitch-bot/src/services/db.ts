@@ -1,15 +1,15 @@
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { Config, Effect, Layer, Option, Redacted, ServiceMap } from "effect";
+import { Config, Context, Effect, Layer, Option, Redacted } from "effect";
 import * as schema from "../db/schema.js";
 
-export class Database extends ServiceMap.Service<Database>()(
+export class Database extends Context.Service<Database>()(
   "twitch-bot/services/db/Database",
   {
     make: Effect.gen(function* () {
-      const url = yield* Config.string("TURSO_CONNECTION_URL");
+      const url = yield* Config.String("TURSO_CONNECTION_URL");
       const authToken = yield* Config.option(
-        Config.redacted("TURSO_AUTH_TOKEN"),
+        Config.Redacted("TURSO_AUTH_TOKEN"),
       );
       const client = createClient({
         url,

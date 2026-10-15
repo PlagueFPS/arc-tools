@@ -8,7 +8,7 @@ import type {
 } from "discord.js";
 import { Array as Arr, Effect, Option, Schema } from "effect";
 
-class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("ReplyError", {
+class ReplyError extends Schema.TaggedError<ReplyError>()("ReplyError", {
   cause: Schema.Unknown,
 }) {}
 

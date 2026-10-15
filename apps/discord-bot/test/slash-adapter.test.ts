@@ -1,7 +1,7 @@
+import { describe, expect, it } from "bun:test";
 import { type CommandDefinition, commands } from "@arctools/commands";
 import { ApplicationCommandOptionType } from "discord.js";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
 import { toDiscordPayload } from "../src/slash-adapter.js";
 
 describe("toDiscordPayload", () => {

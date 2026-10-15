@@ -1,9 +1,13 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect, Exit } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Exit, Layer } from "effect";
 import { decodeTokenData } from "../src/services/auth.js";
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("decodeTokenData", () => {
-  it.effect("decodes valid snake_case DB row", () =>
+  test(
+    "decodes valid snake_case DB row",
     Effect.gen(function* () {
       const row = {
         access_token: "token",
@@ -13,15 +17,16 @@ describe("decodeTokenData", () => {
         scope: JSON.stringify(["chat"]),
       };
       const result = yield* decodeTokenData(row);
-      assert.strictEqual(result.accessToken, "token");
-      assert.strictEqual(result.refreshToken, "refresh");
-      assert.strictEqual(result.expiresIn, 3600);
-      assert.strictEqual(result.obtainmentTimestamp, 1000);
-      assert.deepEqual(result.scope, ["chat"]);
+      expect(result.accessToken).toBe("token");
+      expect(result.refreshToken).toBe("refresh");
+      expect(result.expiresIn).toBe(3600);
+      expect(result.obtainmentTimestamp).toBe(1000);
+      expect(result.scope).toEqual(["chat"]);
     }),
   );
 
-  it.effect("decodes with null refresh_token and expires_in", () =>
+  test(
+    "decodes with null refresh_token and expires_in",
     Effect.gen(function* () {
       const row = {
         access_token: "token",
@@ -31,13 +36,14 @@ describe("decodeTokenData", () => {
         scope: "[]",
       };
       const result = yield* decodeTokenData(row);
-      assert.strictEqual(result.accessToken, "token");
-      assert.isNull(result.refreshToken);
-      assert.isNull(result.expiresIn);
+      expect(result.accessToken).toBe("token");
+      expect(result.refreshToken).toBeNull();
+      expect(result.expiresIn).toBeNull();
     }),
   );
 
-  it.effect("fails when scope is invalid JSON", () =>
+  test(
+    "fails when scope is invalid JSON",
     Effect.gen(function* () {
       const row = {
         access_token: "token",
@@ -47,11 +53,12 @@ describe("decodeTokenData", () => {
         scope: "not-valid-json",
       };
       const exit = yield* Effect.exit(decodeTokenData(row));
-      assert.isTrue(Exit.isFailure(exit));
+      expect(Exit.isFailure(exit)).toBeTrue();
     }),
   );
 
-  it.effect("fails when scope is not a JSON array", () =>
+  test(
+    "fails when scope is not a JSON array",
     Effect.gen(function* () {
       const row = {
         access_token: "token",
@@ -61,11 +68,12 @@ describe("decodeTokenData", () => {
         scope: '"string"',
       };
       const exit = yield* Effect.exit(decodeTokenData(row));
-      assert.isTrue(Exit.isFailure(exit));
+      expect(Exit.isFailure(exit)).toBeTrue();
     }),
   );
 
-  it.effect("fails when required fields missing", () =>
+  test(
+    "fails when required fields missing",
     Effect.gen(function* () {
       const row = {
         access_token: "token",
@@ -77,7 +85,7 @@ describe("decodeTokenData", () => {
       const exit = yield* Effect.exit(
         decodeTokenData({ ...row, access_token: undefined }),
       );
-      assert.isTrue(Exit.isFailure(exit));
+      expect(Exit.isFailure(exit)).toBeTrue();
     }),
   );
 });

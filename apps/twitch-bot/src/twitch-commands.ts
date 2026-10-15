@@ -3,7 +3,7 @@ import { parseMessageParams } from "@arctools/utils";
 import { createBotCommand } from "@twurple/easy-bot";
 import { Effect, Schema } from "effect";
 
-class ReplyError extends Schema.TaggedErrorClass<ReplyError>()("ReplyError", {
+class ReplyError extends Schema.TaggedError<ReplyError>()("ReplyError", {
   cause: Schema.Unknown,
 }) {}
 

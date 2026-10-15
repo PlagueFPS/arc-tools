@@ -1,5 +1,6 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect, Exit, Schema } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Exit, Layer, Schema } from "effect";
 import {
   ArcsAPIResponse,
   EventAPIResponse,
@@ -7,8 +8,11 @@ import {
   TradersAPIResponse,
 } from "../src/schema.js";
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("TradersAPIResponse", () => {
-  it.effect("decodes valid payload", () =>
+  test(
+    "decodes valid payload",
     Effect.gen(function* () {
       const payload = {
         data: {
@@ -22,22 +26,24 @@ describe("TradersAPIResponse", () => {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(TradersAPIResponse)(payload),
       );
-      assert.isTrue(Exit.isSuccess(result));
+      expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
 
-  it.effect("fails on malformed data", () =>
+  test(
+    "fails on malformed data",
     Effect.gen(function* () {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(TradersAPIResponse)({ data: null }),
       );
-      assert.isTrue(Exit.isFailure(result));
+      expect(Exit.isFailure(result)).toBeTrue();
     }),
   );
 });
 
 describe("ArcsAPIResponse", () => {
-  it.effect("decodes valid payload", () =>
+  test(
+    "decodes valid payload",
     Effect.gen(function* () {
       const payload = {
         data: [
@@ -51,11 +57,12 @@ describe("ArcsAPIResponse", () => {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ArcsAPIResponse)(payload),
       );
-      assert.isTrue(Exit.isSuccess(result));
+      expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
 
-  it.effect("decodes arc with null loot", () =>
+  test(
+    "decodes arc with null loot",
     Effect.gen(function* () {
       const payload = {
         data: [{ id: "a", name: "A", loot: null }],
@@ -63,13 +70,14 @@ describe("ArcsAPIResponse", () => {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ArcsAPIResponse)(payload),
       );
-      assert.isTrue(Exit.isSuccess(result));
+      expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
 });
 
 describe("ItemAPIResponse", () => {
-  it.effect("decodes valid payload with optional nulls", () =>
+  test(
+    "decodes valid payload with optional nulls",
     Effect.gen(function* () {
       const payload = {
         data: [
@@ -89,11 +97,12 @@ describe("ItemAPIResponse", () => {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ItemAPIResponse)(payload),
       );
-      assert.isTrue(Exit.isSuccess(result));
+      expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
 
-  it.effect("decodes item with optional fields omitted", () =>
+  test(
+    "decodes item with optional fields omitted",
     Effect.gen(function* () {
       const payload = {
         data: [{ id: "x", name: "X", value: 5 }],
@@ -101,13 +110,14 @@ describe("ItemAPIResponse", () => {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ItemAPIResponse)(payload),
       );
-      assert.isTrue(Exit.isSuccess(result));
+      expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
 });
 
 describe("EventAPIResponse", () => {
-  it.effect("decodes valid payload", () =>
+  test(
+    "decodes valid payload",
     Effect.gen(function* () {
       const payload = {
         data: [
@@ -122,7 +132,7 @@ describe("EventAPIResponse", () => {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(EventAPIResponse)(payload),
       );
-      assert.isTrue(Exit.isSuccess(result));
+      expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
 });
