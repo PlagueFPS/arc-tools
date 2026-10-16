@@ -1,6 +1,7 @@
 import { Effect, Schedule, Schema } from "effect";
 
 export const fixtureHeader = "x-arc-cloud-fixture";
+export const fixtureRequestMs = 20000;
 const placeholderSha256 =
   "2000e6b28a1517ba1268e1649cd3163326ef839492edfdba31e8959830580976";
 const Diagnostic = Schema.Struct({
@@ -118,7 +119,7 @@ export const makeFixtureHttp = (
           times: 15,
           schedule: Schedule.spaced("1 second"),
         }),
-        Effect.timeout("20 seconds"),
+        Effect.timeout(fixtureRequestMs),
       ),
   );
   const post = (url: string, body?: unknown) =>
