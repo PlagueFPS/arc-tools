@@ -63,8 +63,8 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
         }),
       }),
     );
-    const bot = yield* Cloudflare.Worker(Bot.LogicalId, {});
-    const accounts = yield* AccountReference.from(bot.workerName);
+    const { stage } = yield* Stack;
+    const accounts = yield* AccountReference.from(`arc-tools-bot-${stage}`);
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
       const runtime = yield* RuntimeContext;
@@ -181,6 +181,10 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
     const { stage } = yield* Stack;
     return {
       name: `arc-tools-tenant-${stage}`,
+      env: {
+        ARC_FIXTURE_BOT_WORKER: (yield* Cloudflare.Worker(Bot.LogicalId, {}))
+          .workerName,
+      },
       main: import.meta.url,
       workersDev: true,
       compatibility: { date: "2026-10-01" },
