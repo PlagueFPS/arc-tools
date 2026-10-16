@@ -112,3 +112,13 @@ The general code pass does not refute these specific reproductions. The remainin
 Root launched two read-only architecture sketches before another implementation patch. Candidate A examines confirmed subscription IDs and conservative replacement of unknown bindings. Candidate B examines bounded unresolved-operation history across rotations. Each must show what evidence establishes remote ownership, distinguish confirmed creation from conflict, and trace both reproduced races. The selected shape must eliminate false certainty rather than add another check around the latest-intent assumption.
 
 The native RPC diagnosis initially stopped at a provider usage limit. Root verified its second run is active after T3 automatically resumed it. No duplicate diagnostic worker or additional blind cloud run was started. The cloud failure cause remains unresolved; a reviewer calling it an upstream issue does not establish that attribution.
+
+## Native RPC diagnostic result
+
+The diagnostic owner returned clean commit `c3d7f5d7d44df04cc57063f5e7206542d23b124e` in `/home/angel/.t3/worktrees/arc-tools/t3-17ca057e`. Root read `docs/verification/native-rpc-diagnosis.md`. The diagnostic changes contain isolated tools and evidence, with no application fix.
+
+The original preparation call reached the controlled provider's native request RPC before failing. The native lease installation and alarm assertions had not run. An independent unchanged probe failed at another native RPC. That evidence rejects account recovery as a shared explanation, without identifying an adapter or platform cause.
+
+The new diagnostic had one planning failure without deployed resources and two deployments. The first deployment passed native and minimal Alchemy controls but failed five original fixture native calls; later HTTP paths worked. The later deployment reversed order and included fresh identities, and all 13 requests passed. More than four hours separate these deployments. Caller path, activation time, and environmental state were not independently controlled, so no call-order or outage explanation is established. All diagnostic cleanup checks reported zero Workers and namespaces and absent stage state/output.
+
+The later successful native controls provide new evidence that justifies one fresh canonical account-suite execution. Root started that run on unchanged combined revision `d4d0c30`, retaining the strict harness, without HTTP 500 retries, warm-up steps, sleeps after deployment, or an application workaround. Its console is `/tmp/arc-combined-root-cloud-recovery.log`. This execution cannot clear the separate subscription ownership findings. Its result and cleanup remain pending.
