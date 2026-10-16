@@ -3,7 +3,7 @@ import { bindData } from "@arctools/arc-data/cloudflare";
 import { executeCommand } from "@arctools/commands";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Clock, Effect, Schema } from "effect";
+import { Cause, Clock, Deferred, Effect, Schema } from "effect";
 import { AttemptId, Deadline } from "./contracts.js";
 import {
   DiscordResponse,
@@ -20,6 +20,11 @@ import {
   TwitchReceipt,
 } from "./tenant-contracts.js";
 import {
+  TenantBoundaryObserver,
+  TenantDiagnostic,
+  TenantTrace,
+} from "./tenant-diagnostics.js";
+import {
   type Claim,
   emptyTenant,
   fits,
@@ -32,7 +37,7 @@ import {
   type Work,
 } from "./tenant-state.js";
 import { bindAccount } from "./twitch.js";
-import { Dispatch, TwitchAccount } from "./twitch-contracts.js";
+import { AccountError, Dispatch, TwitchAccount } from "./twitch-contracts.js";
 
 type TwitchComputing = Extract<
   Work,
@@ -69,6 +74,10 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
   const store = yield* TenantStore;
   const data = yield* ArcData;
   const account = yield* TwitchAccount;
+  const inFlight = new Map<
+    string,
+    { readonly claim: Claim; readonly done: Deferred.Deferred<void> }
+  >();
   const claim = (
     state: TenantState,
     now: number,
@@ -86,18 +95,47 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     current !== undefined &&
     "claim" in current &&
     sameClaim(current.claim, captured.claim);
+  const decision = Effect.fnUntraced(function* (
+    phase: TenantTrace["phase"],
+    code: TenantTrace["code"],
+  ) {
+    (yield* TenantDiagnostic).decision(phase, code);
+    yield* Effect.logInfo("Tenant response decision").pipe(
+      Effect.annotateLogs({ phase, code, activation: options.activation }),
+    );
+  });
   const computeText = (work: Extract<Work, { kind: "computing" }>) =>
     executeCommand({
       ...work.invocation,
       deadline: work.transport === "discord" ? work.claim.until : work.deadline,
     }).pipe(
       Effect.provideService(ArcData, data),
-      Effect.map((reply) => ({ text: reply.text, failed: false })),
+      Effect.map((reply) => ({
+        text: reply.text,
+        failed: false,
+        code: "success" as const,
+      })),
       Effect.catch((error) =>
-        Effect.succeed({ text: error.message, failed: true }),
+        Effect.succeed({
+          text: error.message,
+          failed: true,
+          code: "command-error" as const,
+        }),
+      ),
+      Effect.catchCause((cause) =>
+        Cause.hasInterrupts(cause) || !Cause.hasDies(cause)
+          ? Effect.failCause(cause)
+          : Effect.logError("Command execution failed").pipe(
+              Effect.annotateLogs({ phase: "command", code: "command-defect" }),
+              Effect.as({
+                text: friendlyFailure,
+                failed: true,
+                code: "command-defect" as const,
+              }),
+            ),
       ),
     );
-  const deliver = Effect.fnUntraced(function* (work: Delivering) {
+  const dispatchWork = Effect.fnUntraced(function* (work: Delivering) {
     const payload = work.plan[work.cursor];
     if (!payload) return yield* Effect.die("Invalid delivery cursor");
     const now = yield* Clock.currentTimeMillis;
@@ -108,7 +146,11 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
       });
       return;
     }
-    const outcome = yield* account.dispatch(payload).pipe(Effect.result);
+    const outcome = yield* account.dispatch(payload).pipe(
+      Effect.timeout(work.deadline - now),
+      Effect.mapError(() => new AccountError({ code: "provider" })),
+      Effect.result,
+    );
     const completedAt = yield* Clock.currentTimeMillis;
     const again = yield* store.update((state) => {
       if (!matches(state.works[work.id], work)) return false;
@@ -142,14 +184,14 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
         return true;
       }
       if (result.kind === "retryable") {
-        if (result.retryAt > completedAt && result.retryAt < work.deadline) {
+        if (completedAt < work.deadline && result.retryAt < work.deadline) {
           state.works[work.id] = {
             ...base(work),
             transport: "twitch",
             kind: "ready",
             plan: work.plan,
             cursor: work.cursor,
-            retryAt: result.retryAt,
+            retryAt: Math.max(completedAt, result.retryAt),
           };
         } else state.works[work.id] = stopTwitch(work, "expired");
         return false;
@@ -165,6 +207,18 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
       return false;
     });
     if (again) yield* run(work.id);
+  });
+  const deliver = Effect.fnUntraced(function* (work: Delivering) {
+    const done = yield* Deferred.make<void>();
+    const pending = { claim: work.claim, done };
+    inFlight.set(work.id, pending);
+    yield* dispatchWork(work).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (inFlight.get(work.id) === pending) inFlight.delete(work.id);
+        }).pipe(Effect.andThen(Deferred.succeed(done, undefined))),
+      ),
+    );
   });
   const computeTwitch = Effect.fnUntraced(function* (work: TwitchComputing) {
     const reply = yield* computeText(work);
@@ -214,7 +268,17 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
   const run = Effect.fnUntraced(function* (id: string): Effect.fn.Return<void> {
     const now = yield* Clock.currentTimeMillis;
     const action = yield* store.update(
-      (state): TwitchComputing | Delivering | null => {
+      (
+        state,
+      ):
+        | TwitchComputing
+        | Delivering
+        | {
+            readonly kind: "joining";
+            readonly done: Deferred.Deferred<void>;
+            readonly deadline: number;
+          }
+        | null => {
         const work = state.works[id];
         if (!work || work.transport !== "twitch" || work.kind === "terminal")
           return null;
@@ -247,6 +311,13 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
         )
           return null;
         if (work.kind === "delivering") {
+          const pending = inFlight.get(id);
+          if (pending && sameClaim(work.claim, pending.claim))
+            return {
+              kind: "joining",
+              done: pending.done,
+              deadline: work.deadline,
+            };
           const next: Delivering = {
             ...work,
             claim: claim(
@@ -270,14 +341,29 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     );
     if (action?.kind === "computing") yield* computeTwitch(action);
     if (action?.kind === "delivering") yield* deliver(action);
+    if (action?.kind === "joining") {
+      yield* Deferred.await(action.done).pipe(
+        Effect.timeout(Math.max(1, action.deadline - now)),
+        Effect.catch(() => Effect.void),
+      );
+      yield* run(id);
+    }
   });
   const admit = Effect.fnUntraced(function* (
     receipt: TwitchReceipt | DiscordReceipt,
     transport: "twitch" | "discord",
   ) {
     const now = yield* Clock.currentTimeMillis;
-    return yield* store.update((state) => {
+    const result = yield* store.update((state) => {
       reclaim(state, now);
+      for (const [id, work] of Object.entries(state.works))
+        if (
+          work.transport === "discord" &&
+          work.kind === "computing" &&
+          (work.claim.activation !== options.activation ||
+            now >= work.claim.until)
+        )
+          state.works[id] = stopDiscord(work, failure());
       const tenant =
         "broadcasterId" in receipt
           ? `twitch:${receipt.broadcasterId}`
@@ -294,8 +380,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
       const deadline = Deadline.make(
         receipt.receivedAt + (transport === "twitch" ? 10_000 : 3000),
       );
-      if (receipt.receivedAt > now || now >= deadline)
-        return { kind: "input" } as const;
+      if (now >= deadline) return { kind: "input" } as const;
       const shared = {
         id: receipt.id,
         fingerprint: receipt.fingerprint,
@@ -334,6 +419,21 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
       state.tenant = tenant;
       return { kind: "accepted", work } as const;
     });
+    const trace: TenantTrace = {
+      phase: "admission",
+      code: result.kind,
+      admissionDeltaMs: now - receipt.receivedAt,
+      cutoff:
+        result.kind === "accepted" || result.kind === "duplicate"
+          ? result.work.deadline
+          : receipt.receivedAt + (transport === "twitch" ? 10000 : 3000),
+      activation: options.activation,
+    };
+    (yield* TenantDiagnostic).admission(trace);
+    yield* Effect.logInfo("Tenant admission decision").pipe(
+      Effect.annotateLogs(trace),
+    );
+    return result;
   });
   const acceptTwitch = Effect.fn("Tenant.acceptTwitch")(function* (
     input: TwitchReceipt,
@@ -364,25 +464,44 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     const work = result.work;
     if (work.transport !== "discord")
       return yield* new TenantError({ code: "conflict" });
-    if (work.kind === "terminal") return work.response;
+    if (work.kind === "terminal") {
+      yield* decision("committed", "recorded");
+      return work.response;
+    }
     if (result.kind === "accepted") {
       const reply = yield* computeText(work);
       const now = yield* Clock.currentTimeMillis;
-      yield* store.update((state) => {
-        if (matches(state.works[work.id], work))
-          state.works[work.id] = stopDiscord(
-            work,
-            now >= work.claim.until
-              ? failure()
-              : discordResponse(reply.text, reply.failed),
-          );
+      const committed = yield* store.update((state) => {
+        const latest = state.works[work.id];
+        if (latest?.transport === "discord" && latest.kind === "terminal")
+          return { response: latest.response, code: "recorded" as const };
+        if (!matches(latest, work)) return null;
+        const response =
+          now >= work.claim.until
+            ? failure()
+            : discordResponse(reply.text, reply.failed);
+        state.works[work.id] = stopDiscord(work, response);
+        return {
+          response,
+          code: now >= work.claim.until ? ("timeout" as const) : reply.code,
+        };
       });
+      if (committed) {
+        yield* decision("committed", committed.code);
+        return committed.response;
+      }
     }
     for (let reads = 0; reads < 100; reads++) {
       const now = yield* Clock.currentTimeMillis;
       const current = (yield* store.read).works[work.id];
-      if (!current || current.transport !== "discord") return failure();
-      if (current.kind === "terminal") return current.response;
+      if (!current || current.transport !== "discord") {
+        yield* decision("uncommitted", "missing");
+        return failure();
+      }
+      if (current.kind === "terminal") {
+        yield* decision("committed", "recorded");
+        return current.response;
+      }
       let response: DiscordResponse | null = null;
       if (
         current.claim.activation !== options.activation ||
@@ -402,9 +521,18 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
           return response;
         });
       }
-      if (response) return response;
+      if (response) {
+        yield* decision(
+          "committed",
+          current.claim.activation !== options.activation
+            ? "interrupted"
+            : "timeout",
+        );
+        return response;
+      }
       yield* Effect.sleep(25);
     }
+    yield* decision("uncommitted", "wait-limit");
     return failure();
   });
   const recover = Effect.fn("Tenant.recover")(function* () {
@@ -484,8 +612,9 @@ export class TenantDO extends Cloudflare.DurableObject<TenantDO>()(
       const store = yield* makeTenantStorage().pipe(
         Effect.provideService(Cloudflare.DurableObjectState, state),
       );
+      const activation = crypto.randomUUID();
       const tenant = yield* makeTenant({
-        activation: crypto.randomUUID(),
+        activation,
         launch: (effect) =>
           state
             .waitUntil(effect)
@@ -495,19 +624,39 @@ export class TenantDO extends Cloudflare.DurableObject<TenantDO>()(
         Effect.provideService(ArcData, data),
         Effect.provideService(TwitchAccount, account),
       );
-      const reply = <A>(effect: Effect.Effect<A, TenantError>) =>
-        effect.pipe(
+      const reply = Effect.fnUntraced(function* <A>(
+        input: TwitchReceipt | DiscordReceipt,
+        effect: Effect.Effect<A, TenantError>,
+      ) {
+        let trace: TenantTrace = {
+          phase: "uncommitted",
+          code: "rpc-entry",
+          admissionDeltaMs: (yield* Clock.currentTimeMillis) - input.receivedAt,
+          cutoff: input.receivedAt + ("guildId" in input ? 3000 : 10000),
+          activation,
+        };
+        const value = yield* effect.pipe(
           Effect.match({
             onSuccess: (value) => ({ kind: "success", value }) as const,
             onFailure: (error) =>
               ({ kind: "failure", code: error.code }) as const,
           }),
+          Effect.provideService(TenantDiagnostic, {
+            admission: (value) => {
+              trace = value;
+            },
+            decision: (phase, code) => {
+              trace = { ...trace, phase, code };
+            },
+          }),
         );
+        return { ...value, trace };
+      });
       return {
         acceptTwitch: (receipt: TwitchReceipt) =>
-          reply(tenant.acceptTwitch(receipt)),
+          reply(receipt, tenant.acceptTwitch(receipt)),
         respondDiscord: (receipt: DiscordReceipt) =>
-          reply(tenant.respondDiscord(receipt)),
+          reply(receipt, tenant.respondDiscord(receipt)),
         alarm: () => tenant.recover(),
       };
     });
@@ -517,25 +666,35 @@ export const bindTenants = Effect.gen(function* () {
   const objects = yield* TenantDO;
   return Effect.gen(function* () {
     const runtime = yield* RuntimeContext;
+    const observer = yield* TenantBoundaryObserver;
     const decode = Effect.fnUntraced(function* <A, I, E>(
-      effect: Effect.Effect<unknown, E, RuntimeContext>,
+      invoke: () => Effect.Effect<unknown, E, RuntimeContext>,
       schema: Schema.Codec<A, I>,
     ) {
+      observer.lookup();
+      const effect = invoke();
+      observer.rpc();
       const raw = yield* effect.pipe(
         Effect.provideService(RuntimeContext, runtime),
         Effect.mapError(() => new TenantError({ code: "unavailable" })),
       );
       const response = yield* Schema.decodeUnknownEffect(
         Schema.Union([
-          Schema.Struct({ kind: Schema.Literal("success"), value: schema }),
+          Schema.Struct({
+            kind: Schema.Literal("success"),
+            value: schema,
+            trace: TenantTrace,
+          }),
           Schema.Struct({
             kind: Schema.Literal("failure"),
             code: TenantError.fields.code,
+            trace: TenantTrace,
           }),
         ]),
       )(raw).pipe(
         Effect.mapError(() => new TenantError({ code: "unavailable" })),
       );
+      observer.result(response.trace);
       if (response.kind === "failure")
         return yield* new TenantError({ code: response.code });
       return response.value;
@@ -543,16 +702,18 @@ export const bindTenants = Effect.gen(function* () {
     return Tenants.of({
       acceptTwitch: (receipt) =>
         decode(
-          objects
-            .getByName(`twitch:${receipt.broadcasterId}`)
-            .acceptTwitch(receipt),
+          () =>
+            objects
+              .getByName(`twitch:${receipt.broadcasterId}`)
+              .acceptTwitch(receipt),
           Admission,
         ),
       respondDiscord: (receipt) =>
         decode(
-          objects
-            .getByName(`discord:${receipt.guildId}`)
-            .respondDiscord(receipt),
+          () =>
+            objects
+              .getByName(`discord:${receipt.guildId}`)
+              .respondDiscord(receipt),
           DiscordResponse,
         ),
     });

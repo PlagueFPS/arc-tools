@@ -1,10 +1,54 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer } from "effect";
 import type { EnvironmentConfig } from "../../apps/bot/src/config.js";
+import type {
+  TenantBoundaryObserver,
+  TenantTrace,
+} from "../../apps/bot/src/tenant-diagnostics.js";
 import { AccountEndpoints } from "../../apps/bot/src/twitch.js";
 import { CacheSource } from "../../packages/arc-data/src/cloudflare.js";
 import { MetaforgeWorker } from "./metaforge.js";
 import { TwitchProviderFixture } from "./twitch-provider-fixture.js";
+
+export function botRequestObservation(identity: EnvironmentConfig) {
+  if (
+    identity.kind !== "test" ||
+    !/^test-tenant-[a-f0-9]{8}-[a-f0-9]{12}$/.test(identity.stage)
+  )
+    throw new Error(
+      "Request observation requires an isolated synthetic tenant stage",
+    );
+  let lookups = 0;
+  let rpcs = 0;
+  let trace: TenantTrace | null = null;
+  const observer: typeof TenantBoundaryObserver.Service = {
+    lookup: () => {
+      lookups++;
+    },
+    rpc: () => {
+      rpcs++;
+    },
+    result: (value) => {
+      trace = value;
+    },
+  };
+  return {
+    observer,
+    headers: (): Record<string, string> => ({
+      "x-arc-tenant-lookups": String(lookups),
+      "x-arc-tenant-rpcs": String(rpcs),
+      ...(trace === null
+        ? {}
+        : {
+            "x-arc-tenant-phase": trace.phase,
+            "x-arc-tenant-code": trace.code,
+            "x-arc-admission-delta-ms": String(trace.admissionDeltaMs),
+            "x-arc-tenant-cutoff": String(trace.cutoff),
+            "x-arc-tenant-activation": trace.activation,
+          }),
+    }),
+  };
+}
 
 export const botTestBindings = Effect.fnUntraced(function* (
   identity: EnvironmentConfig,

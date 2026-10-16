@@ -74,6 +74,7 @@ export const tenantFixture = Effect.fnUntraced(function* () {
   const construct = (
     activation = "first",
     data: typeof ArcData.Service = source.data,
+    storage: typeof TenantStore.Service = store,
   ) =>
     makeTenant({
       activation,
@@ -82,7 +83,7 @@ export const tenantFixture = Effect.fnUntraced(function* () {
           launches.push(effect);
         }),
     }).pipe(
-      Effect.provideService(TenantStore, store),
+      Effect.provideService(TenantStore, storage),
       Effect.provideService(ArcData, data),
       Effect.provideService(TwitchAccount, account),
     );

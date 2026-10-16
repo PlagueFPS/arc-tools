@@ -1,5 +1,5 @@
 import { commands } from "@arctools/commands";
-import { Clock, Effect, Redacted, Schema, Stream } from "effect";
+import { Cause, Clock, Effect, Redacted, Schema, Stream } from "effect";
 import type { HttpServerRequest } from "effect/http";
 import { HttpServerResponse } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
@@ -11,6 +11,7 @@ import { digest } from "./provider-http.js";
 import {
   DiscordReceipt,
   Invocation,
+  TenantError,
   Tenants,
   TwitchReceipt,
 } from "./tenant-contracts.js";
@@ -429,7 +430,11 @@ export const ingressHandlers = (config: {
           config.receivedAt +
           tenantPolicy.rpcMs -
           (yield* Clock.currentTimeMillis);
-        if (remaining <= 0) return privateReply();
+        if (remaining <= 0)
+          return HttpServerResponse.setHeaders(privateReply(), {
+            "x-arc-command-fallback": "worker",
+            "x-arc-command-code": "ingress-budget",
+          });
         return yield* tenants.respondDiscord(receipt).pipe(
           Effect.timeout(remaining),
           Effect.map((reply) =>
@@ -437,31 +442,53 @@ export const ingressHandlers = (config: {
               headers: { "Cache-Control": "no-store" },
             }),
           ),
-          Effect.catchCause(() =>
-            Effect.logWarning(
-              "Discord tenant RPC did not complete within the response budget",
-            ).pipe(
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterrupts(cause)) return Effect.interrupt;
+            const error = cause.reasons.find(
+              (reason) => reason._tag === "Fail",
+            );
+            const code =
+              error?._tag === "Fail" && error.error instanceof TenantError
+                ? error.error.code
+                : error?._tag === "Fail" && Cause.isTimeoutError(error.error)
+                  ? "rpc-timeout"
+                  : Cause.hasDies(cause)
+                    ? "rpc-defect"
+                    : "rpc-failure";
+            return Effect.logWarning("Discord Worker fallback").pipe(
+              Effect.annotateLogs({ phase: "worker-fallback", code }),
               Effect.as(
-                HttpServerResponse.setHeader(
-                  privateReply(),
-                  "x-arc-command-fallback",
-                  "tenant",
-                ),
+                HttpServerResponse.setHeaders(privateReply(), {
+                  "x-arc-command-fallback": "worker",
+                  "x-arc-command-code": code,
+                }),
               ),
-            ),
-          ),
+            );
+          }),
         );
       });
       const guarded = <A, E>(effect: Effect.Effect<A, E>) =>
         effect.pipe(
           Effect.catchCause((cause) => {
+            if (Cause.hasInterrupts(cause)) return Effect.interrupt;
             const errors = [...cause.reasons].flatMap((reason) =>
               reason._tag === "Fail" && reason.error instanceof IngressError
                 ? [reason.error]
                 : [],
             );
-            return Effect.succeed(
-              HttpServerResponse.empty({ status: errors[0]?.status ?? 503 }),
+            const status = errors[0]?.status ?? 503;
+            return Effect.logWarning("Ingress response failure").pipe(
+              Effect.annotateLogs({
+                phase: "ingress",
+                code:
+                  status === 503
+                    ? Cause.hasDies(cause)
+                      ? "infrastructure-defect"
+                      : "infrastructure-failure"
+                    : "invalid-request",
+                status,
+              }),
+              Effect.as(HttpServerResponse.empty({ status })),
             );
           }),
         );

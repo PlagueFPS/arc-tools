@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { AttemptId, Deadline } from "../src/contracts.js";
 import { discordResponse, friendlyFailure } from "../src/presentation.js";
@@ -298,4 +298,150 @@ test(
     expect(f.sent).toHaveLength(8);
     expect(f.alarm()).toBeNull();
   }),
+);
+
+test(
+  "cancelling command execution does not commit a result or resurrect it after reconstruction",
+  Effect.gen(function* () {
+    const f = yield* tenantFixture();
+    const entered = yield* Deferred.make<void>();
+    const tenant = yield* f.construct("first", {
+      ...f.source.data,
+      items: () =>
+        Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
+    });
+    const running = yield* tenant
+      .respondDiscord(discordReceipt())
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(entered);
+    yield* Fiber.interrupt(running);
+    expect(f.snapshot().works.work?.kind).toBe("computing");
+    const next = yield* f.construct("next");
+    expect(yield* next.respondDiscord(discordReceipt())).toEqual(
+      discordResponse(friendlyFailure, true),
+    );
+    expect(f.snapshot().works.work).toMatchObject({
+      kind: "terminal",
+      deadline: 3000,
+      retainUntil: 603000,
+    });
+    expect(f.source.calls).toHaveLength(0);
+  }),
+);
+
+test(
+  "a late computation returns the terminal timeout that won the transaction",
+  Effect.gen(function* () {
+    const f = yield* tenantFixture();
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    const tenant = yield* f.construct("first", {
+      ...f.source.data,
+      items: (params) =>
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+          Effect.andThen(f.source.data.items(params)),
+          Effect.uninterruptible,
+        ),
+    });
+    const original = yield* tenant
+      .respondDiscord(discordReceipt())
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(entered);
+    yield* TestClock.adjust(2350);
+    const timeout = yield* tenant.respondDiscord(discordReceipt());
+    expect(timeout).toEqual(discordResponse(friendlyFailure, true));
+    yield* Deferred.succeed(release, undefined);
+    expect(yield* Fiber.join(original)).toEqual(timeout);
+    expect(f.snapshot().works.work).toMatchObject({
+      kind: "terminal",
+      response: timeout,
+      deadline: 3000,
+    });
+  }),
+);
+
+test(
+  "storage and dispatch defects remain observable outside the command boundary",
+  Effect.gen(function* () {
+    const f = yield* tenantFixture();
+    let writes = 0;
+    const storage = {
+      read: f.store.read,
+      update: <A>(change: Parameters<typeof f.store.update<A>>[0]) =>
+        Effect.suspend(() =>
+          ++writes === 2
+            ? Effect.die("STORAGE-DEFECT")
+            : f.store.update(change),
+        ),
+    };
+    const discord = yield* f.construct("first", f.source.data, storage);
+    const brokenWrite = yield* discord
+      .respondDiscord(discordReceipt())
+      .pipe(Effect.exit);
+    expect(
+      Exit.isFailure(brokenWrite) && Cause.hasDies(brokenWrite.cause),
+    ).toBeTrue();
+    expect(f.snapshot().works.work?.kind).toBe("computing");
+    const t = yield* tenantFixture();
+    t.dispatch(() => Effect.die("DISPATCH-DEFECT"));
+    const twitch = yield* t.construct();
+    yield* twitch.acceptTwitch(twitchReceipt());
+    const brokenDispatch = yield* t.drain.pipe(Effect.exit);
+    expect(
+      Exit.isFailure(brokenDispatch) && Cause.hasDies(brokenDispatch.cause),
+    ).toBeTrue();
+    expect(t.snapshot().works.work?.kind).toBe("delivering");
+  }),
+);
+
+test(
+  "an actual safe HTTP rate rejection whose RPC completion is late retries the same payload once",
+  Effect.gen(function* () {
+    const start = Date.now();
+    yield* TestClock.setTime(start);
+    const a = yield* accountFixture();
+    const account = yield* a.construct("secret");
+    yield* a.grants(account.service);
+    yield* account.service.setup("operator");
+    const bodies: unknown[] = [];
+    a.control.responses.set("POST /chat/messages", async (request) => {
+      bodies.push(await request.json());
+      return bodies.length === 1
+        ? Response.json({}, { status: 429 })
+        : Response.json({
+            data: [{ is_sent: true, message_id: "safe-success" }],
+          });
+    });
+    const f = yield* tenantFixture();
+    f.dispatch((input) =>
+      Effect.gen(function* () {
+        f.sent.push(input);
+        const outcome = yield* account.service.dispatch(input);
+        if (outcome.kind === "retryable")
+          yield* TestClock.setTime(start + 1500);
+        return outcome;
+      }),
+    );
+    const tenant = yield* f.construct();
+    yield* tenant.acceptTwitch(twitchReceipt("late-safe", start));
+    yield* f.drain;
+    expect(f.snapshot().works["late-safe"]).toMatchObject({
+      kind: "ready",
+      retryAt: start + 1500,
+      deadline: start + 10000,
+    });
+    expect(bodies).toHaveLength(1);
+    yield* tenant.recover();
+    expect(f.snapshot().works["late-safe"]).toMatchObject({
+      kind: "terminal",
+      outcome: "sent",
+    });
+    expect(f.sent).toHaveLength(2);
+    expect(f.sent[1]).toEqual(f.sent[0]);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+    yield* tenant.recover();
+    expect(bodies).toHaveLength(2);
+  }).pipe(Effect.scoped),
 );

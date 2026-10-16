@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
 import { ConfigProvider, Effect, Layer, Schema } from "effect";
 import { cloudSettings } from "../../../scripts/cloud-settings.js";
+import { botRequestObservation } from "../../../tests/cloud/bot-composition.js";
 import { EnvironmentConfig, runtimeConfig } from "../src/config.js";
 import { CommandInput, GuildId, tenantName } from "../src/contracts.js";
 
@@ -98,6 +99,39 @@ test("tenant partitions use verified transport IDs and command names come from t
       deadline: 1000,
     }),
   ).toThrow();
+});
+
+test("request observers are isolated and reject personal or production composition", () => {
+  const stage = "test-tenant-12345678-0123456789ab";
+  const synthetic = decode({ ...fixture, stage, applicationStage: stage });
+  const first = botRequestObservation(synthetic);
+  first.observer.lookup();
+  first.observer.rpc();
+  expect(first.headers()["x-arc-tenant-lookups"]).toBe("1");
+  const next = botRequestObservation(synthetic);
+  expect(next.headers()["x-arc-tenant-lookups"]).toBe("0");
+  expect(next.headers()["x-arc-tenant-rpcs"]).toBe("0");
+  for (const identity of [
+    decode({
+      ...fixture,
+      kind: "personal",
+      stage: "staging",
+      applicationStage: "staging",
+      senderKind: "personal",
+      senderLogin: "personal",
+      channelLogins: ["personal"],
+    }),
+    decode({
+      ...fixture,
+      kind: "production",
+      stage: "prod",
+      applicationStage: "prod",
+      senderKind: "bot",
+    }),
+    decode(fixture),
+  ]) {
+    expect(() => botRequestObservation(identity)).toThrow();
+  }
 });
 
 const effects = Test.make({ providers: Layer.empty });

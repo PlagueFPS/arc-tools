@@ -16,6 +16,7 @@ import { ingressHandlers } from "./ingress.js";
 import { operatorHandlers } from "./operator.js";
 import { bindTenants } from "./tenant.js";
 import { Tenants } from "./tenant-contracts.js";
+import { TenantBoundaryObserver } from "./tenant-diagnostics.js";
 import { bindAccount } from "./twitch.js";
 import { TwitchAccount } from "./twitch-contracts.js";
 
@@ -39,14 +40,15 @@ export class Bot extends Cloudflare.Worker<Bot>()(
     const config = yield* runtimeConfig;
     const { identity, operatorSecret } = config;
     const origin = yield* bindOrigin;
-    const bindings =
+    const testComposition =
       identity.kind === "test" && identity.stage.startsWith("test-tenant-")
         ? yield* Effect.promise(
             () => import("../../../tests/cloud/bot-composition.js"),
-          ).pipe(
-            Effect.flatMap(({ botTestBindings }) => botTestBindings(identity)),
           )
-        : Layer.empty;
+        : null;
+    const bindings = testComposition
+      ? yield* testComposition.botTestBindings(identity)
+      : Layer.empty;
     const revision = yield* buildRevision;
     const hash = yield* manifestHash;
     yield* ArcCacheDO.pipe(Effect.provide(bindings));
@@ -55,8 +57,16 @@ export class Bot extends Cloudflare.Worker<Bot>()(
     return {
       fetch: Effect.gen(function* () {
         const receivedAt = Date.now();
+        const observation = testComposition?.botRequestObservation(identity);
         const account = yield* client;
-        const tenants = yield* tenantClient;
+        const tenants = yield* observation
+          ? tenantClient.pipe(
+              Effect.provideService(
+                TenantBoundaryObserver,
+                observation.observer,
+              ),
+            )
+          : tenantClient;
         const callback = `${yield* origin}/webhooks/twitch`;
         const handler = yield* HttpApiBuilder.layer(BotApi).pipe(
           Layer.provide(
@@ -90,6 +100,11 @@ export class Bot extends Cloudflare.Worker<Bot>()(
           HttpRouter.toHttpEffect,
         );
         return yield* handler.pipe(
+          Effect.map((response) =>
+            observation
+              ? HttpServerResponse.setHeaders(response, observation.headers())
+              : response,
+          ),
           Effect.map((response) =>
             HttpServerResponse.setHeader(
               response,

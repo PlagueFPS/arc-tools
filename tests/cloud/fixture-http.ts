@@ -13,6 +13,19 @@ const Diagnostic = Schema.Struct({
   fixture: Schema.NullOr(Schema.String),
   bodyBytes: Schema.Number,
   bodySha256: Schema.String,
+  tenant: Schema.optional(
+    Schema.Struct({
+      lookups: Schema.NullOr(Schema.String),
+      rpcs: Schema.NullOr(Schema.String),
+      phase: Schema.NullOr(Schema.String),
+      code: Schema.NullOr(Schema.String),
+      admissionDeltaMs: Schema.NullOr(Schema.String),
+      cutoff: Schema.NullOr(Schema.String),
+      activation: Schema.NullOr(Schema.String),
+      fallback: Schema.NullOr(Schema.String),
+      fallbackCode: Schema.NullOr(Schema.String),
+    }),
+  ),
 });
 export class FixtureHttpError extends Schema.TaggedError<FixtureHttpError>()(
   "FixtureHttpError",
@@ -71,6 +84,17 @@ export const makeFixtureHttp = (
         bodySha256: Array.from(new Uint8Array(digest), (byte) =>
           byte.toString(16).padStart(2, "0"),
         ).join(""),
+        tenant: {
+          lookups: response.headers.get("x-arc-tenant-lookups"),
+          rpcs: response.headers.get("x-arc-tenant-rpcs"),
+          phase: response.headers.get("x-arc-tenant-phase"),
+          code: response.headers.get("x-arc-tenant-code"),
+          admissionDeltaMs: response.headers.get("x-arc-admission-delta-ms"),
+          cutoff: response.headers.get("x-arc-tenant-cutoff"),
+          activation: response.headers.get("x-arc-tenant-activation"),
+          fallback: response.headers.get("x-arc-command-fallback"),
+          fallbackCode: response.headers.get("x-arc-command-code"),
+        },
       };
       const routeNotReady = isRouteNotReady(parsed, diagnostic);
       console.info(

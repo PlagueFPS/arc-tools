@@ -1,10 +1,6 @@
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
-import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
-import * as Cloudflare from "alchemy/Cloudflare";
-import * as Core from "alchemy/Test/Core";
-import { Effect, Fiber, Schedule, Schema, Stream } from "effect";
-import Stack from "../../alchemy.run.js";
+import { Effect, Fiber, Schedule, Schema } from "effect";
 import { discordResponse } from "../../apps/bot/src/presentation.js";
 import {
   AccountStatus,
@@ -43,7 +39,23 @@ const samples: {
   flags: number;
   content: string;
   fallback: string | null;
+  fallbackCode: string | null;
+  tenantPhase: string | null;
+  tenantCode: string | null;
+  admissionDeltaMs: number | null;
+  cutoff: number | null;
+  activation: string | null;
 }[] = [];
+const twitchSamples: {
+  scenario: string;
+  workerAckMs: number;
+  clientAckMs: number;
+  observedDeliveryClientMs: number;
+}[] = [];
+const pendingTwitchSamples = new Map<
+  string,
+  { start: number; workerAckMs: number; clientAckMs: number }
+>();
 const recordSamples = () =>
   Effect.promise(() =>
     writeFile(
@@ -52,6 +64,18 @@ const recordSamples = () =>
         import.meta.url,
       ),
       JSON.stringify(samples, null, 2),
+    ),
+  ).pipe(
+    Effect.andThen(
+      Effect.promise(() =>
+        writeFile(
+          new URL(
+            `../../.cloud-tests/${settings.stage}/twitch-timings.json`,
+            import.meta.url,
+          ),
+          JSON.stringify(twitchSamples, null, 2),
+        ),
+      ),
     ),
   );
 const rejected = Effect.fnUntraced(function* <A, E>(
@@ -66,6 +90,8 @@ const rejected = Effect.fnUntraced(function* <A, E>(
   )
     return yield* Effect.die("Expected a terminal HTTP rejection");
   expect(result.failure.diagnostic.status).toBe(status);
+  expect(result.failure.diagnostic.tenant?.lookups).toBe("0");
+  expect(result.failure.diagnostic.tenant?.rpcs).toBe("0");
 });
 const snapshot = (url: string, key: string) =>
   get(`${url}/snapshot?key=${key}`, TenantSnapshot);
@@ -157,6 +183,16 @@ export function registerTenantTests({
         flags: reply.data.flags,
         content: reply.data.content,
         fallback: response.headers.get("x-arc-command-fallback"),
+        fallbackCode: response.headers.get("x-arc-command-code"),
+        tenantPhase: response.headers.get("x-arc-tenant-phase"),
+        tenantCode: response.headers.get("x-arc-tenant-code"),
+        admissionDeltaMs: response.headers.has("x-arc-admission-delta-ms")
+          ? Number(response.headers.get("x-arc-admission-delta-ms"))
+          : null,
+        cutoff: response.headers.has("x-arc-tenant-cutoff")
+          ? Number(response.headers.get("x-arc-tenant-cutoff"))
+          : null,
+        activation: response.headers.get("x-arc-tenant-activation"),
       });
       yield* recordSamples();
       if (enforceBudget) {
@@ -176,11 +212,20 @@ export function registerTenantTests({
     at = Date.now(),
   ) {
     const bytes = encode(event);
-    return yield* request(`${bot}/webhooks/twitch`, {
+    const headers = yield* signTwitch(bytes, id, at, type);
+    const start = performance.now();
+    const response = yield* request(`${bot}/webhooks/twitch`, {
       method: "POST",
       body: bytes,
-      headers: yield* signTwitch(bytes, id, at, type),
+      headers,
     });
+    if (id.startsWith("notification-"))
+      pendingTwitchSamples.set(id, {
+        start,
+        workerAckMs: Number(response.headers.get("x-arc-ingress-ms")),
+        clientAckMs: performance.now() - start,
+      });
+    return response;
   });
   const setup = Effect.fnUntraced(function* (bot: string) {
     return yield* request(`${bot}/ops/setup`, {
@@ -202,32 +247,10 @@ export function registerTenantTests({
       body: JSON.stringify({ stage: settings.stage }),
     }).pipe(Effect.flatMap((response) => json(response, AccountStatus)));
   });
-  const tenantObjects = Effect.fnUntraced(function* (workerName: string) {
-    return yield* Core.withProviders(
-      Effect.gen(function* () {
-        const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
-        const namespaces = yield* DurableObjects.listNamespaces
-          .items({ accountId })
-          .pipe(Stream.runCollect);
-        const namespace = namespaces.find(
-          (namespace) =>
-            namespace.script === workerName && namespace.class === "Tenant",
-        );
-        if (!namespace?.id)
-          return yield* Effect.die("Actual Bot tenant namespace missing");
-        return yield* DurableObjects.listNamespaceObjects
-          .items({ accountId, id: namespace.id })
-          .pipe(Stream.runCollect);
-      }),
-      {
-        providers: Cloudflare.providers(),
-        state: Cloudflare.state(),
-        stage: settings.stage,
-        profile: settings.profile,
-      },
-      Stack.stackName,
-    );
-  });
+  const noTenant = (response: Response) => {
+    expect(response.headers.get("x-arc-tenant-lookups")).toBe("0");
+    expect(response.headers.get("x-arc-tenant-rpcs")).toBe("0");
+  };
 
   const firstCold = beforeAll(
     Effect.gen(function* () {
@@ -280,13 +303,6 @@ export function registerTenantTests({
     "actual Bot verifies raw signatures, freshness, bounds and Discord context without allocating tenants",
     Effect.gen(function* () {
       const u = yield* urls;
-      const before = yield* tenantObjects(u.workerName).pipe(
-        Effect.repeat({
-          until: (objects) => objects.length > 0,
-          times: 20,
-          schedule: Schedule.spaced(250),
-        }),
-      );
       const ping = encode(
         ' {"application_id":"fixture-discord", "type":1}\r\n',
       );
@@ -296,6 +312,7 @@ export function registerTenantTests({
         headers,
         body: ping,
       });
+      noTenant(pong);
       expect(
         yield* json(pong, Schema.Struct({ type: Schema.Literal(1) })),
       ).toEqual({ type: 1 });
@@ -338,11 +355,15 @@ export function registerTenantTests({
         { member: undefined },
         { guild_id: undefined },
         { authorizing_integration_owners: { "0": "other" } },
+        { data: { name: "unknown", type: 1 } },
+        { data: { name: "sell", type: 1, options: [] } },
+        { data: { name: "sell", type: 2 } },
       ]) {
         const response = (yield* signedDiscord(u.bot, {
           ...discordCommand("wrong"),
           ...extra,
         })).response;
+        noTenant(response);
         expect(
           yield* json(
             response,
@@ -360,8 +381,78 @@ export function registerTenantTests({
         }),
         401,
       );
-      expect(yield* tenantObjects(u.workerName)).toEqual(before);
-      expect(before.length).toBe(1);
+      for (const stamp of [Date.now() - 601000, Date.now() + 31000])
+        yield* rejected(
+          signedTwitch(
+            u.bot,
+            twitchEvent(
+              "stale-twitch",
+              "!sell sensors",
+              `${u.bot}/webhooks/twitch`,
+            ),
+            "stale-twitch",
+            "notification",
+            stamp,
+          ),
+          401,
+        );
+      for (const value of ["{", { subscription: {} }])
+        yield* rejected(signedTwitch(u.bot, value, "invalid-twitch-body"), 400);
+      const context = twitchEvent(
+        "wrong-context",
+        "!sell sensors",
+        `${u.bot}/webhooks/twitch`,
+      );
+      yield* rejected(
+        signedTwitch(
+          u.bot,
+          {
+            ...context,
+            subscription: { ...context.subscription, version: "2" },
+          },
+          "invalid-twitch-context",
+        ),
+        400,
+      );
+      const valid = discordCommand(
+        "allocation-positive",
+        "sell",
+        "initial-cold",
+        "allocation-guild",
+      );
+      const positive = yield* signedDiscord(
+        u.bot,
+        valid,
+        "allocation-positive",
+      );
+      expect(positive.reply).toEqual(
+        discordResponse("Sensors can be sold for 10 coins each"),
+      );
+      expect(positive.response.headers.get("x-arc-tenant-lookups")).toBe("1");
+      expect(positive.response.headers.get("x-arc-tenant-rpcs")).toBe("1");
+      expect(positive.response.headers.get("x-arc-tenant-phase")).toBe(
+        "committed",
+      );
+      expect(positive.response.headers.get("x-arc-tenant-code")).toBe(
+        "success",
+      );
+      const duplicate = yield* signedDiscord(
+        u.bot,
+        valid,
+        "allocation-stored-duplicate",
+      );
+      expect(duplicate.reply).toEqual(positive.reply);
+      expect(duplicate.response.headers.get("x-arc-tenant-phase")).toBe(
+        "committed",
+      );
+      expect(duplicate.response.headers.get("x-arc-tenant-code")).toBe(
+        "recorded",
+      );
+      expect(
+        (yield* get(`${u.source}/observations`, Observations))[
+          "/items?id=initial-cold&minimal=true"
+        ],
+      ).toBe(1);
     }),
     { timeout: 90000 },
   );
@@ -471,14 +562,14 @@ export function registerTenantTests({
         "exact-challenge-👋",
       );
       expect((yield* status(u.bot)).setup).toBe("pending");
-      const objectsBefore = yield* tenantObjects(u.workerName);
       for (const text of ["hello", "!unknown sensors", "ARC: !sell sensors"]) {
         const event = twitchEvent(text, text, `${u.bot}/webhooks/twitch`);
         event.subscription.id = remote.id;
-        expect((yield* signedTwitch(u.bot, event, text)).status).toBe(204);
+        const ignored = yield* signedTwitch(u.bot, event, text);
+        expect(ignored.status).toBe(204);
+        noTenant(ignored);
       }
       expect((yield* status(u.bot)).setup).toBe("ready");
-      expect(yield* tenantObjects(u.workerName)).toEqual(objectsBefore);
       expect((yield* provider(u.provider)).messages).toEqual([]);
     }),
     { timeout: 90000 },
@@ -569,10 +660,19 @@ export function registerTenantTests({
           `${u.bot}/webhooks/twitch`,
         );
         event.subscription.id = remote.id;
+        const afterDiscord = yield* get(
+          `${u.source}/observations`,
+          Observations,
+        );
         const receivedAt = Date.now();
-        expect(
-          (yield* signedTwitch(u.bot, event, `notification-${command}`)).status,
-        ).toBe(204);
+        const admitted = yield* signedTwitch(
+          u.bot,
+          event,
+          `notification-${command}`,
+        );
+        expect(admitted.status).toBe(204);
+        expect(admitted.headers.get("x-arc-tenant-lookups")).toBe("1");
+        expect(admitted.headers.get("x-arc-tenant-rpcs")).toBe("1");
         const sent = (yield* waitMessages(
           u.provider,
           `all-${command}`,
@@ -582,6 +682,18 @@ export function registerTenantTests({
         );
         expect(sent?.body.message).toBe(`ARC: ${text}`);
         expect(sent?.at).toBeLessThan(receivedAt + 10000);
+        const timing = pendingTwitchSamples.get(`notification-${command}`);
+        if (!timing) return yield* Effect.die("Missing Twitch timing");
+        twitchSamples.push({
+          scenario: command,
+          workerAckMs: timing.workerAckMs,
+          clientAckMs: timing.clientAckMs,
+          observedDeliveryClientMs: performance.now() - timing.start,
+        });
+        yield* recordSamples();
+        expect(yield* get(`${u.source}/observations`, Observations)).toEqual(
+          afterDiscord,
+        );
         expect(
           (yield* signedTwitch(u.bot, event, `retry-${command}`)).status,
         ).toBe(204);
@@ -791,6 +903,75 @@ export function registerTenantTests({
   );
 
   test(
+    "native recovery joins a live slow account POST and completes its multipart plan",
+    Effect.gen(function* () {
+      const u = yield* urls;
+      const key = "slow-account-send";
+      yield* sourceControl(u.source, "/items?id=slowparts&minimal=true", {
+        data: [{ id: "slowparts", name: "x".repeat(650), value: 10 }],
+      });
+      yield* post(`${u.provider}/control`, { holdSend: true });
+      yield* Effect.gen(function* () {
+        yield* post(`${u.tenant}/control`, {
+          key,
+          control: { immediate: true },
+        });
+        const input = {
+          ...receipt(key),
+          invocation: { command: "sell", input: "slowparts" },
+        };
+        expect(
+          (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
+        ).toBe(204);
+        const first = yield* waitMessages(u.provider, key);
+        expect(
+          first.messages.filter(
+            (message) => message.body.reply_parent_message_id === key,
+          ),
+        ).toHaveLength(1);
+        const sending = yield* snapshot(u.tenant, key);
+        const work = sending.state?.works[key];
+        if (work?.kind !== "delivering")
+          return yield* Effect.die("Expected a live delivering claim");
+        const alarm = yield* snapshot(u.tenant, key).pipe(
+          Effect.repeat({
+            until: (value) =>
+              value.alarmRuns > 0 && Date.now() >= work.claim.until,
+            times: 25,
+            schedule: Schedule.spaced(75),
+          }),
+        );
+        expect(alarm.alarmRuns).toBeGreaterThan(0);
+        expect(alarm.state?.works[key]?.kind).toBe("delivering");
+        yield* post(`${u.provider}/control`, { holdSend: false });
+        const terminal = yield* snapshot(u.tenant, key).pipe(
+          Effect.repeat({
+            until: (value) => value.state?.works[key]?.kind === "terminal",
+            times: 30,
+            schedule: Schedule.spaced(100),
+          }),
+        );
+        expect(terminal.state?.works[key]).toMatchObject({
+          kind: "terminal",
+          outcome: "sent",
+          deadline: input.receivedAt + 10000,
+        });
+        expect(terminal.alarm).toBeNull();
+        expect(
+          (yield* provider(u.provider)).messages.filter(
+            (message) => message.body.reply_parent_message_id === key,
+          ),
+        ).toHaveLength(2);
+      }).pipe(
+        Effect.ensuring(
+          post(`${u.provider}/control`, { holdSend: false }).pipe(Effect.orDie),
+        ),
+      );
+    }),
+    { timeout: 90000 },
+  );
+
+  test(
     "native Discord interruption commits one private response at the original deadline without a late message",
     Effect.gen(function* () {
       const u = yield* urls;
@@ -951,7 +1132,52 @@ export function registerTenantTests({
       const revoked = yield* status(u.bot);
       expect(revoked.channels[0]?.authorized).toBeFalse();
       expect(revoked.sender?.authorized).toBeFalse();
-      expect(samples.length).toBeGreaterThanOrEqual(20);
+      yield* recordSamples();
+    }),
+    { timeout: 90000 },
+  );
+  test(
+    "timing coverage contains every useful command and intended error category",
+    Effect.gen(function* () {
+      for (const command of [
+        "buy",
+        "loot",
+        "craft",
+        "find",
+        "sell",
+        "recycle",
+        "recycleto",
+        "event",
+        "active",
+        "upcoming",
+      ]) {
+        const observed = samples.filter(
+          (sample) => sample.scenario === `command-${command}`,
+        );
+        expect(observed).toHaveLength(1);
+        expect(observed[0]?.flags).toBe(0);
+        expect(observed[0]?.fallback).toBeNull();
+        expect(observed[0]?.tenantPhase).toBe("committed");
+      }
+      const warm = samples.filter(
+        (sample) => sample.scenario === "warm-cache-warm-tenant",
+      );
+      expect(warm).toHaveLength(3);
+      for (const sample of warm) {
+        expect(sample.flags).toBe(0);
+        expect(sample.fallback).toBeNull();
+      }
+      for (const scenario of ["slow", "missing", "malformed"]) {
+        const observed = samples.filter(
+          (sample) => sample.scenario === scenario,
+        );
+        expect(observed).toHaveLength(1);
+        expect(observed[0]?.flags).toBe(64);
+        expect(observed[0]?.fallback).toBeNull();
+        expect(observed[0]?.tenantCode).toBe("command-error");
+      }
+      expect(samples).toHaveLength(22);
+      expect(twitchSamples).toHaveLength(10);
       yield* recordSamples();
     }),
     { timeout: 90000 },
