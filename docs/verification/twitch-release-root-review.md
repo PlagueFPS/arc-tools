@@ -153,6 +153,8 @@ The two code reviews and this canonical comparison are active. There is still no
 
 GPT-6.1-Sol's review of `b96620a` passed the two original rotation reproductions but found two additional authorization-recovery defects. Root inspected the affected retirement, observation, and HTTP boundary paths and retains both as blockers. Gemini's review and the canonical comparison remain in progress.
 
+Gemini's review has now returned a code pass with no findings. It agrees that the two original rotation cases are corrected. Its general assessment does not refute GPT-6.1-Sol's production-logic reproductions of retirement/revocation ordering and non-JSON 401 handling. Both assigned recovery corrections remain required. The canonical comparison continues separately.
+
 When a list reports an exact confirmed current subscription as `authorization_revoked`, reconciliation retires and tombstones the ID without invalidating its grant facts. A later verified revocation is discarded because that same tombstone already exists. The reviewer reproduced repeated pending setup with no authorization links and both subjects still marked authorized after replacement failed with 403. Cleanup retirement is not evidence that the authorization-loss transition has already been applied.
 
 The other reproduction returns HTML with HTTP 401 from `/users`. The shared HTTP helper tries to parse its body before the provider sees the status. Setup then receives a generic provider error and retains the rejected session. Two setup calls reused its generation and reported the credential as valid; returning JSON with the same status instead triggered the intended invalidation. The create adapter's earlier status-first fix does not cover this shared path.
