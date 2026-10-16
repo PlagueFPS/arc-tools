@@ -254,54 +254,23 @@ export const makeProvider = (
     ),
     create: Effect.fnUntraced(
       function* (token: string, channel: string, sender: string) {
-        const result = yield* Effect.tryPromise({
-          try: async (signal) => {
-            const response = await fetch(
-              `${endpoints.api}/eventsub/subscriptions`,
-              {
-                method: "POST",
-                headers: headers(token),
-                redirect: "manual",
-                signal,
-                body: JSON.stringify({
-                  type: "channel.chat.message",
-                  version: "1",
-                  condition: { broadcaster_user_id: channel, user_id: sender },
-                  transport: {
-                    method: "webhook",
-                    callback: config.callback,
-                    secret: Redacted.value(config.signingSecret),
-                  },
-                }),
+        const result = yield* request(
+          `${endpoints.api}/eventsub/subscriptions`,
+          {
+            method: "POST",
+            headers: headers(token),
+            body: JSON.stringify({
+              type: "channel.chat.message",
+              version: "1",
+              condition: { broadcaster_user_id: channel, user_id: sender },
+              transport: {
+                method: "webhook",
+                callback: config.callback,
+                secret: Redacted.value(config.signingSecret),
               },
-            );
-            if (response.status !== 202) {
-              await response.body?.cancel().catch(() => {});
-              return { status: response.status, body: null };
-            }
-            const reader = response.body?.getReader();
-            const decoder = new TextDecoder();
-            let body = "";
-            let size = 0;
-            if (reader) {
-              try {
-                while (true) {
-                  const chunk = await reader.read();
-                  if (chunk.done) break;
-                  size += chunk.value.byteLength;
-                  if (size > 256 * 1024) throw new Error("bounded body");
-                  body += decoder.decode(chunk.value, { stream: true });
-                }
-              } finally {
-                await reader.cancel();
-                reader.releaseLock();
-              }
-            }
-            const parsed: unknown = JSON.parse(body + decoder.decode());
-            return { status: response.status, body: parsed };
+            }),
           },
-          catch: () => new AccountError({ code: "provider" }),
-        }).pipe(Effect.timeout(4_000));
+        );
         if (result.status === 401)
           return yield* new AccountError({ code: "client" });
         if (result.status === 409)

@@ -116,6 +116,37 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     state.setupLease.revision === config.revision &&
     state.setupLease.generation === generation &&
     state.setupLease.until > now;
+  const revokeSubscription = (
+    state: AccountState,
+    observation: Pick<
+      AccountState["subscriptions"][string],
+      "id" | "broadcasterId" | "senderId" | "status"
+    >,
+    now: number,
+  ) => {
+    const prior = state.revoked[observation.id];
+    const authorizationLost = observation.status === "authorization_revoked";
+    if (
+      prior?.reason === "authorization-revoked" ||
+      (prior?.reason === "revoked" && !authorizationLost)
+    )
+      return;
+    state.revoked[observation.id] = {
+      until: prior?.until ?? now + policy.retentionMs,
+      reason: authorizationLost ? "authorization-revoked" : "revoked",
+    };
+    state.authGeneration += 1;
+    const record = state.subscriptions[observation.broadcasterId];
+    if (record?.id === observation.id && matchesTarget(state, record))
+      state.subscriptions[observation.broadcasterId] = {
+        ...record,
+        status: observation.status,
+      };
+    if (authorizationLost) {
+      delete state.grants[observation.broadcasterId];
+      delete state.grants[observation.senderId];
+    }
+  };
   yield* store.update((state) => {
     if (!current(state)) {
       state.revision = config.revision;
@@ -324,7 +355,10 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const now = yield* Clock.currentTimeMillis;
       const retired = yield* store.update((state) => {
         if (!ownsSetup(state, owner, generation, now)) return false;
-        state.revoked[id] ??= now + policy.retentionMs;
+        state.revoked[id] ??= {
+          until: now + policy.retentionMs,
+          reason: "retired",
+        };
         for (const [channel, record] of Object.entries(state.subscriptions))
           if (record.id === id) delete state.subscriptions[channel];
         return true;
@@ -350,6 +384,17 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         if (!managed) continue;
         const channel = subscription.condition.broadcaster_user_id ?? "";
         const record = state.subscriptions[channel];
+        if (
+          record &&
+          sameRemote(record, subscription) &&
+          matchesTarget(state, record) &&
+          subscription.status === "authorization_revoked"
+        )
+          revokeSubscription(
+            state,
+            { ...record, status: subscription.status },
+            now,
+          );
         if (
           record &&
           sameRemote(record, subscription) &&
@@ -621,34 +666,25 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           valid.binding !== config.subscriptionBinding ||
           valid.callback !== config.callback ||
           state.sender?.id !== valid.senderId ||
-          !state.channels.some(
-            (channel) => channel.id === valid.broadcasterId,
-          ) ||
-          state.revoked[valid.id]
+          !state.channels.some((channel) => channel.id === valid.broadcasterId)
         )
           return;
         const record = state.subscriptions[valid.broadcasterId];
         const confirmed =
           record?.id === valid.id && matchesTarget(state, record);
         if (liveSubscription(valid.status)) {
-          if (confirmed && liveSubscription(record.status))
+          if (
+            !state.revoked[valid.id] &&
+            confirmed &&
+            liveSubscription(record.status)
+          )
             state.subscriptions[valid.broadcasterId] = {
               ...record,
               status: record.status === "enabled" ? "enabled" : valid.status,
             };
           return;
         }
-        state.revoked[valid.id] = now + policy.retentionMs;
-        state.authGeneration += 1;
-        if (confirmed)
-          state.subscriptions[valid.broadcasterId] = {
-            ...record,
-            status: valid.status,
-          };
-        if (valid.status === "authorization_revoked") {
-          delete state.grants[valid.broadcasterId];
-          delete state.grants[valid.senderId];
-        }
+        revokeSubscription(state, valid, now);
       });
     },
   );

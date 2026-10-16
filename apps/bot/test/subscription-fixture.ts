@@ -2,7 +2,11 @@ import { Effect, Redacted, Schema } from "effect";
 import { EnvironmentConfig } from "../src/config.js";
 import { type AccountConfig, makeAccount } from "../src/twitch-account.js";
 import { subscriptionBinding } from "../src/twitch-binding.js";
-import { type Account, Dispatch } from "../src/twitch-contracts.js";
+import {
+  type Account,
+  Dispatch,
+  type SetupResult,
+} from "../src/twitch-contracts.js";
 import {
   makeProvider,
   type Subscription,
@@ -55,7 +59,10 @@ export const fixture = Effect.fnUntraced(function* () {
   const noLateCreate = (): typeof CreateRequest.Type | null => null;
   const requests: { method: string; path: string }[] = [];
   const control = {
-    responses: new Map<string, () => Response | Promise<Response>>(),
+    responses: new Map<
+      string,
+      (request: Request) => Response | Promise<Response>
+    >(),
     requests,
     remote: new Map<string, Subscription>(),
     secrets: new Map<string, string>(),
@@ -96,7 +103,7 @@ export const fixture = Effect.fnUntraced(function* () {
       const response = control.responses.get(
         `${request.method} ${url.pathname}`,
       );
-      if (response) return response();
+      if (response) return response(request);
       if (url.pathname === "/token") {
         const params = new URLSearchParams(await request.text());
         return Response.json({
@@ -248,9 +255,11 @@ export const fixture = Effect.fnUntraced(function* () {
     );
     return { ...account, config, provider };
   });
-  const grants = Effect.fnUntraced(function* (account: Account) {
-    const setup = yield* account.setup("operator");
-    for (const grant of setup.authorizations) {
+  const authorize = Effect.fnUntraced(function* (
+    account: Account,
+    authorizations: SetupResult["authorizations"],
+  ) {
+    for (const grant of authorizations) {
       const params = new URL(grant.url).searchParams;
       yield* account.completeOAuth({
         state: params.get("state") ?? "",
@@ -268,6 +277,12 @@ export const fixture = Effect.fnUntraced(function* () {
       });
     }
   });
+  const grants = Effect.fnUntraced(function* (account: Account) {
+    yield* authorize(
+      account,
+      (yield* account.setup("operator")).authorizations,
+    );
+  });
   const send = (account: Account, attemptId: string) =>
     account.dispatch(
       Schema.decodeUnknownSync(Dispatch)({
@@ -279,10 +294,12 @@ export const fixture = Effect.fnUntraced(function* () {
       }),
     );
   return {
+    base,
     control,
     store,
     construct,
     grants,
+    authorize,
     send,
     snapshot: () => Schema.decodeUnknownSync(AccountState)(raw),
   };

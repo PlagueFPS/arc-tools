@@ -79,7 +79,13 @@ export const AccountState = Schema.Struct({
       status: bounded(128),
     }),
   ),
-  revoked: Schema.Record(Schema.String, Schema.Number),
+  revoked: Schema.Record(
+    Schema.String,
+    Schema.Struct({
+      until: Schema.Number,
+      reason: Schema.Literals(["retired", "revoked", "authorization-revoked"]),
+    }),
+  ),
   attempts: Schema.Record(Schema.String, Attempt),
   reservations: Schema.Array(
     Schema.Struct({ channel: Schema.String, at: Schema.Number }),
@@ -144,8 +150,8 @@ export function reclaim(state: AccountState, now: number) {
   for (const [key, attempt] of Object.entries(state.attempts)) {
     if (attempt.retainUntil <= now) delete state.attempts[key];
   }
-  for (const [key, until] of Object.entries(state.revoked)) {
-    if (until <= now) delete state.revoked[key];
+  for (const [key, tombstone] of Object.entries(state.revoked)) {
+    if (tombstone.until <= now) delete state.revoked[key];
   }
 }
 export function reserveAt(

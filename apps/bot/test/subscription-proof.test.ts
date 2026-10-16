@@ -138,7 +138,9 @@ test(
       conflict: 0,
       send: 0,
     });
-    expect(f.snapshot().revoked["created-1"]).toBeGreaterThan(Date.now());
+    expect(f.snapshot().revoked["created-1"]?.until).toBeGreaterThan(
+      Date.now(),
+    );
     expect(f.snapshot().subscriptions["200"]?.id).toBe("created-2");
     const persisted = yield* f.construct("secret-A");
     expect((yield* persisted.service.setup("operator")).status.setup).toBe(
@@ -331,7 +333,7 @@ test(
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "authorization_revoked"),
     );
-    const retiredUntil = f.snapshot().revoked["created-1"];
+    const retiredUntil = f.snapshot().revoked["created-1"]?.until;
     expect(retiredUntil).toBeGreaterThan(Date.now());
     f.control.createGate = null;
     gate.release.resolve();
@@ -350,7 +352,7 @@ test(
       observation(a.config, "created-1", "enabled"),
     );
     expect(f.snapshot().subscriptions["200"]?.id).toBe("created-2");
-    expect(f.snapshot().revoked["created-1"]).toBe(retiredUntil);
+    expect(f.snapshot().revoked["created-1"]?.until).toBe(retiredUntil);
     expect(f.control.calls).toEqual({
       get: 2,
       post: 2,
@@ -375,7 +377,9 @@ test(
     const repairing = yield* b.service.setup("operator").pipe(Effect.forkChild);
     yield* Effect.promise(() => gate.entered.promise);
     expect(f.snapshot().subscriptions).toEqual({});
-    expect(f.snapshot().revoked["created-1"]).toBeGreaterThan(Date.now());
+    expect(f.snapshot().revoked["created-1"]?.until).toBeGreaterThan(
+      Date.now(),
+    );
     yield* b.service.observeSubscription(
       observation(b.config, "created-1", "enabled"),
     );
@@ -740,11 +744,14 @@ test(
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "authorization_revoked"),
     );
-    expect(f.snapshot().revoked["created-1"]).toBeGreaterThan(
+    expect(f.snapshot().revoked["created-1"]?.until).toBeGreaterThan(
       Date.now() + 599_000,
     );
     yield* f.store.update((state) => {
-      state.revoked["created-1"] = 0;
+      state.revoked["created-1"] = {
+        until: 0,
+        reason: "authorization-revoked",
+      };
     });
     yield* a.service.status();
     expect(f.snapshot().revoked).toEqual({});

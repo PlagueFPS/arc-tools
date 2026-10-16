@@ -13,11 +13,21 @@ export const request = Effect.fn("Provider.request")(function* (
 ) {
   return yield* Effect.tryPromise({
     try: async (signal) => {
+      const controller = new AbortController();
       const response = await fetch(url, {
         ...init,
-        signal,
+        signal: AbortSignal.any([signal, controller.signal]),
         redirect: "manual",
       });
+      if (!response.ok && response.status !== 429) {
+        void response.body?.cancel().catch(() => {});
+        controller.abort();
+        return {
+          status: response.status,
+          headers: response.headers,
+          body: null,
+        };
+      }
       const reader = response.body?.getReader();
       const chunks: Uint8Array[] = [];
       let size = 0;
