@@ -7,6 +7,11 @@ import {
 } from "../src/presentation.js";
 
 describe("transport presentation", () => {
+  test("Twitch breaks accidental username mentions without removing their text", () => {
+    expect(twitchParts("Look @player and @everyone")).toEqual([
+      "ARC: Look @\u200bplayer and @\u200beveryone",
+    ]);
+  });
   test("keeps all Unicode and whitespace across deterministic parts within 500 UTF-16 units", () => {
     for (const input of [
       "Sensors",

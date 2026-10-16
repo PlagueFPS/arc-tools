@@ -1,3 +1,4 @@
+import { ArcCacheDO } from "@arctools/arc-data/cloudflare";
 import { Stack } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer } from "effect";
@@ -48,6 +49,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
         : Layer.empty;
     const revision = yield* buildRevision;
     const hash = yield* manifestHash;
+    yield* ArcCacheDO.pipe(Effect.provide(bindings));
     const client = yield* bindAccount.pipe(Effect.provide(bindings));
     const tenantClient = yield* bindTenants.pipe(Effect.provide(bindings));
     return {

@@ -89,7 +89,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
   const computeText = (work: Extract<Work, { kind: "computing" }>) =>
     executeCommand({
       ...work.invocation,
-      deadline: Math.min(work.deadline, work.claim.until),
+      deadline: work.transport === "discord" ? work.claim.until : work.deadline,
     }).pipe(
       Effect.provideService(ArcData, data),
       Effect.map((reply) => ({ text: reply.text, failed: false })),
@@ -171,10 +171,11 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     const now = yield* Clock.currentTimeMillis;
     const proceed = yield* store.update((state) => {
       if (!matches(state.works[work.id], work)) return false;
-      if (now >= work.deadline || now >= work.claim.until) {
+      if (now >= work.deadline) {
         state.works[work.id] = stopTwitch(work, "expired");
         return false;
       }
+      if (now >= work.claim.until) return false;
       let plan = twitchParts(reply.text).map((text, index) => ({
         attemptId: AttemptId.make(`${work.id}:${index}`),
         broadcasterId: work.broadcasterId,

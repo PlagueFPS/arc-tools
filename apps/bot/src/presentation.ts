@@ -30,7 +30,8 @@ export function discordResponse(text: string, failed = false): DiscordResponse {
   };
 }
 
-export function twitchParts(text: string): readonly string[] {
+export function twitchParts(content: string): readonly string[] {
+  const text = content.replaceAll("@", "@\u200b");
   if (text && text.length <= 495 && encodedBytes(text) <= 7000)
     return [`ARC: ${text}`];
   const parts: string[] = [];

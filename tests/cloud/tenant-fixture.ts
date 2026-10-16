@@ -9,6 +9,7 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
 } from "effect/http-api";
+import { runtimeConfig } from "../../apps/bot/src/config.js";
 import { makeTenant, makeTenantStorage } from "../../apps/bot/src/tenant.js";
 import {
   DiscordReceipt,
@@ -23,10 +24,12 @@ import {
 } from "../../apps/bot/src/twitch-contracts.js";
 import { Bot } from "../../apps/bot/src/worker.js";
 import {
+  ArcCacheDO,
   bindData,
   CacheSource,
 } from "../../packages/arc-data/src/cloudflare.js";
 import { ArcData } from "../../packages/arc-data/src/data-service.js";
+import { botTestBindings } from "./bot-composition.js";
 import {
   acknowledgeReconstruction,
   identifyFixtureResponse,
@@ -38,6 +41,7 @@ export const TenantSnapshot = Schema.Struct({
   state: Schema.NullOr(TenantState),
   alarm: Schema.NullOr(Schema.Number),
   alarmRuns: Schema.Int,
+  lostAccountResponseAt: Schema.NullOr(Schema.Number),
 });
 const AccountReference = Cloudflare.DurableObject<
   TwitchAccountDO,
@@ -102,7 +106,8 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
               (yield* state.storage.get<typeof Control.Type>(
                 "fixtureControl",
               )) ?? {};
-            if (control.loseAccountResponse) {
+            if (control.loseAccountResponse && reply.value.kind === "sent") {
+              yield* state.storage.put("fixtureLostAt", Date.now());
               yield* state.storage.put("fixtureControl", {
                 ...control,
                 loseAccountResponse: false,
@@ -145,6 +150,8 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
         snapshot: Effect.fnUntraced(function* () {
           return {
             instance,
+            lostAccountResponseAt:
+              (yield* state.storage.get<number>("fixtureLostAt")) ?? null,
             state: (yield* state.storage.get("tenant:v1")) ?? null,
             alarm: yield* state.storage.getAlarm(),
             alarmRuns: (yield* state.storage.get<number>("fixtureAlarms")) ?? 0,
@@ -191,6 +198,9 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
     };
   }),
   Effect.gen(function* () {
+    yield* ArcCacheDO.pipe(
+      Effect.provide(yield* botTestBindings((yield* runtimeConfig).identity)),
+    );
     const objects = yield* TenantFixtureObject;
     const object = (name: string) => objects.getByName(name);
     const input = Effect.fnUntraced(function* <A, I>(

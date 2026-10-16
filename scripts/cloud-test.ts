@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { Schema } from "effect";
 import { CloudSettings, cloudSettings } from "./cloud-settings.js";
@@ -97,7 +98,19 @@ async function execute(command: string[]) {
   });
   return await child.exited;
 }
-let testResult = 0;
+const resultFile = new URL("result.json", directory);
+let testResult = cleanupOnly ? 1 : 0;
+if (cleanupOnly && existsSync(resultFile)) {
+  const previous = Schema.decodeUnknownSync(
+    Schema.Struct({
+      stage: CloudSettings.fields.stage,
+      testResult: Schema.Int,
+    }),
+  )(JSON.parse(await readFile(resultFile, "utf8")));
+  if (previous.stage !== settings.stage)
+    throw new Error("Cleanup result stage mismatch");
+  testResult = previous.testResult;
+}
 let cleanupResult = 1;
 try {
   if (!cleanupOnly)
@@ -113,10 +126,10 @@ try {
     "./scripts/cloud-cleanup.ts",
   ]);
   await writeFile(
-    new URL("result.json", directory),
+    resultFile,
     JSON.stringify({ ...settings, testResult, cleanupResult }, null, 2),
   );
 }
 console.info(`Cloud tests exit ${testResult}; cleanup exit ${cleanupResult}`);
 console.info(`Retry cleanup with bun run test:cloud:cleanup ${settings.stage}`);
-process.exit(testResult || cleanupResult);
+process.exit(cleanupOnly ? cleanupResult : testResult || cleanupResult);

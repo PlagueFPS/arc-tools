@@ -1,8 +1,9 @@
 import { describe, expect } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer, Redacted, Schema } from "effect";
-import { HttpRouter, HttpServer } from "effect/http";
+import { Effect, Fiber, Layer, Redacted, Schema } from "effect";
+import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
+import { TestClock } from "effect/testing";
 import {
   discordCommand,
   discordPublicKey,
@@ -12,7 +13,11 @@ import {
 } from "../../../tests/cloud/signatures.js";
 import { BotApi } from "../src/api.js";
 import { publicOrigin } from "../src/config.js";
-import { ingressHandlers, parseTwitchCommand } from "../src/ingress.js";
+import {
+  ingressHandlers,
+  parseTwitchCommand,
+  readBody,
+} from "../src/ingress.js";
 import { operatorHandlers } from "../src/operator.js";
 import { discordResponse } from "../src/presentation.js";
 import { type TenantService, Tenants } from "../src/tenant-contracts.js";
@@ -26,7 +31,6 @@ import {
 import { identity } from "./subscription-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
-const now = Date.now();
 const callback = "https://bot.invalid/webhooks/twitch";
 const encode = (value: unknown) =>
   new TextEncoder().encode(
@@ -40,6 +44,7 @@ const fixture = Effect.fnUntraced(function* (
     ) => Effect.Effect<void, AccountError>;
   } = {},
 ) {
+  const now = Date.now();
   const admissions: unknown[] = [];
   const observations: SubscriptionObservation[] = [];
   let reads = 0;
@@ -154,6 +159,7 @@ const fixture = Effect.fnUntraced(function* (
     );
   });
   return {
+    receivedAt: now,
     request,
     discord,
     twitch,
@@ -173,7 +179,7 @@ describe("signed HttpApi ingress", () => {
         const body = encode(
           ' { "application_id" : "fixture-discord", "type" : 1 }\r\n',
         );
-        const signed = yield* signDiscord(body, now);
+        const signed = yield* signDiscord(body, f.receivedAt);
         expect(
           yield* json(yield* f.request("/interactions/discord", body, signed)),
         ).toEqual({ type: 1 });
@@ -199,16 +205,19 @@ describe("signed HttpApi ingress", () => {
           401,
         );
         expect(
-          (yield* f.twitch(twitchEvent("message"), now - 600001)).status,
+          (yield* f.twitch(twitchEvent("message"), f.receivedAt - 600001))
+            .status,
         ).toBe(401);
         expect(
-          (yield* f.twitch(twitchEvent("message"), now + 30001)).status,
+          (yield* f.twitch(twitchEvent("message"), f.receivedAt + 30001))
+            .status,
         ).toBe(401);
         expect(
-          (yield* f.discord(discordCommand("id"), now - 301000)).status,
+          (yield* f.discord(discordCommand("id"), f.receivedAt - 301000))
+            .status,
         ).toBe(401);
         expect(
-          (yield* f.discord(discordCommand("id"), now + 31000)).status,
+          (yield* f.discord(discordCommand("id"), f.receivedAt + 31000)).status,
         ).toBe(401);
         expect(f.admissions).toEqual([]);
         expect(f.reads()).toBe(0);
@@ -229,7 +238,7 @@ describe("signed HttpApi ingress", () => {
           (yield* f.request(
             "/interactions/discord",
             bad,
-            yield* signDiscord(bad, now),
+            yield* signDiscord(bad, f.receivedAt),
           )).status,
         ).toBe(400);
         expect((yield* f.discord("{")).status).toBe(400);
@@ -288,7 +297,7 @@ describe("signed HttpApi ingress", () => {
         expect(f.admissions).toMatchObject([
           {
             invocation: { command: "sell", input: "sensors" },
-            receivedAt: now,
+            receivedAt: f.receivedAt,
           },
         ]);
         expect(f.observations).toHaveLength(4);
@@ -349,7 +358,7 @@ describe("signed HttpApi ingress", () => {
         };
         const response = yield* f.twitch(
           challenge,
-          now,
+          f.receivedAt,
           "webhook_callback_verification",
         );
         expect(response.status).toBe(200);
@@ -372,7 +381,7 @@ describe("signed HttpApi ingress", () => {
                 status: "authorization_revoked",
               },
             },
-            now,
+            f.receivedAt,
             "revocation",
           )).status,
         ).toBe(503);
@@ -431,3 +440,29 @@ describe("signed HttpApi ingress", () => {
     }),
   );
 });
+
+test(
+  "an unfinished raw body is interrupted at its bounded read timeout",
+  Effect.gen(function* () {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([123]));
+      },
+    });
+    const request = HttpServerRequest.fromWeb(
+      new Request("https://bot.invalid/interactions/discord", {
+        method: "POST",
+        body: stream,
+      }),
+    );
+    const result = yield* readBody(request).pipe(
+      Effect.result,
+      Effect.forkChild,
+    );
+    yield* TestClock.adjust(750);
+    expect(yield* Fiber.join(result)).toMatchObject({
+      _tag: "Failure",
+      failure: { status: 408 },
+    });
+  }).pipe(Effect.provide(TestClock.layer())),
+);

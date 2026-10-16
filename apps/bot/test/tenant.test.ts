@@ -3,7 +3,7 @@ import { makeFixture } from "@arctools/arc-data/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { Deadline, WorkId } from "../src/contracts.js";
+import { AttemptId, Deadline, WorkId } from "../src/contracts.js";
 import {
   discordResponse,
   encodedBytes,
@@ -320,3 +320,199 @@ describe("Tenant durable behavior", () => {
     }),
   );
 });
+
+test(
+  "an expired computation lease leaves useful original budget for a new generation",
+  Effect.gen(function* () {
+    const fixture = yield* tenantFixture();
+    const entered = yield* Deferred.make<void>();
+    const slow = yield* fixture.construct("first", {
+      ...fixture.source.data,
+      items: (params) =>
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(Effect.sleep(4500)),
+          Effect.andThen(fixture.source.data.items(params)),
+        ),
+    });
+    yield* slow.acceptTwitch(twitchReceipt());
+    const running = yield* fixture.drain.pipe(Effect.forkChild);
+    yield* Deferred.await(entered);
+    yield* TestClock.adjust(4500);
+    yield* Fiber.join(running);
+    expect(fixture.snapshot().works.work).toMatchObject({
+      kind: "computing",
+      deadline: 10000,
+    });
+    expect(fixture.sent).toHaveLength(0);
+    expect(fixture.alarm()).toBe(4000);
+    const recovered = yield* fixture.construct("second");
+    yield* recovered.recover();
+    expect(fixture.sent).toHaveLength(1);
+    expect(fixture.sent[0]?.deadline).toBe(Deadline.make(10000));
+    expect(fixture.sent[0]?.attemptId).toBe(AttemptId.make("work:0"));
+  }),
+);
+
+test(
+  "encoded bytes and outstanding reservations cap admission before 64 large Discord replay records",
+  Effect.gen(function* () {
+    const fixture = yield* tenantFixture();
+    const tenant = yield* fixture.construct();
+    fixture.source.body({
+      data: [{ id: "sensors", name: "😀".repeat(900), value: 10 }],
+    });
+    let admitted = 0;
+    for (let n = 0; n < 64; n++) {
+      const result = yield* tenant
+        .respondDiscord(discordReceipt(`large-${n}`))
+        .pipe(Effect.result);
+      if (result._tag === "Failure") {
+        expect(result.failure.code).toBe("capacity");
+        break;
+      }
+      expect(result.success.data.flags).toBe(0);
+      admitted++;
+    }
+    expect(admitted).toBeGreaterThan(8);
+    expect(admitted).toBeLessThan(64);
+    expect(fits(fixture.snapshot())).toBeTrue();
+    expect(encodedBytes(fixture.snapshot())).toBeLessThanOrEqual(
+      tenantPolicy.bytes,
+    );
+    expect(
+      (yield* tenant.respondDiscord(discordReceipt("large-0"))).data.flags,
+    ).toBe(0);
+    expect(Object.keys(fixture.snapshot().works)).toHaveLength(admitted);
+  }),
+);
+
+test(
+  "Tenant preserves stale metadata provenance and rejects fully expired metadata and schedules through the real cache",
+  Effect.gen(function* () {
+    const fixture = yield* tenantFixture();
+    const tenant = yield* fixture.construct();
+    yield* fixture.source.data.items({ id: "sensors", minimal: true });
+    fixture.source.body({}, 503);
+    yield* TestClock.setTime(86400000);
+    expect(
+      (yield* tenant.respondDiscord(discordReceipt("stale", 86400000))).data,
+    ).toMatchObject({
+      flags: 0,
+      content: "Sensors can be sold for 10 coins each [Using cached data]",
+    });
+    yield* TestClock.setTime(604800001);
+    expect(
+      (yield* tenant.respondDiscord(discordReceipt("expired", 604800001))).data,
+    ).toMatchObject({
+      flags: 64,
+      content:
+        "Game data is temporarily unavailable. Please try again shortly.",
+    });
+    fixture.source.body({ data: [] });
+    expect(
+      (yield* tenant.respondDiscord({
+        ...discordReceipt("schedule", 604800001),
+        invocation: { command: "active", input: "" },
+      })).data.content,
+    ).toBe("No active events");
+    fixture.source.body({}, 503);
+    yield* TestClock.setTime(604860001);
+    expect(
+      (yield* tenant.respondDiscord({
+        ...discordReceipt("schedule-expired", 604860001),
+        invocation: { command: "active", input: "" },
+      })).data.flags,
+    ).toBe(64);
+  }),
+);
+
+test(
+  "all ten commands render exact public Discord and Twitch outputs through one real shared cache",
+  Effect.gen(function* () {
+    const fixture = yield* tenantFixture();
+    const tenant = yield* fixture.construct();
+    fixture.source.respond((url) =>
+      Effect.succeed(
+        Response.json({
+          data: url.pathname.endsWith("/traders")
+            ? {
+                Apollo: [],
+                Celeste: [],
+                Lance: [],
+                Shani: [{ id: "sensors", name: "Sensors", trader_price: 100 }],
+                TianWen: [],
+              }
+            : url.pathname.endsWith("/arcs")
+              ? [
+                  {
+                    id: "bastion",
+                    name: "Bastion",
+                    loot: [{ item: { id: "sensors", name: "Sensors" } }],
+                  },
+                ]
+              : url.pathname.endsWith("/events-schedule")
+                ? [
+                    {
+                      name: "Harvester",
+                      map: "Dam",
+                      startTime: 0,
+                      endTime: 120000,
+                    },
+                    {
+                      name: "Harvester",
+                      map: "Spaceport",
+                      startTime: 120000,
+                      endTime: 240000,
+                    },
+                  ]
+                : [
+                    {
+                      id: "sensors",
+                      name: "Sensors",
+                      value: 10,
+                      loot_area: "Industrial",
+                      recycle_components: [],
+                      recycle_from: [],
+                    },
+                  ],
+        }),
+      ),
+    );
+    const cases = [
+      ["buy", "sensors", "Sensors can be purchased from Shani for 100 cred."],
+      ["loot", "bastion", "Bastions drop the following items: Sensors"],
+      ["craft", "sensors", "Sensors cannot be crafted."],
+      ["find", "sensors", "Sensors can be found in Industrial areas."],
+      ["sell", "sensors", "Sensors can be sold for 10 coins each"],
+      ["recycle", "sensors", "No items granted for recycling Sensors"],
+      ["recycleto", "sensors", "No items recycle to Sensors"],
+      ["event", "queen", "Harvester on Dam is active now (ends in 2m)"],
+      ["active", "", "Harvester on Dam (ends in 2m)"],
+      ["upcoming", "", "Harvester on Spaceport (starts in 2m)"],
+    ] as const;
+    for (const [command, input, text] of cases)
+      expect(
+        yield* tenant.respondDiscord({
+          ...discordReceipt(command),
+          invocation: { command, input },
+        }),
+      ).toEqual(discordResponse(text));
+    expect(fixture.source.calls).toHaveLength(5);
+    const twitchFixture = yield* tenantFixture();
+    const twitch = yield* twitchFixture.construct(
+      "twitch",
+      fixture.source.data,
+    );
+    for (const [command, input] of cases) {
+      yield* twitch.acceptTwitch({
+        ...twitchReceipt(`twitch-${command}`),
+        invocation: { command, input },
+      });
+      yield* twitchFixture.drain;
+    }
+    expect(twitchFixture.sent.map((message) => message.text)).toEqual(
+      cases.map(([, , text]) => `ARC: ${text}`),
+    );
+    expect(fixture.source.calls).toHaveLength(5);
+  }),
+);

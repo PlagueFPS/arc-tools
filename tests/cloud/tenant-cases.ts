@@ -12,6 +12,7 @@ import {
 } from "../../apps/bot/src/twitch-contracts.js";
 import { cloudSettings } from "../../scripts/cloud-settings.js";
 import {
+  FixtureHttpError,
   get,
   json,
   post,
@@ -52,6 +53,19 @@ const recordSamples = () =>
       JSON.stringify(samples, null, 2),
     ),
   );
+const rejected = Effect.fnUntraced(function* <A, E>(
+  effect: Effect.Effect<A, E>,
+  status: number,
+) {
+  const result = yield* effect.pipe(Effect.result);
+  expect(result._tag).toBe("Failure");
+  if (
+    result._tag !== "Failure" ||
+    !(result.failure instanceof FixtureHttpError)
+  )
+    return yield* Effect.die("Expected a terminal HTTP rejection");
+  expect(result.failure.diagnostic.status).toBe(status);
+});
 const snapshot = (url: string, key: string) =>
   get(`${url}/snapshot?key=${key}`, TenantSnapshot);
 const provider = (url: string) => get(`${url}/snapshot`, ProviderSnapshot);
@@ -85,7 +99,8 @@ const receipt = (id: string, receivedAt = Date.now()) => ({
 export function registerTenantTests({
   stack,
   test,
-}: Pick<typeof Foundation, "stack" | "test">) {
+  beforeAll,
+}: Pick<typeof Foundation, "stack" | "test" | "beforeAll">) {
   const urls = Effect.gen(function* () {
     const deployed = yield* stack;
     if (!deployed.tenantUrl || !deployed.sourceUrl || !deployed.providerUrl)
@@ -103,6 +118,7 @@ export function registerTenantTests({
     value: unknown,
     scenario = "",
     at = Date.now(),
+    enforceBudget = true,
   ) {
     const bytes = encode(value);
     const headers = yield* signDiscord(bytes, at);
@@ -141,9 +157,11 @@ export function registerTenantTests({
         content: reply.data.content,
       });
       yield* recordSamples();
-      expect(workerMs).toBeGreaterThanOrEqual(0);
-      expect(workerMs).toBeLessThan(3000);
-      expect(elapsed).toBeLessThan(3000);
+      if (enforceBudget) {
+        expect(workerMs).toBeGreaterThanOrEqual(0);
+        expect(workerMs).toBeLessThan(3000);
+        expect(elapsed).toBeLessThan(3000);
+      }
       return { response, reply };
     }
     return { response, reply: null };
@@ -209,11 +227,65 @@ export function registerTenantTests({
     );
   });
 
+  const firstCold = beforeAll(
+    Effect.gen(function* () {
+      const u = yield* urls;
+      return yield* signedDiscord(
+        u.bot,
+        discordCommand(
+          "first-cold",
+          "sell",
+          "initial-cold",
+          "first-cold-guild",
+        ),
+        "first-http-cold-worker-tenant-cache",
+        Date.now(),
+        false,
+      );
+    }).pipe(Effect.result),
+    { timeout: 90000 },
+  );
+
+  test(
+    "the first HTTP request to the new Bot completes a useful cold tenant/cache path within the original budget",
+    Effect.gen(function* () {
+      const result = yield* firstCold;
+      expect(result._tag).toBe("Success");
+      if (result._tag !== "Success")
+        return yield* Effect.die(
+          "First Bot HTTP request failed; retained HTTP diagnostic identifies the failure",
+        );
+      expect(result.success.reply).toEqual(
+        discordResponse("Sensors can be sold for 10 coins each"),
+      );
+      const sample = samples.find(
+        (sample) => sample.scenario === "first-http-cold-worker-tenant-cache",
+      );
+      if (!sample) return yield* Effect.die("First Bot HTTP sample missing");
+      expect(sample.workerMs).toBeLessThan(3000);
+      expect(sample.clientMs).toBeLessThan(3000);
+      const u = yield* urls;
+      expect(
+        (yield* get(`${u.source}/observations`, Observations))[
+          "/items?id=initial-cold&minimal=true"
+        ],
+      ).toBe(1);
+    }),
+    { timeout: 90000 },
+  );
+
   test(
     "actual Bot verifies raw signatures, freshness, bounds and Discord context without allocating tenants",
     Effect.gen(function* () {
       const u = yield* urls;
-      expect(yield* tenantObjects(u.workerName)).toEqual([]);
+      const before = yield* tenantObjects(u.workerName).pipe(
+        Effect.repeat({
+          until: (objects) => objects.length > 0,
+          times: 20,
+          schedule: Schedule.spaced(250),
+        }),
+      );
+      expect(before.length).toBe(1);
       const ping = encode(
         ' {"application_id":"fixture-discord", "type":1}\r\n',
       );
@@ -226,44 +298,39 @@ export function registerTenantTests({
       expect(
         yield* json(pong, Schema.Struct({ type: Schema.Literal(1) })),
       ).toEqual({ type: 1 });
-      expect(
-        (yield* request(`${u.bot}/interactions/discord`, {
+      yield* rejected(
+        request(`${u.bot}/interactions/discord`, {
           method: "POST",
           headers,
           body: encode({ application_id: "fixture-discord", type: 1 }),
-        })).status,
-      ).toBe(401);
-      expect(
-        (yield* signedDiscord(
-          u.bot,
-          discordCommand("stale"),
-          "",
-          Date.now() - 301000,
-        )).response.status,
-      ).toBe(401);
-      expect(
-        (yield* signedDiscord(
-          u.bot,
-          discordCommand("future"),
-          "",
-          Date.now() + 31000,
-        )).response.status,
-      ).toBe(401);
-      expect((yield* signedDiscord(u.bot, "{")).response.status).toBe(400);
+        }),
+        401,
+      );
+      yield* rejected(
+        signedDiscord(u.bot, discordCommand("stale"), "", Date.now() - 301000),
+        401,
+      );
+      yield* rejected(
+        signedDiscord(u.bot, discordCommand("future"), "", Date.now() + 31000),
+        401,
+      );
+      yield* rejected(signedDiscord(u.bot, "{"), 400);
       const bad = new Uint8Array([255, 0, 13, 10]);
-      expect(
-        (yield* request(`${u.bot}/interactions/discord`, {
+      yield* rejected(
+        request(`${u.bot}/interactions/discord`, {
           method: "POST",
           body: bad,
           headers: yield* signDiscord(bad),
-        })).status,
-      ).toBe(400);
-      expect(
-        (yield* request(`${u.bot}/interactions/discord`, {
+        }),
+        400,
+      );
+      yield* rejected(
+        request(`${u.bot}/interactions/discord`, {
           method: "POST",
           body: "x".repeat(65537),
-        })).status,
-      ).toBe(413);
+        }),
+        413,
+      );
       for (const extra of [
         { application_id: "other" },
         { context: 1 },
@@ -285,13 +352,14 @@ export function registerTenantTests({
           ),
         ).toMatchObject({ type: 4, data: { flags: 64 } });
       }
-      expect(
-        (yield* request(`${u.bot}/webhooks/twitch`, {
+      yield* rejected(
+        request(`${u.bot}/webhooks/twitch`, {
           method: "POST",
           body: encode(twitchEvent("bad")),
-        })).status,
-      ).toBe(401);
-      expect(yield* tenantObjects(u.workerName)).toEqual([]);
+        }),
+        401,
+      );
+      expect(yield* tenantObjects(u.workerName)).toEqual(before);
     }),
     { timeout: 90000 },
   );
@@ -300,7 +368,7 @@ export function registerTenantTests({
     "actual Bot cold and warm Discord responses use the shared production cache with measured full-path headroom",
     Effect.gen(function* () {
       const u = yield* urls;
-      yield* sourceControl(u.source, "/items?id=sensors", {
+      yield* sourceControl(u.source, "/items?id=sensors&minimal=true", {
         data: [
           {
             id: "sensors",
@@ -322,8 +390,8 @@ export function registerTenantTests({
         discordResponse("Sensors can be sold for 10 coins each"),
       );
       const loaded = yield* get(`${u.source}/observations`, Observations);
-      expect(loaded["/items?id=sensors"]).toBe(
-        (before["/items?id=sensors"] ?? 0) + 1,
+      expect(loaded["/items?id=sensors&minimal=true"]).toBe(
+        (before["/items?id=sensors&minimal=true"] ?? 0) + 1,
       );
       for (let n = 0; n < 3; n++)
         expect(
@@ -334,7 +402,9 @@ export function registerTenantTests({
           )).reply,
         ).toEqual(discordResponse("Sensors can be sold for 10 coins each"));
       const cached = yield* get(`${u.source}/observations`, Observations);
-      expect(cached["/items?id=sensors"]).toBe(loaded["/items?id=sensors"]);
+      expect(cached["/items?id=sensors&minimal=true"]).toBe(
+        loaded["/items?id=sensors&minimal=true"],
+      );
     }),
     { timeout: 90000 },
   );
@@ -550,16 +620,21 @@ export function registerTenantTests({
       ] as const) {
         yield* sourceControl(
           u.source,
-          `/items?id=${name}`,
+          `/items?id=${name}&minimal=true`,
           body,
           delayMs,
           statusCode,
         );
+        const before = yield* get(`${u.source}/observations`, Observations);
         const reply = (yield* signedDiscord(
           u.bot,
           discordCommand(name, "sell", name, `${name}-guild`),
           name,
         )).reply;
+        const after = yield* get(`${u.source}/observations`, Observations);
+        expect(after[`/items?id=${name}&minimal=true`]).toBe(
+          (before[`/items?id=${name}&minimal=true`] ?? 0) + 1,
+        );
         expect(reply?.data.flags).toBe(64);
         expect(reply?.data.content).toBe(
           "Game data is temporarily unavailable. Please try again shortly.",
@@ -582,7 +657,7 @@ export function registerTenantTests({
       const u = yield* urls;
       yield* sourceControl(
         u.source,
-        "/items?id=concurrent",
+        "/items?id=concurrent&minimal=true",
         { data: [{ id: "concurrent", name: "Concurrent", value: 11 }] },
         1100,
       );
@@ -611,7 +686,7 @@ export function registerTenantTests({
       expect(b.reply).toEqual(a.reply);
       expect(
         (yield* get(`${u.source}/observations`, Observations))[
-          "/items?id=concurrent"
+          "/items?id=concurrent&minimal=true"
         ],
       ).toBe(1);
     }),
@@ -655,6 +730,11 @@ export function registerTenantTests({
         kind: "terminal",
         outcome: "sent",
       });
+      expect(
+        (yield* provider(u.provider)).messages.find(
+          (message) => message.body.reply_parent_message_id === "native-alarm",
+        )?.body.message,
+      ).toBe("ARC: Sensors can be sold for 10 coins each");
       expect(completed.alarmRuns).toBeGreaterThan(0);
       expect(completed.alarm).toBeNull();
       expect(JSON.stringify(completed.state)).not.toContain("parent");
@@ -692,12 +772,160 @@ export function registerTenantTests({
         outcome: "sent",
         deadline: input.receivedAt + 10000,
       });
+      expect(completed.lostAccountResponseAt).toBeNumber();
       expect(
         (yield* provider(u.provider)).messages.filter(
           (message) => message.body.reply_parent_message_id === "lost-rpc",
         ),
       ).toHaveLength(1);
+      expect(
+        (yield* provider(u.provider)).messages.find(
+          (message) => message.body.reply_parent_message_id === "lost-rpc",
+        )?.body.message,
+      ).toBe("ARC: Sensors can be sold for 10 coins each");
       expect(completed.alarm).toBeNull();
+    }),
+    { timeout: 90000 },
+  );
+
+  test(
+    "native Discord interruption commits one private response at the original deadline without a late message",
+    Effect.gen(function* () {
+      const u = yield* urls;
+      const key = "discord-interrupted";
+      yield* sourceControl(
+        u.source,
+        "/items?id=interrupt&minimal=true",
+        { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
+        1500,
+      );
+      const input = {
+        id: "interrupt",
+        guildId: "native-guild",
+        fingerprint: "a".repeat(64),
+        receivedAt: Date.now(),
+        invocation: { command: "sell", input: "interrupt" },
+        token: "CANARY-INTERACTION-TOKEN",
+      };
+      const original = yield* post(`${u.tenant}/discord`, {
+        key,
+        receipt: input,
+      }).pipe(Effect.result, Effect.forkChild);
+      const admitted = yield* snapshot(u.tenant, key).pipe(
+        Effect.repeat({
+          until: (value) => value.state?.works.interrupt?.kind === "computing",
+          times: 20,
+          schedule: Schedule.spaced(25),
+        }),
+      );
+      expect(admitted.state?.works.interrupt?.kind).toBe("computing");
+      expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
+        204,
+      );
+      const rebuilt = yield* reconstructedSnapshot(
+        snapshot(u.tenant, key),
+        admitted.instance,
+      );
+      expect(rebuilt.instance).not.toBe(admitted.instance);
+      const reply = yield* post(`${u.tenant}/discord`, {
+        key,
+        receipt: { ...input, receivedAt: Date.now() },
+      }).pipe(
+        Effect.flatMap((response) =>
+          json(
+            response,
+            Schema.Struct({
+              type: Schema.Literal(4),
+              data: Schema.Struct({
+                flags: Schema.Literal(64),
+                content: Schema.String,
+              }),
+            }),
+          ),
+        ),
+      );
+      expect(reply.data.content).toBe(
+        "I couldn't finish that command in time. Please try again.",
+      );
+      const terminal = yield* snapshot(u.tenant, key);
+      expect(terminal.state?.works.interrupt).toMatchObject({
+        kind: "terminal",
+        deadline: input.receivedAt + 3000,
+      });
+      expect(terminal.alarm).toBeNull();
+      expect(JSON.stringify(terminal.state)).not.toContain("CANARY");
+      expect(JSON.stringify(terminal.state)).not.toContain("invocation");
+      const interrupted = yield* Fiber.join(original);
+      if (interrupted._tag === "Failure") {
+        expect(interrupted.failure instanceof FixtureHttpError).toBeTrue();
+        if (interrupted.failure instanceof FixtureHttpError)
+          expect(interrupted.failure.diagnostic.status).toBe(500);
+      } else
+        expect(
+          yield* json(
+            interrupted.success,
+            Schema.Struct({
+              data: Schema.Struct({ flags: Schema.Literal(64) }),
+            }),
+          ),
+        ).toMatchObject({ data: { flags: 64 } });
+    }),
+    { timeout: 90000 },
+  );
+
+  test(
+    "actual account ambiguity stops the remaining Twitch parts and replay starts no second POST",
+    Effect.gen(function* () {
+      const u = yield* urls;
+      yield* sourceControl(u.source, "/items?id=long&minimal=true", {
+        data: [{ id: "long", name: "x".repeat(1200), value: 10 }],
+      });
+      yield* post(`${u.provider}/control`, {
+        sendStatus: 200,
+        sendBody: { data: [{ is_sent: "invalid", message_id: "" }] },
+      });
+      const remote = (yield* provider(u.provider)).remote.find(
+        (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
+      );
+      if (!remote) return yield* Effect.die("Subscription missing");
+      const event = twitchEvent(
+        "ambiguous-parts",
+        "!sell long",
+        `${u.bot}/webhooks/twitch`,
+      );
+      event.subscription.id = remote.id;
+      const started = Date.now();
+      expect(
+        (yield* signedTwitch(u.bot, event, "ambiguous-parts")).status,
+      ).toBe(204);
+      const sent = yield* waitMessages(u.provider, "ambiguous-parts");
+      expect(
+        sent.messages.filter(
+          (message) =>
+            message.body.reply_parent_message_id === "ambiguous-parts",
+        ),
+      ).toHaveLength(1);
+      expect(
+        sent.messages
+          .find(
+            (message) =>
+              message.body.reply_parent_message_id === "ambiguous-parts",
+          )
+          ?.body.message.startsWith("ARC [1/3]: "),
+      ).toBeTrue();
+      expect(
+        (yield* signedTwitch(u.bot, event, "ambiguous-replay")).status,
+      ).toBe(204);
+      yield* Effect.sleep(Math.max(0, started + 10500 - Date.now()));
+      expect(
+        (yield* provider(u.provider)).messages.filter(
+          (message) =>
+            message.body.reply_parent_message_id === "ambiguous-parts",
+        ),
+      ).toHaveLength(1);
+      yield* post(`${u.provider}/control`, {
+        sendBody: { data: [{ is_sent: true, message_id: "restored" }] },
+      });
     }),
     { timeout: 90000 },
   );
@@ -721,7 +949,7 @@ export function registerTenantTests({
       const revoked = yield* status(u.bot);
       expect(revoked.channels[0]?.authorized).toBeFalse();
       expect(revoked.sender?.authorized).toBeFalse();
-      expect(samples.length).toBeGreaterThanOrEqual(19);
+      expect(samples.length).toBeGreaterThanOrEqual(20);
       yield* recordSamples();
     }),
     { timeout: 90000 },
