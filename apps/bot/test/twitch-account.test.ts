@@ -1,289 +1,14 @@
 import { expect } from "bun:test";
-import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Test from "alchemy/Test/Bun";
-import {
-  Clock,
-  Deferred,
-  Effect,
-  Fiber,
-  Layer,
-  Schema,
-  Semaphore,
-} from "effect";
+import { Clock, Deferred, Effect, Fiber, Layer, Schema } from "effect";
 import { EnvironmentConfig } from "../src/config.js";
-import { type AccountStorage, makeAccountStorage } from "../src/twitch.js";
-import { makeAccount, senderScopes } from "../src/twitch-account.js";
-import {
-  type Account,
-  AccountError,
-  Dispatch,
-  type SetupResult,
-} from "../src/twitch-contracts.js";
-import {
-  type Provider,
-  type SendResult,
-  type Subscription,
-  TwitchProvider,
-} from "../src/twitch-provider.js";
-import { AccountState, AccountStore, emptyState } from "../src/twitch-state.js";
+import { senderScopes } from "../src/twitch-account.js";
+import { Dispatch } from "../src/twitch-contracts.js";
+import type { SendResult } from "../src/twitch-provider.js";
+import { AccountState } from "../src/twitch-state.js";
+import { fixtureConfig, harness, initial } from "./twitch-account-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
-const initial = 1_000_000_000_000;
-const fixtureConfig = Schema.decodeUnknownSync(EnvironmentConfig)({
-  kind: "test",
-  stage: "test-account-0123456789ab",
-  applicationStage: "test-account-0123456789ab",
-  senderKind: "synthetic",
-  senderLogin: "fixture_sender",
-  channelLogins: ["fixture_channel", "fixture_other"],
-  twitchClientId: "fixture-twitch",
-  discordApplicationId: "fixture-discord",
-});
-const harness = Effect.fnUntraced(function* (
-  identity = fixtureConfig,
-  webhookReady = true,
-) {
-  const clock = yield* Clock.Clock;
-  let time = initial;
-  let raw: unknown = emptyState("");
-  const mutex = yield* Semaphore.make(1);
-  let nativeAlarm: number | null = null;
-  const storage: AccountStorage = {
-    get: () => Effect.sync(() => structuredClone(raw)),
-    put: (_key, value) =>
-      Effect.sync(() => {
-        raw = structuredClone(value);
-      }),
-    transaction: (effect) => effect.pipe(mutex.withPermit),
-    getAlarm: () => Effect.sync(() => nativeAlarm),
-    setAlarm: (value) =>
-      Effect.sync(() => {
-        nativeAlarm = Number(value);
-      }),
-    deleteAlarm: () =>
-      Effect.sync(() => {
-        nativeAlarm = null;
-      }),
-  };
-  const store = yield* makeAccountStorage(storage).pipe(
-    Effect.provideService(RuntimeContext, {
-      Type: "test",
-      id: "account-storage",
-      env: {},
-      get: () => Effect.succeed(undefined),
-      set: (key) => Effect.succeed(key),
-    }),
-  );
-  const noGate = (): Deferred.Deferred<void> | null => null;
-  const defaultResult = (): SendResult => ({
-    kind: "sent",
-    messageId: "message-one",
-  });
-  const control = {
-    grantClient: identity.twitchClientId,
-    grantUser: "100",
-    grantLogin: identity.senderLogin,
-    grantScopes: [...senderScopes],
-    appClient: identity.twitchClientId,
-    appExpires: 3600,
-    sends: 0,
-    mints: 0,
-    validations: 0,
-    exchanges: 0,
-    creates: 0,
-    removes: 0,
-    result: defaultResult(),
-    sendGate: noGate(),
-    mintGate: noGate(),
-    exchangeGate: noGate(),
-    validationGate: noGate(),
-    failCreate: false,
-    failUsers: false,
-    usersFailure: null as "client" | "provider" | null,
-    usersGate: noGate(),
-    usersTokens: [] as string[],
-    sendTokens: [] as string[],
-    remoteBindings: {} as Record<string, string>,
-    binding: "fixture-binding",
-    remote: [] as Subscription[],
-  };
-  const provider: Provider = {
-    mint: Effect.fnUntraced(function* () {
-      control.mints++;
-      if (control.mintGate) yield* Deferred.await(control.mintGate);
-      return {
-        access_token: "canary-app-token",
-        token_type: "bearer",
-        expires_in: control.appExpires,
-      };
-    }),
-    exchange: Effect.fnUntraced(function* () {
-      control.exchanges++;
-      if (control.exchangeGate) yield* Deferred.await(control.exchangeGate);
-      return {
-        access_token: "canary-user-token",
-        token_type: "bearer",
-        expires_in: 3600,
-      };
-    }),
-    validate: Effect.fnUntraced(function* (token) {
-      control.validations++;
-      const result =
-        token === "canary-app-token"
-          ? {
-              client_id: control.appClient,
-              expires_in: control.appExpires,
-              scopes: null,
-            }
-          : {
-              client_id: control.grantClient,
-              expires_in: 3600,
-              user_id: control.grantUser,
-              login: control.grantLogin,
-              scopes: control.grantScopes,
-            };
-      if (token === "canary-app-token" && control.validationGate)
-        yield* Deferred.await(control.validationGate);
-      return result;
-    }),
-    users: Effect.fnUntraced(function* (token, logins) {
-      control.usersTokens.push(token);
-      const failure = control.failUsers ? "client" : control.usersFailure;
-      if (control.usersGate) yield* Deferred.await(control.usersGate);
-      if (failure) return yield* new AccountError({ code: failure });
-      return logins.map((login) => ({
-        login,
-        id:
-          login === identity.senderLogin
-            ? "100"
-            : login === "fixture_channel"
-              ? "200"
-              : login === "fixture_other"
-                ? "300"
-                : String(400 + logins.indexOf(login)),
-      }));
-    }),
-    list: () => Effect.sync(() => [...control.remote]),
-    create: (_token, channel, sender) =>
-      Effect.gen(function* () {
-        control.creates++;
-        const id = `sub-${channel}-${control.creates}`;
-        control.remoteBindings[id] = control.binding;
-        control.remote.push({
-          id,
-          type: "channel.chat.message",
-          version: "1",
-          status: "enabled",
-          condition: { broadcaster_user_id: channel, user_id: sender },
-          transport: {
-            method: "webhook",
-            callback: "https://fixture.invalid/webhooks/twitch",
-          },
-        });
-        if (control.failCreate)
-          return yield* new AccountError({ code: "provider" });
-      }),
-    remove: (_token, id) =>
-      Effect.sync(() => {
-        control.removes++;
-        control.remote = control.remote.filter((sub) => sub.id !== id);
-      }),
-    send: Effect.fnUntraced(function* (_token, _sender, input) {
-      if (time >= input.deadline) return { kind: "expired" };
-      control.sends++;
-      control.sendTokens.push(_token);
-      if (control.sendGate) yield* Deferred.await(control.sendGate);
-      return control.result;
-    }),
-  };
-  const fakeClock: Clock.Clock = {
-    currentTimeMillis: Effect.sync(() => time),
-    currentTimeMillisUnsafe: () => time,
-    currentTimeNanos: Effect.sync(() => BigInt(time) * 1_000_000n),
-    currentTimeNanosUnsafe: () => BigInt(time) * 1_000_000n,
-    monotonicTimeNanos: clock.monotonicTimeNanos,
-    monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
-    sleep: (duration) => clock.sleep(duration),
-  };
-  const construct = (
-    revision = "revision-one",
-    subscriptionBinding = "fixture-binding",
-  ) =>
-    makeAccount({
-      identity,
-      webhookReady,
-      subscriptionBinding,
-      revision,
-      callback: "https://fixture.invalid/webhooks/twitch",
-      redirect: "https://fixture.invalid/oauth/twitch/callback",
-    }).pipe(
-      Effect.provideService(AccountStore, store),
-      Effect.provideService(TwitchProvider, provider),
-    );
-  const account = yield* construct();
-  return {
-    account: account.service,
-    alarm: account.credentialAlarm,
-    construct,
-    control,
-    clock: fakeClock,
-    time: (value: number) => {
-      time = value;
-    },
-    now: () => time,
-    snapshot: () => raw,
-    restore: (value: AccountState) => {
-      raw = Schema.encodeSync(AccountState)(value);
-    },
-    alarmAt: () =>
-      Schema.decodeUnknownSync(AccountState)(raw).nextCredentialCheck,
-    nativeAlarmAt: () => nativeAlarm,
-    consumeAlarm: () => {
-      nativeAlarm = null;
-    },
-    authorize: Effect.fnUntraced(function* (
-      target: Account = account.service,
-    ): Effect.fn.Return<SetupResult, AccountError> {
-      const setup = yield* target.setup("operator-digest");
-      for (const authorization of setup.authorizations) {
-        const url = new URL(authorization.url);
-        const user =
-          authorization.login === identity.senderLogin
-            ? "100"
-            : authorization.login === "fixture_channel"
-              ? "200"
-              : authorization.login === "fixture_other"
-                ? "300"
-                : String(
-                    400 +
-                      [
-                        ...new Set([
-                          identity.senderLogin,
-                          ...identity.channelLogins,
-                        ]),
-                      ].indexOf(authorization.login),
-                  );
-        control.grantUser = user;
-        control.grantLogin = authorization.login;
-        control.grantScopes = url.searchParams.get("scope")?.split(" ") ?? [];
-        yield* target.completeOAuth({
-          state: url.searchParams.get("state") ?? "",
-          code: "canary-code",
-          operator: "operator-digest",
-        });
-      }
-      return yield* target.setup("operator-digest");
-    }),
-    send: (attemptId: string, channel = "200", deadline = time + 10_000) =>
-      Schema.decodeUnknownSync(Dispatch)({
-        attemptId,
-        broadcasterId: channel,
-        replyParentId: "reply",
-        text: "Sensors sell for 10 coins.",
-        deadline,
-      }),
-  };
-});
 
 test(
   "recovery schedules the next credential action when an existing session has an unexpired lease",
@@ -377,9 +102,9 @@ test(
         h.control.binding = binding;
         h.control.failCreate = true;
         const rotated = yield* h.construct(binding, binding);
-        expect(
-          (yield* h.authorize(rotated.service).pipe(Effect.flip)).code,
-        ).toBe("provider");
+        expect((yield* h.authorize(rotated.service)).status.setup).toBe(
+          "pending",
+        );
         expect(
           h.control.remote.some(
             (sub) => h.control.remoteBindings[sub.id] === binding,
@@ -404,12 +129,12 @@ test(
 );
 
 test(
-  "ordinary interrupted subscription creation adopts the durable intended binding",
+  "interrupted creation without a receipt replaces the unknown remote ID on repair",
   Effect.gen(function* () {
     const h = yield* harness();
     yield* Effect.gen(function* () {
       h.control.failCreate = true;
-      expect((yield* h.authorize().pipe(Effect.flip)).code).toBe("provider");
+      expect((yield* h.authorize()).status.setup).toBe("pending");
       const existing = h.control.remote[0]?.id;
       expect(existing).toBeDefined();
       h.control.failCreate = false;
@@ -417,9 +142,16 @@ test(
       expect(
         (yield* recovered.service.setup("operator-digest")).status.setup,
       ).toBe("ready");
-      expect(h.control.remote[0]?.id).toBe(existing);
-      expect(h.control.creates).toBe(2);
-      expect(h.control.removes).toBe(0);
+      expect(h.control.remote.some((sub) => sub.id === existing)).toBeFalse();
+      expect(h.control.creates).toBe(4);
+      expect(h.control.removes).toBe(2);
+      expect(
+        h.control.remote.map((sub) => h.control.remoteBindings[sub.id]),
+      ).toEqual(["fixture-binding", "fixture-binding"]);
+      const persisted = yield* h.construct();
+      yield* persisted.service.setup("operator-digest");
+      expect(h.control.creates).toBe(4);
+      expect(h.control.removes).toBe(2);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -605,6 +337,8 @@ test(
         id: subscription.id,
         broadcasterId: Dispatch.fields.broadcasterId.make("200"),
         senderId: "100",
+        binding: "fixture-binding",
+        callback: "https://fixture.invalid/webhooks/twitch",
         status: "authorization_revoked",
       });
       expect(
@@ -754,6 +488,8 @@ test(
           "200",
         ),
         senderId: "100",
+        binding: "fixture-binding",
+        callback: "https://fixture.invalid/webhooks/twitch",
         status: "authorization_revoked",
       });
       expect((yield* h.account.status()).sender?.authorized).toBeFalse();
@@ -984,6 +720,8 @@ test(
         id: subscription.id,
         broadcasterId: Dispatch.fields.broadcasterId.make("200"),
         senderId: "100",
+        binding: "fixture-binding",
+        callback: "https://fixture.invalid/webhooks/twitch",
         status: "authorization_revoked",
       });
       yield* Deferred.succeed(h.control.exchangeGate, undefined);
@@ -1034,6 +772,8 @@ test(
             sub.condition.broadcaster_user_id ?? "",
           ),
           senderId: "100",
+          binding: "fixture-binding",
+          callback: "https://fixture.invalid/webhooks/twitch",
           status: "enabled",
         });
       expect((yield* h.account.setup("operator-digest")).status.setup).toBe(

@@ -60,19 +60,19 @@ export const AccountState = Schema.Struct({
   tokenLease: Schema.NullOr(Lease),
   tokenRetryAt: Schema.Number,
   nextCredentialCheck: Schema.NullOr(Schema.Number),
-  setupLease: Schema.NullOr(Lease),
-  subscriptionIntents: Schema.Record(
-    Schema.String,
+  setupLease: Schema.NullOr(
     Schema.Struct({
-      senderId: Schema.String,
-      callback: Schema.String,
-      binding: Schema.String,
+      owner: Schema.String,
+      until: Schema.Number,
+      revision: Schema.String,
+      generation: Schema.Int,
     }),
   ),
   subscriptions: Schema.Record(
     Schema.String,
     Schema.Struct({
       id: bounded(128),
+      broadcasterId: bounded(64),
       senderId: bounded(64),
       callback: Schema.String,
       binding: Schema.String,
@@ -92,7 +92,6 @@ export type AccountState = {
   -readonly [K in keyof Persisted]: K extends
     | "grants"
     | "subscriptions"
-    | "subscriptionIntents"
     | "revoked"
     | "attempts"
     ? { -readonly [P in keyof Persisted[K]]: Persisted[K][P] }
@@ -110,7 +109,6 @@ export const emptyState = (revision: string): AccountState => ({
   tokenRetryAt: 0,
   nextCredentialCheck: null,
   setupLease: null,
-  subscriptionIntents: {},
   subscriptions: {},
   revoked: {},
   attempts: {},

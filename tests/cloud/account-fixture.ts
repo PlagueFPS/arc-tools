@@ -10,6 +10,7 @@ import {
 } from "effect/http-api";
 import { EnvironmentConfig, runtimeConfig } from "../../apps/bot/src/config.js";
 import { makeAccountRpc } from "../../apps/bot/src/twitch.js";
+import { subscriptionBinding } from "../../apps/bot/src/twitch-binding.js";
 import {
   Dispatch,
   OAuthCompletion,
@@ -97,7 +98,11 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
             callback,
             redirect,
             webhookReady: true,
-            subscriptionBinding: "fixture-binding",
+            subscriptionBinding: yield* subscriptionBinding({
+              callback,
+              clientId: identity.twitchClientId,
+              signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+            }),
           },
           provider,
         );

@@ -4,6 +4,7 @@ import { Effect, Layer, Redacted, Schema } from "effect";
 import { accountRuntimeConfig } from "./config.js";
 import { digest } from "./provider-http.js";
 import { makeAccount } from "./twitch-account.js";
+import { subscriptionBinding } from "./twitch-binding.js";
 import {
   AccountError,
   AccountStatus,
@@ -126,15 +127,19 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
       );
       const callback = `${config.publicUrl}/webhooks/twitch`;
       const redirect = `${config.publicUrl}/oauth/twitch/callback`;
-      const subscriptionBinding = yield* digest(
-        JSON.stringify([
-          callback,
-          config.identity.twitchClientId,
-          Redacted.value(config.twitchSigningSecret),
-        ]),
-      );
+      const binding = yield* subscriptionBinding({
+        callback,
+        clientId: config.identity.twitchClientId,
+        signingSecret: config.twitchSigningSecret,
+      });
       return yield* makeAccountRpc(
-        { ...config, revision, callback, redirect, subscriptionBinding },
+        {
+          ...config,
+          revision,
+          callback,
+          redirect,
+          subscriptionBinding: binding,
+        },
         makeProvider({
           clientId: config.identity.twitchClientId,
           clientSecret: config.twitchClientSecret,

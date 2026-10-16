@@ -45,6 +45,8 @@ export const OAuthCompletion = Schema.Struct({
 });
 export type OAuthCompletion = typeof OAuthCompletion.Type;
 export const SubscriptionObservation = Schema.Struct({
+  binding: bounded(128),
+  callback: bounded(512),
   id: bounded(128),
   broadcasterId: BroadcasterId,
   senderId: bounded(64),

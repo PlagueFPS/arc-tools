@@ -5,6 +5,7 @@ import {
   ReleaseHealth,
   syncCommands,
 } from "../../apps/bot/src/discord-sync.js";
+import { subscriptionBinding } from "../../apps/bot/src/twitch-binding.js";
 import {
   AccountStatus,
   DispatchOutcome,
@@ -223,7 +224,7 @@ export function registerAccountTests({
   );
 
   test(
-    "paginated setup adopts records and converges after interrupted create and native reconstruction",
+    "paginated setup preserves confirmed IDs and replaces an interrupted unconfirmed create after reconstruction",
     Effect.gen(function* () {
       const u = yield* urls;
       const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
@@ -235,7 +236,7 @@ export function registerAccountTests({
       expect(
         (adopted.calls["GET /helix/eventsub/subscriptions"] ?? 0) -
           (before.calls["GET /helix/eventsub/subscriptions"] ?? 0),
-      ).toBeGreaterThanOrEqual(6);
+      ).toBe(2);
       yield* post(`${u.account}/configure`, {
         revision: "one-channel",
         channels: ["fixture_channel"],
@@ -278,7 +279,18 @@ export function registerAccountTests({
       const after = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
       expect(after.remote.length).toBe(1);
       expect(after.calls["POST /helix/eventsub/subscriptions"]).toBe(
-        created.calls["POST /helix/eventsub/subscriptions"],
+        (created.calls["POST /helix/eventsub/subscriptions"] ?? 0) + 1,
+      );
+      expect(after.calls["DELETE /helix/eventsub/subscriptions"]).toBe(
+        (created.calls["DELETE /helix/eventsub/subscriptions"] ?? 0) + 1,
+      );
+      expect(after.remote[0]?.id).not.toBe(created.remote[0]?.id);
+      expect(after.bindings[after.remote[0]?.id ?? ""]).toBe(
+        yield* subscriptionBinding({
+          callback: "https://fixture.invalid/webhooks/twitch",
+          clientId: "fixture-twitch",
+          signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+        }),
       );
     }),
     { timeout: 90_000 },
@@ -511,6 +523,12 @@ export function registerAccountTests({
         id: subscription.id,
         broadcasterId: "300",
         senderId: "100",
+        binding: yield* subscriptionBinding({
+          callback: "https://fixture.invalid/webhooks/twitch",
+          clientId: "fixture-twitch",
+          signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+        }),
+        callback: "https://fixture.invalid/webhooks/twitch",
         status: "authorization_revoked",
       });
       expect(

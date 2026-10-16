@@ -1,6 +1,6 @@
 import { Stack } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
-import { Deferred, Effect, Layer, Schema } from "effect";
+import { Deferred, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -13,6 +13,7 @@ import {
   manifestHash,
   RemoteCommands,
 } from "../../apps/bot/src/discord-manifest.js";
+import { subscriptionBinding } from "../../apps/bot/src/twitch-binding.js";
 import { Subscription } from "../../apps/bot/src/twitch-provider.js";
 import { identifyFixtureResponse } from "./fixture-response.js";
 
@@ -39,6 +40,7 @@ export const ProviderControl = Schema.Struct({
 export const ProviderSnapshot = Schema.Struct({
   calls: Schema.Record(Schema.String, Schema.Int),
   remote: Schema.Array(Subscription),
+  bindings: Schema.Record(Schema.String, Schema.String),
   logs: Schema.Array(Schema.String),
 });
 export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtureState>()(
@@ -95,6 +97,11 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
               ),
             ),
             remote: (yield* storage.get<Subscription[]>("remote")) ?? [],
+            bindings: Object.fromEntries(
+              [...(yield* storage.list<string>({ prefix: "binding:" }))].map(
+                ([key, value]) => [key.slice(8), value],
+              ),
+            ),
             logs: (yield* storage.get<string[]>("logs")) ?? [],
           };
         }),
@@ -269,6 +276,7 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
                   transport: Schema.Struct({
                     method: Schema.String,
                     callback: Schema.String,
+                    secret: Schema.String,
                   }),
                 }),
               ),
@@ -282,6 +290,9 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
                     remote.some(
                       (subscription) =>
                         subscription.type === input.type &&
+                        subscription.version === input.version &&
+                        subscription.transport.method ===
+                          input.transport.method &&
                         subscription.condition.broadcaster_user_id ===
                           input.condition.broadcaster_user_id &&
                         subscription.condition.user_id ===
@@ -291,9 +302,21 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
                     return { status: 409, body: {} };
                   const subscription = {
                     ...input,
+                    transport: {
+                      method: input.transport.method,
+                      callback: input.transport.callback,
+                    },
                     id: `created-${count}`,
                     status: "enabled",
                   };
+                  yield* storage.put(
+                    `binding:${subscription.id}`,
+                    yield* subscriptionBinding({
+                      callback: input.transport.callback,
+                      clientId: identity.twitchClientId,
+                      signingSecret: Redacted.make(input.transport.secret),
+                    }),
+                  );
                   yield* storage.put("remote", [...remote, subscription]);
                   return { status: 202, body: { data: [subscription] } };
                 }),

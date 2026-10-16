@@ -60,6 +60,62 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   const instance = crypto.randomUUID();
   let validatedGeneration = "";
   const current = (state: AccountState) => state.revision === config.revision;
+  const matchesTarget = (
+    state: AccountState,
+    record: AccountState["subscriptions"][string],
+  ) =>
+    current(state) &&
+    state.channels.some((channel) => channel.id === record.broadcasterId) &&
+    state.sender?.id === record.senderId &&
+    record.callback === config.callback &&
+    record.binding === config.subscriptionBinding;
+  const decideChannel = (state: AccountState, id: string) => {
+    const record = state.subscriptions[id];
+    const confirmed =
+      record !== undefined &&
+      record.broadcasterId === id &&
+      matchesTarget(state, record) &&
+      !state.revoked[record.id];
+    const subscription =
+      record === undefined
+        ? "missing"
+        : !confirmed
+          ? "obsolete"
+          : record.status;
+    let kind: AccountStatus["setup"];
+    if (
+      !current(state) ||
+      !state.sender ||
+      !state.channels.some((channel) => channel.id === id)
+    )
+      kind = "unresolved";
+    else if (record && (!confirmed || !liveSubscription(record.status)))
+      kind = "repair-required";
+    else if (
+      !granted(state, state.sender.id, senderScopes) ||
+      !granted(state, id, broadcasterScopes)
+    )
+      kind = "authorization-required";
+    else if (!config.webhookReady) kind = "ingress-required";
+    else kind = confirmed && record.status === "enabled" ? "ready" : "pending";
+    return {
+      kind,
+      subscription,
+      confirmed: confirmed && liveSubscription(record.status),
+    };
+  };
+  const ownsSetup = (
+    state: AccountState,
+    owner: string,
+    generation: number,
+    now: number,
+  ) =>
+    current(state) &&
+    state.authGeneration === generation &&
+    state.setupLease?.owner === owner &&
+    state.setupLease.revision === config.revision &&
+    state.setupLease.generation === generation &&
+    state.setupLease.until > now;
   yield* store.update((state) => {
     if (!current(state)) {
       state.revision = config.revision;
@@ -190,37 +246,31 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const now = yield* Clock.currentTimeMillis;
       const result = yield* store.update((state) => {
         reclaim(state, now);
-        const channels = state.channels.map((channel) => ({
+        const decisions = state.channels.map((channel) =>
+          decideChannel(state, channel.id),
+        );
+        const channels = state.channels.map((channel, index) => ({
           ...channel,
           authorized: granted(state, channel.id, broadcasterScopes),
-          subscription: state.subscriptions[channel.id]?.status ?? "missing",
+          subscription: decisions[index]?.subscription ?? "missing",
         }));
         const sender = state.sender && {
           ...state.sender,
           authorized: granted(state, state.sender.id, senderScopes),
         };
-        let setup: AccountStatus["setup"] = "unresolved";
-        if (sender) {
-          if (
-            channels.some(
-              (channel) =>
-                !liveSubscription(channel.subscription) &&
-                channel.subscription !== "missing",
-            )
-          )
-            setup = "repair-required";
-          else if (
-            !sender.authorized ||
-            channels.some((channel) => !channel.authorized)
-          )
-            setup = "authorization-required";
-          else if (!config.webhookReady) setup = "ingress-required";
-          else if (
-            channels.every((channel) => channel.subscription === "enabled")
-          )
-            setup = "ready";
-          else setup = "pending";
-        }
+        const setup: AccountStatus["setup"] = !sender
+          ? "unresolved"
+          : ((
+              [
+                "unresolved",
+                "repair-required",
+                "authorization-required",
+                "ingress-required",
+                "pending",
+              ] satisfies AccountStatus["setup"][]
+            ).find((kind) =>
+              decisions.some((decision) => decision.kind === kind),
+            ) ?? "ready");
         return {
           stage: config.identity.stage,
           revision: state.revision,
@@ -252,137 +302,107 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     channels: readonly string[],
     generation: number,
   ) {
-    const bound = (
-      subscription: Subscription,
-      state: Pick<AccountState, "subscriptions" | "subscriptionIntents">,
-    ) => {
-      const channel = subscription.condition.broadcaster_user_id ?? "";
-      const record = state.subscriptions[channel];
-      const binding =
-        record?.id === subscription.id
-          ? record
-          : state.subscriptionIntents[channel];
-      return (
-        binding?.binding === config.subscriptionBinding &&
-        binding.senderId === sender &&
-        binding.callback === config.callback
-      );
-    };
     const assertOwner = Effect.fnUntraced(function* () {
       const now = yield* Clock.currentTimeMillis;
-      const valid = yield* store.update(
-        (state) =>
-          current(state) &&
-          state.authGeneration === generation &&
-          state.setupLease?.owner === owner &&
-          state.setupLease.until > now,
+      const valid = yield* store.update((state) =>
+        ownsSetup(state, owner, generation, now),
       );
       if (!valid) return yield* new AccountError({ code: "stale" });
     });
-    let remote = yield* provider.list(token);
-    const ownership = yield* store.update((state) => ({
-      subscriptions: state.subscriptions,
-      subscriptionIntents: state.subscriptionIntents,
-    }));
-    for (const subscription of remote) {
-      const ours =
-        subscription.type === "channel.chat.message" &&
-        subscription.version === "1" &&
-        subscription.transport.method === "webhook";
-      const desired =
-        channels.includes(subscription.condition.broadcaster_user_id ?? "") &&
-        subscription.condition.user_id === sender &&
-        subscription.transport.callback === config.callback;
-      const changedSecret = !bound(subscription, ownership);
-      if (
-        ours &&
-        (!desired || changedSecret || !liveSubscription(subscription.status))
-      ) {
-        yield* assertOwner();
-        yield* provider.remove(token, subscription.id);
-        yield* store.update((state) => {
-          const channel = subscription.condition.broadcaster_user_id;
-          if (
-            channel &&
-            current(state) &&
-            state.setupLease?.owner === owner &&
-            state.subscriptions[channel]?.id === subscription.id
-          )
-            delete state.subscriptions[channel];
-        });
-      }
-    }
-    remote = yield* provider.list(token);
-    for (const channel of channels) {
-      const exists = remote.some(
-        (subscription) =>
+    const sameRemote = (
+      record: AccountState["subscriptions"][string],
+      subscription: Subscription,
+    ) =>
+      subscription.id === record.id &&
+      subscription.type === "channel.chat.message" &&
+      subscription.version === "1" &&
+      subscription.transport.method === "webhook" &&
+      subscription.transport.callback === record.callback &&
+      subscription.condition.broadcaster_user_id === record.broadcasterId &&
+      subscription.condition.user_id === record.senderId;
+    const retire = Effect.fnUntraced(function* (id: string) {
+      const now = yield* Clock.currentTimeMillis;
+      const retired = yield* store.update((state) => {
+        if (!ownsSetup(state, owner, generation, now)) return false;
+        state.revoked[id] ??= now + policy.retentionMs;
+        for (const [channel, record] of Object.entries(state.subscriptions))
+          if (record.id === id) delete state.subscriptions[channel];
+        return true;
+      });
+      if (!retired) return yield* new AccountError({ code: "stale" });
+      yield* assertOwner();
+      yield* provider.remove(token, id);
+    });
+    yield* assertOwner();
+    const remote = yield* provider.list(token);
+    const now = yield* Clock.currentTimeMillis;
+    const cleanup = yield* store.update((state) => {
+      if (!ownsSetup(state, owner, generation, now)) return null;
+      const ids = new Set<string>();
+      for (const subscription of remote) {
+        const managed =
           subscription.type === "channel.chat.message" &&
           subscription.version === "1" &&
-          subscription.condition.broadcaster_user_id === channel &&
-          subscription.condition.user_id === sender &&
-          subscription.transport.callback === config.callback &&
-          liveSubscription(subscription.status),
-      );
-      if (!exists) {
-        const now = yield* Clock.currentTimeMillis;
-        const intended = yield* store.update((state) => {
-          if (
-            !current(state) ||
-            state.setupLease?.owner !== owner ||
-            state.authGeneration !== generation ||
-            state.setupLease.until <= now
-          )
-            return false;
-          state.subscriptionIntents[channel] = {
-            senderId: sender,
-            callback: config.callback,
-            binding: config.subscriptionBinding,
-          };
-          return true;
-        });
-        if (!intended) return yield* new AccountError({ code: "stale" });
-        yield* provider.create(token, channel, sender);
-      }
-    }
-    const final = yield* provider.list(token);
-    yield* assertOwner();
-    yield* store.update((state) => {
-      if (!current(state) || state.setupLease?.owner !== owner) return;
-      const subscriptions: AccountState["subscriptions"] = {};
-      for (const channel of channels) {
-        const found = final.find(
-          (subscription) =>
-            subscription.type === "channel.chat.message" &&
-            subscription.version === "1" &&
-            subscription.transport.method === "webhook" &&
-            subscription.transport.callback === config.callback &&
-            subscription.condition.broadcaster_user_id === channel &&
-            subscription.condition.user_id === sender &&
-            liveSubscription(subscription.status) &&
-            bound(subscription, state) &&
-            !state.revoked[subscription.id],
-        );
-        if (found)
-          subscriptions[channel] = {
-            id: found.id,
+          subscription.transport.method === "webhook" &&
+          !!subscription.condition.broadcaster_user_id &&
+          !!subscription.condition.user_id &&
+          subscription.transport.callback !== undefined;
+        if (!managed) continue;
+        const channel = subscription.condition.broadcaster_user_id ?? "";
+        const record = state.subscriptions[channel];
+        if (
+          record &&
+          sameRemote(record, subscription) &&
+          matchesTarget(state, record) &&
+          !state.revoked[record.id] &&
+          liveSubscription(record.status) &&
+          liveSubscription(subscription.status)
+        ) {
+          state.subscriptions[channel] = {
+            ...record,
             status:
-              state.subscriptions[channel]?.id === found.id &&
-              state.subscriptions[channel]?.status === "enabled"
-                ? "enabled"
-                : found.status,
-            callback: config.callback,
-            binding: config.subscriptionBinding,
-            senderId: sender,
+              record.status === "enabled" ? "enabled" : subscription.status,
           };
+        } else ids.add(subscription.id);
       }
-      state.subscriptions = subscriptions;
+      for (const record of Object.values(state.subscriptions)) {
+        if (
+          !matchesTarget(state, record) ||
+          !liveSubscription(record.status) ||
+          state.revoked[record.id] ||
+          !remote.some((subscription) => sameRemote(record, subscription))
+        )
+          ids.add(record.id);
+      }
+      return [...ids];
     });
-    const complete = yield* store.update((state) =>
-      channels.every((channel) =>
-        liveSubscription(state.subscriptions[channel]?.status ?? ""),
-      ),
-    );
-    if (!complete) return yield* new AccountError({ code: "provider" });
+    if (cleanup === null) return yield* new AccountError({ code: "stale" });
+    for (const id of cleanup) yield* retire(id);
+    for (const channel of channels) {
+      const now = yield* Clock.currentTimeMillis;
+      const action = yield* store.update((state) => {
+        if (!ownsSetup(state, owner, generation, now)) return "stale";
+        return decideChannel(state, channel).confirmed ? "keep" : "create";
+      });
+      if (action === "stale") return yield* new AccountError({ code: "stale" });
+      if (action === "keep") continue;
+      const result = yield* provider.create(token, channel, sender);
+      const completed = yield* Clock.currentTimeMillis;
+      const accepted = yield* store.update((state) => {
+        if (!ownsSetup(state, owner, generation, completed)) return false;
+        if (result.kind === "created") {
+          const record = result.subscription;
+          if (
+            record.broadcasterId === channel &&
+            matchesTarget(state, record) &&
+            !state.revoked[record.id]
+          )
+            state.subscriptions[channel] = record;
+        }
+        return true;
+      });
+      if (!accepted) return yield* new AccountError({ code: "stale" });
+    }
   });
 
   const setup = Effect.fn("TwitchAccount.setup")(function* (
@@ -399,12 +419,17 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const claimed = yield* store.update((state) => {
       reclaim(state, now);
       if (!current(state) || (state.setupLease && state.setupLease.until > now))
-        return false;
-      state.setupLease = { owner, until: now + policy.setupLeaseMs };
-      return true;
+        return null;
+      state.setupLease = {
+        owner,
+        until: now + policy.setupLeaseMs,
+        revision: config.revision,
+        generation: state.authGeneration,
+      };
+      return state.setupLease;
     });
     if (!claimed) return yield* new AccountError({ code: "busy" });
-    const generation = yield* store.update((state) => state.authGeneration);
+    const generation = claimed.generation;
     const run = Effect.fnUntraced(function* () {
       const session = yield* appToken();
       const authenticated = Effect.fnUntraced(function* <A>(
@@ -440,15 +465,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           Effect.mapError(() => new AccountError({ code: "identity" })),
         ),
       );
+      const resolvedAt = yield* Clock.currentTimeMillis;
       const accepted = yield* store.update((state) => {
-        if (!current(state) || state.setupLease?.owner !== owner) return false;
+        if (!ownsSetup(state, owner, generation, resolvedAt)) return false;
         state.sender = sender;
         state.channels = resolved;
-        state.subscriptionIntents = Object.fromEntries(
-          Object.entries(state.subscriptionIntents).filter(([id]) =>
-            resolved.some((channel) => channel.id === id),
-          ),
-        );
         return true;
       });
       if (!accepted) return yield* new AccountError({ code: "stale" });
@@ -499,13 +520,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       }
       const allocatedAt = yield* Clock.currentTimeMillis;
       const stored = yield* store.update((state) => {
-        if (
-          !current(state) ||
-          state.setupLease?.owner !== owner ||
-          state.setupLease.until <= allocatedAt ||
-          state.authGeneration !== generation
-        )
-          return "stale";
+        if (!ownsSetup(state, owner, generation, allocatedAt)) return "stale";
         reclaim(state, allocatedAt);
         const retained =
           state.oauth.length + states.length <= policy.maxOAuth
@@ -602,28 +617,37 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const now = yield* Clock.currentTimeMillis;
       yield* store.update((state) => {
         if (!current(state)) return;
-        const subscription = state.subscriptions[valid.broadcasterId];
         if (
+          valid.binding !== config.subscriptionBinding ||
+          valid.callback !== config.callback ||
           state.sender?.id !== valid.senderId ||
-          !state.channels.some((channel) => channel.id === valid.broadcasterId)
+          !state.channels.some(
+            (channel) => channel.id === valid.broadcasterId,
+          ) ||
+          state.revoked[valid.id]
         )
           return;
-        if (subscription && subscription.id !== valid.id) return;
-        if (state.revoked[valid.id]) return;
-        state.subscriptions[valid.broadcasterId] = {
-          id: valid.id,
-          senderId: valid.senderId,
-          callback: config.callback,
-          binding: config.subscriptionBinding,
-          status: valid.status,
-        };
-        if (!liveSubscription(valid.status)) {
-          state.authGeneration += 1;
-          state.revoked[valid.id] = now + policy.retentionMs;
-          if (valid.status === "authorization_revoked") {
-            delete state.grants[valid.broadcasterId];
-            if (state.sender) delete state.grants[state.sender.id];
-          }
+        const record = state.subscriptions[valid.broadcasterId];
+        const confirmed =
+          record?.id === valid.id && matchesTarget(state, record);
+        if (liveSubscription(valid.status)) {
+          if (confirmed && liveSubscription(record.status))
+            state.subscriptions[valid.broadcasterId] = {
+              ...record,
+              status: record.status === "enabled" ? "enabled" : valid.status,
+            };
+          return;
+        }
+        state.revoked[valid.id] = now + policy.retentionMs;
+        state.authGeneration += 1;
+        if (confirmed)
+          state.subscriptions[valid.broadcasterId] = {
+            ...record,
+            status: valid.status,
+          };
+        if (valid.status === "authorization_revoked") {
+          delete state.grants[valid.broadcasterId];
+          delete state.grants[valid.senderId];
         }
       });
     },
@@ -700,13 +724,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       );
       const sender = state.sender;
       if (
-        !current(state) ||
         !channel ||
         !sender ||
-        !granted(state, sender.id, senderScopes) ||
-        !granted(state, channel.id, broadcasterScopes) ||
-        state.subscriptions[channel.id]?.status !== "enabled" ||
-        !config.webhookReady
+        decideChannel(state, channel.id).kind !== "ready"
       ) {
         state.attempts[valid.attemptId] = {
           kind: "terminal",
