@@ -98,3 +98,17 @@ The final diagnostic retained Cloudflare internal-error references `htgsvhb12pe6
 Root delegated a fresh diagnosis with the explicit hypothesis that the shared failures might not arise from account recovery logic. Before proposing another fix, the diagnostic must produce a rerunnable census of actor, route, class, method, construction, and failure evidence. Experiments use the smallest disposable stack that can distinguish an application, adapter, deployment, or platform cause. Whole-suite retries and broad HTTP 500 retries remain excluded.
 
 The combined correction needs fresh technical and comment reviews. The shared RPC failure, native alarm recovery, and a passing canonical combined cloud run remain blocking gates. All application changes remain outside the root branch until acceptance.
+
+## Combined review findings
+
+The combined comment review found no comments or suppressions to remove. Gemini's second technical review returned a code pass. GPT-6.1-Sol's second review reproduced two subscription defects using the production account logic and create adapter. Root inspected the corresponding reconciliation, status, and dispatch paths and retains both as blockers.
+
+First, an unresolved create under binding B can become visible only after rotation to C and after C's list requests. C overwrites the channel intent, its create receives 409, and readback attributes B's remote subscription to intent C. The current adapter treats 202 and 409 alike. The reviewer observed remote binding B, stored binding C, and no deletion; repeated setup preserved the mismatch. A current intent proves what was requested, not which signing secret an existing remote ID uses.
+
+Second, configuration replacement retains old enabled subscription records for cleanup. After completing the new authorization links but before a second reconciliation, status reports ready and dispatch sends against the old binding. Both paths check enabled status without requiring the current binding, callback, and sender. Retained cleanup records must not grant readiness or delivery eligibility.
+
+The general code pass does not refute these specific reproductions. The remaining credential, OAuth allocation, and localization corrections are not rejected by these findings. The next correction is scoped to subscription ownership and one shared eligibility decision.
+
+Root launched two read-only architecture sketches before another implementation patch. Candidate A examines confirmed subscription IDs and conservative replacement of unknown bindings. Candidate B examines bounded unresolved-operation history across rotations. Each must show what evidence establishes remote ownership, distinguish confirmed creation from conflict, and trace both reproduced races. The selected shape must eliminate false certainty rather than add another check around the latest-intent assumption.
+
+The native RPC diagnosis initially stopped at a provider usage limit. Root verified its second run is active after T3 automatically resumed it. No duplicate diagnostic worker or additional blind cloud run was started. The cloud failure cause remains unresolved; a reviewer calling it an upstream issue does not establish that attribution.
