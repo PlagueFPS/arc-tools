@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Fiber, Layer, Redacted, Schema } from "effect";
+import { Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { TestClock } from "effect/testing";
@@ -29,6 +29,7 @@ import {
   TwitchAccount,
 } from "../src/twitch-contracts.js";
 import { identity } from "./subscription-fixture.js";
+import { tenantFixture } from "./tenant-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 const callback = "https://bot.invalid/webhooks/twitch";
@@ -466,3 +467,39 @@ test(
     });
   }).pipe(Effect.provide(TestClock.layer())),
 );
+
+for (const delta of [-1, -20, 3000])
+  test(
+    `signed ingress preserves its original stamp with Tenant clock delta ${delta}`,
+    Effect.gen(function* () {
+      const tenant = yield* tenantFixture();
+      const service = yield* tenant.construct();
+      const clock = yield* Clock.Clock;
+      const f = yield* fixture({
+        tenants: {
+          respondDiscord: (receipt) =>
+            service
+              .respondDiscord(receipt)
+              .pipe(Effect.provideService(Clock.Clock, clock)),
+        },
+      });
+      yield* TestClock.setTime(f.receivedAt + delta);
+      const response = yield* f.discord(discordCommand(`clock-${delta}`));
+      const reply = yield* json(response);
+      if (delta < 3000) {
+        expect(reply).toEqual(
+          discordResponse("Sensors can be sold for 10 coins each"),
+        );
+        expect(tenant.snapshot().works[`clock-${delta}`]).toMatchObject({
+          kind: "terminal",
+          receivedAt: f.receivedAt,
+          deadline: f.receivedAt + 3000,
+        });
+        expect(tenant.source.calls).toHaveLength(1);
+      } else {
+        expect(reply).toMatchObject({ data: { flags: 64 } });
+        expect(Object.values(tenant.snapshot().works)).toHaveLength(0);
+        expect(tenant.source.calls).toHaveLength(0);
+      }
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
