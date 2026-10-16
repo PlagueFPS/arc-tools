@@ -42,6 +42,7 @@ const samples: {
   status: number;
   flags: number;
   content: string;
+  fallback: string | null;
 }[] = [];
 const recordSamples = () =>
   Effect.promise(() =>
@@ -155,6 +156,7 @@ export function registerTenantTests({
         status: response.status,
         flags: reply.data.flags,
         content: reply.data.content,
+        fallback: response.headers.get("x-arc-command-fallback"),
       });
       yield* recordSamples();
       if (enforceBudget) {
@@ -285,7 +287,6 @@ export function registerTenantTests({
           schedule: Schedule.spaced(250),
         }),
       );
-      expect(before.length).toBe(1);
       const ping = encode(
         ' {"application_id":"fixture-discord", "type":1}\r\n',
       );
@@ -360,6 +361,7 @@ export function registerTenantTests({
         401,
       );
       expect(yield* tenantObjects(u.workerName)).toEqual(before);
+      expect(before.length).toBe(1);
     }),
     { timeout: 90000 },
   );
