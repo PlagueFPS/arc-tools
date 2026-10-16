@@ -19,6 +19,7 @@ import type * as Foundation from "./foundation.test.js";
 import { Observations } from "./metaforge.js";
 import {
   discordCommand,
+  negativeFutureStamp,
   signDiscord,
   signTwitch,
   twitchEvent,
@@ -329,7 +330,12 @@ export function registerTenantTests({
         401,
       );
       yield* rejected(
-        signedDiscord(u.bot, discordCommand("future"), "", Date.now() + 31000),
+        signedDiscord(
+          u.bot,
+          discordCommand("future"),
+          "",
+          negativeFutureStamp(Date.now()),
+        ),
         401,
       );
       yield* rejected(signedDiscord(u.bot, "{"), 400);
@@ -381,7 +387,10 @@ export function registerTenantTests({
         }),
         401,
       );
-      for (const stamp of [Date.now() - 601000, Date.now() + 31000])
+      for (const stamp of [
+        Date.now() - 601000,
+        negativeFutureStamp(Date.now()),
+      ])
         yield* rejected(
           signedTwitch(
             u.bot,

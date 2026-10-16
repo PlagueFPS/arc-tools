@@ -7,6 +7,7 @@ import { TestClock } from "effect/testing";
 import {
   discordCommand,
   discordPublicKey,
+  negativeFutureStamp,
   signDiscord,
   signTwitch,
   twitchEvent,
@@ -39,13 +40,14 @@ const encode = (value: unknown) =>
   );
 const fixture = Effect.fnUntraced(function* (
   options: {
+    receivedAt?: number;
     tenants?: Partial<TenantService>;
     observation?: (
       input: SubscriptionObservation,
     ) => Effect.Effect<void, AccountError>;
   } = {},
 ) {
-  const now = Date.now();
+  const now = options.receivedAt ?? Date.now();
   const admissions: unknown[] = [];
   const observations: SubscriptionObservation[] = [];
   let reads = 0;
@@ -502,4 +504,28 @@ for (const delta of [-1, -20, 3000])
         expect(tenant.source.calls).toHaveLength(0);
       }
     }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+for (const transport of ["discord", "twitch"] as const)
+  test(
+    `cloud ${transport} future-signature control stays outside production skew after bounded transport`,
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sentAt = Math.floor(Date.now() / 1000) * 1000;
+        const f = yield* fixture({ receivedAt: sentAt + 20000 });
+        const response =
+          transport === "discord"
+            ? yield* f.discord(
+                discordCommand("delayed-future"),
+                negativeFutureStamp(sentAt),
+              )
+            : yield* f.twitch(
+                twitchEvent("delayed-future"),
+                negativeFutureStamp(sentAt),
+              );
+        expect(response.status).toBe(401);
+        expect(f.admissions).toHaveLength(0);
+        expect(f.reads()).toBe(0);
+      }),
+    ),
   );
