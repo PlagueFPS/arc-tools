@@ -59,3 +59,13 @@ Extend the existing 15 canonical cases. Track every added Worker and namespace a
 ## Next step
 
 Resolve any concrete cross-judge objections, commit the selected design, then assign one isolated implementation owner. Root implements no application code. Live provider, privacy, grant-expiry, operating cost, and full migration acceptance remain separate gates.
+
+## Final synthesis and cross-judge verdict
+
+The independent cross-judge confirms A as the base, scoring A 27/30 and B 12.5/30 against the six criteria. These remain qualitative design scores. The judge agrees with the immutable deadline and friendly private Worker fallback corrections, generation fencing, bounded duplicate reads, and empirical timing gates. No new architecture blocker was identified. There is no additional graft from B beyond the candidates' shared transaction and binding decisions.
+
+Root accepts those corrections with one exception to the judge's polling example. Twenty reads at 25 milliseconds must not force a shared timeout after only 500 milliseconds while the original computation still has useful budget. Choose a finite read cap covering the full proposed computation window, such as 100 reads with a minimum 25-millisecond spacing. Check the absolute cutoff on every read. Only reaching the original computation cutoff or detecting an interrupted activation justifies committing the common terminal failure; a caller that exhausts its own wait cap earlier must not invalidate healthy work. No claim that those reads are free is accepted.
+
+The cloud origin check applies to deployed cloud stages. Local interactive development still requires the approved explicit HTTPS tunnel origin rather than equating a local HTTP workerd URL with the externally reachable callback. Validate that nonproduction override, and do not let it weaken production or synthetic-stage isolation.
+
+The selected design is ready for delegated implementation. The implementer must verify the precise pinned Alchemy binding behavior, provider character counting, signature context fields and timestamp tolerances against source or official documentation. Routine implementation details remain delegated judgment; a change to the selected durability, direct-response, identity, or environment contract must be surfaced to root before proceeding. Root acceptance still requires independent code and comment review and real-cloud behavior and teardown evidence.
