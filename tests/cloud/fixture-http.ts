@@ -25,7 +25,7 @@ class FixtureRouteNotReady extends Schema.TaggedError<FixtureRouteNotReady>()(
 
 export const isRouteNotReady = (url: URL, diagnostic: typeof Diagnostic.Type) =>
   url.protocol === "https:" &&
-  /^arc-tools-(?:probe|cache|metaforge|account|provider|bot)-test-(?:foundation|cache|account)-[a-f0-9]{8}-[a-f0-9]{12}\.[a-z0-9-]+\.workers\.dev$/.test(
+  /^arc-tools-(?:probe|cache|metaforge|account|provider|bot|tenant)-test-(?:foundation|cache|account|tenant)-[a-f0-9]{8}-[a-f0-9]{12}\.[a-z0-9-]+\.workers\.dev$/.test(
     url.hostname,
   ) &&
   diagnostic.status === 404 &&

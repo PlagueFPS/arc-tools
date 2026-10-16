@@ -12,6 +12,10 @@ export class BotApi extends HttpApi.make("arc-tools").add(
       }),
     }),
   ),
+  HttpApiGroup.make("ingress").add(
+    HttpApiEndpoint.post("twitch", "/webhooks/twitch"),
+    HttpApiEndpoint.post("discord", "/interactions/discord"),
+  ),
   HttpApiGroup.make("operator").add(
     HttpApiEndpoint.post("setup", "/ops/setup"),
     HttpApiEndpoint.post("status", "/ops/status"),

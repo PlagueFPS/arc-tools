@@ -9,7 +9,8 @@
   "dependencies": {
     "@arctools/commands": "workspace:*",
     "alchemy": "2.0.0-beta.83",
-    "effect": "4.0.4"
+    "effect": "4.0.4",
+    "@arctools/arc-data": "workspace:*"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*"

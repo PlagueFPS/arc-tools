@@ -4,11 +4,15 @@ import { Schema } from "effect";
 import { CloudSettings, cloudSettings } from "./cloud-settings.js";
 
 const suite =
-  process.argv[2] === "foundation"
-    ? "foundation"
-    : process.argv[2] === "cache"
-      ? "cache"
-      : "account";
+  process.argv[2] === "tenant"
+    ? "tenant"
+    : process.argv[2] === "foundation"
+      ? "foundation"
+      : process.argv[2] === "cache"
+        ? "cache"
+        : process.argv[2] === "account"
+          ? "account"
+          : "tenant";
 const cleanupOnly = process.argv[2] === "cleanup";
 let settings: CloudSettings;
 if (cleanupOnly) {
@@ -74,7 +78,8 @@ const env = {
   TWITCH_CLIENT_SECRET: "fixture-secret",
   TWITCH_SIGNING_SECRET: "fixture-signing",
   DISCORD_BOT_TOKEN: "fixture-token",
-  DISCORD_PUBLIC_KEY: "fixture-key",
+  DISCORD_PUBLIC_KEY:
+    "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
   OPERATOR_SECRET: "fixture-operator",
 };
 cloudSettings(env);

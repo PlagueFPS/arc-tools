@@ -21,6 +21,7 @@
     "apps/bot": {
       "name": "@arctools/bot",
       "dependencies": {
+        "@arctools/arc-data": "workspace:*",
         "@arctools/commands": "workspace:*",
         "alchemy": "2.0.0-beta.83",
         "effect": "4.0.4",

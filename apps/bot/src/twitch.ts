@@ -1,7 +1,7 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Effect, Layer, Redacted, Schema } from "effect";
-import { accountRuntimeConfig } from "./config.js";
+import { Context, Effect, Layer, Option, Redacted, Schema } from "effect";
+import { bindOrigin, runtimeConfig } from "./config.js";
 import { digest } from "./provider-http.js";
 import { makeAccount } from "./twitch-account.js";
 import { subscriptionBinding } from "./twitch-binding.js";
@@ -111,11 +111,28 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
     alarm: account.credentialAlarm,
   };
 });
+export class AccountEndpoints extends Context.Service<
+  AccountEndpoints,
+  {
+    readonly resolve: Effect.Effect<
+      { readonly api: string; readonly oauth: string },
+      never,
+      RuntimeContext
+    >;
+  }
+>()("@arctools/AccountEndpoints") {}
 export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()(
   "TwitchAccount",
   Effect.gen(function* () {
-    const config = yield* accountRuntimeConfig.pipe(Effect.orDie);
+    const configuration = yield* runtimeConfig.pipe(Effect.orDie);
+    const origin = yield* bindOrigin.pipe(Effect.orDie);
+    const endpoints = yield* Effect.serviceOption(AccountEndpoints);
     return Effect.gen(function* () {
+      const config = {
+        ...configuration,
+        publicUrl: yield* origin,
+        webhookReady: true,
+      };
       const revision = yield* digest(
         JSON.stringify([
           config.identity,
@@ -140,13 +157,16 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
           redirect,
           subscriptionBinding: binding,
         },
-        makeProvider({
-          clientId: config.identity.twitchClientId,
-          clientSecret: config.twitchClientSecret,
-          signingSecret: config.twitchSigningSecret,
-          callback,
-          redirect,
-        }),
+        makeProvider(
+          {
+            clientId: config.identity.twitchClientId,
+            clientSecret: config.twitchClientSecret,
+            signingSecret: config.twitchSigningSecret,
+            callback,
+            redirect,
+          },
+          Option.isSome(endpoints) ? yield* endpoints.value.resolve : undefined,
+        ),
       );
     });
   }),

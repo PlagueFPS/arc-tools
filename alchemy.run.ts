@@ -19,6 +19,16 @@ export default Alchemy.Stack(
     if (stage === "prod" && (yield* AlchemyContext).dev) {
       return yield* Effect.die("Local development cannot select prod");
     }
+    if (stage.startsWith("test-tenant-")) {
+      const { MetaforgeWorker } = yield* Effect.promise(
+        () => import("./tests/cloud/metaforge.js"),
+      );
+      const { TwitchProviderFixture } = yield* Effect.promise(
+        () => import("./tests/cloud/twitch-provider-fixture.js"),
+      );
+      yield* MetaforgeWorker;
+      yield* TwitchProviderFixture;
+    }
     const bot = yield* Bot;
     if (Schema.is(TestStage)(stage)) {
       const { ProbeWorker } = yield* Effect.promise(
@@ -27,7 +37,8 @@ export default Alchemy.Stack(
       const probe = yield* ProbeWorker;
       if (
         stage.startsWith("test-cache-") ||
-        stage.startsWith("test-account-")
+        stage.startsWith("test-account-") ||
+        stage.startsWith("test-tenant-")
       ) {
         const { CacheFixtureWorker } = yield* Effect.promise(
           () => import("./tests/cloud/cache-fixture.js"),
@@ -37,7 +48,10 @@ export default Alchemy.Stack(
         );
         const source = yield* MetaforgeWorker;
         const cache = yield* CacheFixtureWorker;
-        if (stage.startsWith("test-account-")) {
+        if (
+          stage.startsWith("test-account-") ||
+          stage.startsWith("test-tenant-")
+        ) {
           const { TwitchProviderFixture } = yield* Effect.promise(
             () => import("./tests/cloud/twitch-provider-fixture.js"),
           );
@@ -46,7 +60,19 @@ export default Alchemy.Stack(
           );
           const provider = yield* TwitchProviderFixture;
           const account = yield* AccountFixtureWorker;
+          const tenant = stage.startsWith("test-tenant-")
+            ? yield* Effect.promise(
+                () => import("./tests/cloud/tenant-fixture.js"),
+              ).pipe(
+                Effect.flatMap(
+                  ({ TenantFixtureWorker }) => TenantFixtureWorker,
+                ),
+              )
+            : null;
           return {
+            ...(tenant
+              ? { tenantUrl: tenant.url, tenantWorkerName: tenant.workerName }
+              : {}),
             stage,
             url: bot.url,
             workerName: bot.workerName,

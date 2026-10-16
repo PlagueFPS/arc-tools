@@ -1,7 +1,7 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import { DurableObjectStorageError } from "alchemy/Cloudflare/Workers/DurableObjectStorage";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { FetchHttpClient } from "effect/http";
 import {
   type CacheStorage,
@@ -63,20 +63,32 @@ export const makeCacheRpc = Effect.fnUntraced(function* (
   return { read, reset: cache.reset };
 });
 
+export class CacheSource extends Context.Service<
+  CacheSource,
+  {
+    readonly options: Effect.Effect<
+      { readonly baseUrl: string },
+      never,
+      RuntimeContext
+    >;
+  }
+>()("@arctools/CacheSource") {}
+
 export class ArcCacheDO extends Cloudflare.DurableObject<ArcCacheDO>()(
   "ArcCache",
-  Effect.succeed(
-    Effect.gen(function* () {
-      const cache = yield* makeCacheRpc();
+  Effect.gen(function* () {
+    const source = yield* Effect.serviceOption(CacheSource);
+    return Effect.gen(function* () {
+      const options = Option.isSome(source) ? yield* source.value.options : {};
+      const cache = yield* makeCacheRpc(options);
       return { read: cache.read };
-    }),
-  ),
+    });
+  }),
 ) {}
 
-export const layer = Layer.effect(
-  ArcData,
-  Effect.gen(function* () {
-    const objects = yield* ArcCacheDO;
+export const bindData = Effect.gen(function* () {
+  const objects = yield* ArcCacheDO;
+  return Effect.gen(function* () {
     const runtime = yield* RuntimeContext;
     const object = objects.getByName("environment");
     return dataFromReader(
@@ -104,5 +116,6 @@ export const layer = Layer.effect(
         return reply.result;
       }),
     );
-  }),
-);
+  });
+});
+export const layer = Layer.effect(ArcData, bindData.pipe(Effect.flatten));

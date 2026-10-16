@@ -119,7 +119,8 @@ effects.test(
           TWITCH_CLIENT_SECRET: "fixture-secret",
           TWITCH_SIGNING_SECRET: "fixture-signing",
           DISCORD_BOT_TOKEN: "fixture-token",
-          DISCORD_PUBLIC_KEY: "fixture-key",
+          DISCORD_PUBLIC_KEY:
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
           OPERATOR_SECRET: "fixture-operator",
         }),
       ),

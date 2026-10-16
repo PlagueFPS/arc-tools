@@ -24,6 +24,10 @@ const Grant = Schema.Struct({
   clientId: Schema.String,
 });
 export const ProviderControl = Schema.Struct({
+  createStatus: Schema.optional(
+    Schema.Literals(["enabled", "webhook_callback_verification_pending"]),
+  ),
+  resetMessages: Schema.optional(Schema.Boolean),
   sendStatus: Schema.optional(Schema.Int),
   sendBody: Schema.optional(Schema.Unknown),
   holdSend: Schema.optional(Schema.Boolean),
@@ -38,6 +42,17 @@ export const ProviderControl = Schema.Struct({
   changeReleaseAfterWrite: Schema.optional(Schema.Boolean),
 });
 export const ProviderSnapshot = Schema.Struct({
+  messages: Schema.Array(
+    Schema.Struct({
+      at: Schema.Number,
+      body: Schema.Struct({
+        broadcaster_id: Schema.String,
+        sender_id: Schema.String,
+        message: Schema.String,
+        reply_parent_message_id: Schema.String,
+      }),
+    }),
+  ),
   calls: Schema.Record(Schema.String, Schema.Int),
   remote: Schema.Array(Subscription),
   bindings: Schema.Record(Schema.String, Schema.String),
@@ -86,11 +101,13 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
           const previous =
             (yield* storage.get<typeof ProviderControl.Type>("control")) ?? {};
           yield* storage.put("control", { ...previous, ...input });
+          if (input.resetMessages) yield* storage.put("messages", []);
           if (input.remote) yield* storage.put("remote", input.remote);
           if (input.commands) yield* storage.put("discord", input.commands);
         }),
         snapshot: Effect.fnUntraced(function* () {
           return {
+            messages: (yield* storage.get("messages")) ?? [],
             calls: Object.fromEntries(
               [...(yield* storage.list<number>({ prefix: "call:" }))].map(
                 ([key, value]) => [key.slice(5), value],
@@ -307,7 +324,7 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
                       callback: input.transport.callback,
                     },
                     id: `created-${count}`,
-                    status: "enabled",
+                    status: control.createStatus ?? "enabled",
                   };
                   yield* storage.put(
                     `binding:${subscription.id}`,
@@ -326,6 +343,19 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
             return result;
           }
           if (url.pathname === "/helix/chat/messages") {
+            const payload = yield* Schema.decodeUnknownEffect(
+              Schema.fromJsonString(
+                ProviderSnapshot.fields.messages.value.fields.body,
+              ),
+            )(body).pipe(Effect.orDie);
+            const messages =
+              (yield* storage.get<(typeof ProviderSnapshot.Type)["messages"]>(
+                "messages",
+              )) ?? [];
+            yield* storage.put("messages", [
+              ...messages.slice(-127),
+              { at: Date.now(), body: payload },
+            ]);
             yield* wait("send");
             return {
               status: control.sendStatus ?? 200,

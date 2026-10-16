@@ -45,6 +45,8 @@ export const stack = beforeAll(
           sourceWorkerName: Schema.optional(Schema.String),
           accountUrl: Schema.optional(Schema.String),
           accountWorkerName: Schema.optional(Schema.String),
+          tenantUrl: Schema.optional(Schema.String),
+          tenantWorkerName: Schema.optional(Schema.String),
           providerUrl: Schema.optional(Schema.String),
           providerWorkerName: Schema.optional(Schema.String),
         }),
@@ -81,19 +83,26 @@ beforeAll(
         deployed.sourceWorkerName,
         deployed.accountWorkerName,
         deployed.providerWorkerName,
+        deployed.tenantWorkerName,
       ].filter((name) => name !== undefined),
     ];
     const stackNamespaces = namespaces.filter((namespace) =>
       workerNames.includes(namespace.script ?? ""),
     );
     if (settings.stage.startsWith("test-cache-")) {
-      expect(stackNamespaces.length).toBe(4);
+      expect(stackNamespaces.length).toBe(6);
       expect(
         stackNamespaces.every((namespace) => namespace.useSqlite),
       ).toBeTrue();
     }
     if (settings.stage.startsWith("test-account-")) {
-      expect(stackNamespaces.length).toBe(6);
+      expect(stackNamespaces.length).toBe(8);
+      expect(
+        stackNamespaces.every((namespace) => namespace.useSqlite),
+      ).toBeTrue();
+    }
+    if (settings.stage.startsWith("test-tenant-")) {
+      expect(stackNamespaces.length).toBe(10);
       expect(
         stackNamespaces.every((namespace) => namespace.useSqlite),
       ).toBeTrue();
@@ -211,12 +220,21 @@ test(
 
 if (
   settings.stage.startsWith("test-cache-") ||
-  settings.stage.startsWith("test-account-")
+  settings.stage.startsWith("test-account-") ||
+  settings.stage.startsWith("test-tenant-")
 ) {
   const { registerCacheTests } = await import("./cache-cases.js");
   registerCacheTests({ stack, test });
 }
-if (settings.stage.startsWith("test-account-")) {
+if (
+  settings.stage.startsWith("test-account-") ||
+  settings.stage.startsWith("test-tenant-")
+) {
   const { registerAccountTests } = await import("./account-cases.js");
   registerAccountTests({ stack, test });
+}
+
+if (settings.stage.startsWith("test-tenant-")) {
+  const { registerTenantTests } = await import("./tenant-cases.js");
+  registerTenantTests({ stack, test });
 }
