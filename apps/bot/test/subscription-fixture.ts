@@ -53,7 +53,10 @@ export const fixture = Effect.fnUntraced(function* () {
   const noResponse = (): { status: number; body: unknown } | null => null;
   const noGate = (): ReturnType<typeof responseGate> | null => null;
   const noLateCreate = (): typeof CreateRequest.Type | null => null;
+  const requests: { method: string; path: string }[] = [];
   const control = {
+    responses: new Map<string, () => Response | Promise<Response>>(),
+    requests,
     remote: new Map<string, Subscription>(),
     secrets: new Map<string, string>(),
     calls: { get: 0, post: 0, delete: 0, conflict: 0, send: 0 },
@@ -89,6 +92,11 @@ export const fixture = Effect.fnUntraced(function* () {
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
+      control.requests.push({ method: request.method, path: url.pathname });
+      const response = control.responses.get(
+        `${request.method} ${url.pathname}`,
+      );
+      if (response) return response();
       if (url.pathname === "/token") {
         const params = new URLSearchParams(await request.text());
         return Response.json({
