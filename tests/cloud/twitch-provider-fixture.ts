@@ -137,6 +137,7 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
             return {
               status: 200,
               body: {
+                status: "ready",
                 stage: identity.stage,
                 revision: control.releaseRevision ?? "fixture-release",
                 manifestHash: yield* manifestHash,

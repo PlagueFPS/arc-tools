@@ -100,7 +100,7 @@ const fixture = Effect.fnUntraced(function* (
       HttpApiBuilder.group(BotApi, "health", (handlers) =>
         handlers.handle("health", () =>
           Effect.succeed({
-            status: "foundation",
+            status: "ready",
             stage: identity.stage,
             revision: "r",
             manifestHash: "h",

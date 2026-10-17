@@ -17,6 +17,7 @@ export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
   phase: Schema.Literals(["before", "overwrite", "after"]),
 }) {}
 export const ReleaseHealth = Schema.Struct({
+  status: Schema.Literal("ready"),
   stage: Schema.String,
   revision: Schema.String,
   manifestHash: Schema.String,

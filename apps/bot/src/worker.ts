@@ -73,7 +73,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
             HttpApiBuilder.group(BotApi, "health", (handlers) =>
               handlers.handle("health", () =>
                 Effect.succeed({
-                  status: "foundation",
+                  status: "ready",
                   stage: identity.stage,
                   revision,
                   manifestHash: hash,

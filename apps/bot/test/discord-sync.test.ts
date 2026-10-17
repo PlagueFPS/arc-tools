@@ -16,6 +16,7 @@ const fixture = Effect.fnUntraced(function* () {
   const hash = yield* manifestHash;
   const control = {
     remote: Schema.decodeUnknownSync(RemoteCommands)(commandManifest),
+    status: "ready",
     revision: "commit-one",
     hash,
     writes: 0,
@@ -33,6 +34,7 @@ const fixture = Effect.fnUntraced(function* () {
       const path = url.pathname;
       if (path === "/health")
         return Response.json({
+          status: control.status,
           stage: "staging",
           revision: control.revision,
           manifestHash: control.hash,
@@ -307,6 +309,23 @@ test(
     const error = yield* syncCommands(f.release, f.options).pipe(Effect.flip);
     expect(error.code).toBe("stale-release");
     expect(error.phase).toBe("after");
+    expect(f.control.writes).toBe(1);
+  }),
+);
+
+test(
+  "an incomplete application cannot synchronize even when its revision and manifest match",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    f.control.status = "starting";
+    f.control.remote = [];
+    const error = yield* syncCommands(f.release, f.options).pipe(Effect.flip);
+    expect(error.code).toBe("provider");
+    expect(error.phase).toBe("before");
+    expect(f.control.reads).toBe(0);
+    expect(f.control.writes).toBe(0);
+    f.control.status = "ready";
+    expect((yield* syncCommands(f.release, f.options)).changed).toBeTrue();
     expect(f.control.writes).toBe(1);
   }),
 );

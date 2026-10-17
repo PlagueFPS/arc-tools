@@ -10,8 +10,6 @@
     "build": "turbo run build",
     "test": "turbo run test && bun test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-response.test.ts",
     "dev": "alchemy dev",
-    "dev:twitch": "turbo run dev --filter=twitch-bot",
-    "dev:discord": "turbo run dev --filter=discord-bot",
     "lint": "turbo run format-and-lint",
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",

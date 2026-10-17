@@ -138,7 +138,7 @@ test(
     const health = yield* request(`${application.url}/health`);
     expect(health.status).toBe(200);
     expect(yield* Effect.promise(() => health.json())).toEqual({
-      status: "foundation",
+      status: "ready",
       stage: settings.stage,
       revision: "unreleased",
       manifestHash: yield* manifestHash,

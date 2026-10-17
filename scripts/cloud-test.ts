@@ -58,7 +58,7 @@ if (process.env.GITHUB_OUTPUT && !cleanupOnly) {
 }
 const inherited = Object.fromEntries(
   Object.entries(process.env).filter(
-    ([key]) => !/^(TWITCH_|DISCORD_|TURSO_|ARC_|OPERATOR_)/.test(key),
+    ([key]) => !/^(TWITCH_|DISCORD_|ARC_|OPERATOR_)/.test(key),
   ),
 );
 const env = {
