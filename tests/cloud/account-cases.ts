@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { appendFile } from "node:fs/promises";
 import { Effect, Fiber, Redacted, Schedule, Schema } from "effect";
 import { commandManifest } from "../../apps/bot/src/discord-manifest.js";
 import {
@@ -11,6 +12,10 @@ import {
   DispatchOutcome,
   SetupResult,
 } from "../../apps/bot/src/twitch-contracts.js";
+import {
+  AccountAttribution,
+  NativeAlarmSnapshot,
+} from "./alarm-attribution.js";
 import { get, json, post, reconstructedSnapshot } from "./fixture-http.js";
 import type * as Foundation from "./foundation.test.js";
 import { ProviderSnapshot } from "./twitch-provider-fixture.js";
@@ -553,76 +558,126 @@ export function registerAccountTests({
     "native account alarm recovers a reconstructed credential lease without losing its schedule",
     Effect.gen(function* () {
       const u = yield* urls;
-      const snapshotSchema = Schema.Struct({
-        instance: Schema.String,
-        intended: Schema.NullOr(Schema.Number),
-        native: Schema.NullOr(Schema.Number),
-        lease: Schema.NullOr(
-          Schema.Struct({ owner: Schema.String, until: Schema.Number }),
-        ),
-        observation: Schema.NullOr(
-          Schema.Struct({
-            runs: Schema.Number,
-            entryAlarm: Schema.NullOr(Schema.Number),
-            intended: Schema.NullOr(Schema.Number),
-            native: Schema.NullOr(Schema.Number),
-          }),
-        ),
+      const snapshotSchema = NativeAlarmSnapshot;
+      const retain = Effect.fnUntraced(function* (
+        boundary: string,
+        snapshots: unknown,
+      ) {
+        const stage = process.env.ARC_CLOUD_STAGE;
+        const entry = JSON.stringify({
+          stage,
+          at: Date.now(),
+          boundary,
+          snapshots,
+        });
+        console.info(`NATIVE_ALARM_ATTRIBUTION ${entry}`);
+        yield* Effect.promise(() =>
+          appendFile(
+            new URL(
+              `../../.cloud-tests/${stage}/native-alarm-attribution.jsonl`,
+              import.meta.url,
+            ),
+            `${entry}\n`,
+          ),
+        );
       });
-      const preparedResponse = yield* post(`${u.account}/native-alarm/prepare`);
-      const prepared = yield* json(
-        preparedResponse,
-        Schema.Struct({ instance: Schema.String, until: Schema.Number }),
+      yield* Effect.gen(function* () {
+        const preparedResponse = yield* post(
+          `${u.account}/native-alarm/prepare`,
+        );
+        const prepared = yield* json(
+          preparedResponse,
+          Schema.Struct({ instance: Schema.String, until: Schema.Number }),
+        );
+        const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+        yield* retain("prepared", {
+          prepared,
+          provider: before,
+          target: yield* get(
+            `${u.account}/native-alarm/snapshot`,
+            snapshotSchema,
+          ),
+          other: yield* get(`${u.account}/attribution`, AccountAttribution),
+        });
+        expect(
+          (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
+        ).toBe(204);
+        yield* reconstructedSnapshot(
+          get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
+          prepared.instance,
+        );
+        const recovered = yield* get(
+          `${u.account}/native-alarm/snapshot`,
+          snapshotSchema,
+        ).pipe(
+          Effect.repeat({
+            until: (value) => value.observation !== null,
+            times: 30,
+            schedule: Schedule.spaced("100 millis"),
+          }),
+        );
+        yield* retain("early-account", recovered);
+        expect(recovered.instance).not.toBe(prepared.instance);
+        expect(recovered.observation?.runs).toBe(1);
+        expect(recovered.observation?.entryAlarm).toBeNull();
+        expect(recovered.observation?.intended).toBe(prepared.until);
+        expect(recovered.observation?.native).toBe(prepared.until);
+        expect(recovered.native).toBe(prepared.until);
+        expect(
+          (yield* get(`${u.provider}/snapshot`, ProviderSnapshot).pipe(
+            Effect.tap((provider) => retain("early-provider", provider)),
+          )).calls["GET /oauth/validate"],
+        ).toBe(before.calls["GET /oauth/validate"]);
+        const validated = yield* get(
+          `${u.account}/native-alarm/snapshot`,
+          snapshotSchema,
+        ).pipe(
+          Effect.repeat({
+            until: (value) =>
+              value.observation !== null && value.observation.runs >= 2,
+            times: 120,
+            schedule: Schedule.spaced("100 millis"),
+          }),
+        );
+        yield* retain("late-account", validated);
+        expect(validated.observation?.runs).toBe(2);
+        expect(validated.lease).toBeNull();
+        expect(validated.intended ?? 0).toBeGreaterThan(prepared.until);
+        expect(validated.native).toBe(validated.intended);
+        expect(
+          (yield* get(`${u.provider}/snapshot`, ProviderSnapshot).pipe(
+            Effect.tap((provider) => retain("late-provider", provider)),
+          )).calls["GET /oauth/validate"],
+        ).toBe((before.calls["GET /oauth/validate"] ?? 0) + 1);
+      }).pipe(
+        Effect.ensuring(
+          Effect.gen(function* () {
+            const safe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+              effect.pipe(
+                Effect.catchCause(() => Effect.succeed({ unavailable: true })),
+              );
+            yield* retain("final", {
+              target: yield* safe(
+                get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
+              ),
+              other: yield* safe(
+                get(`${u.account}/attribution`, AccountAttribution),
+              ),
+              provider: yield* safe(
+                get(`${u.provider}/snapshot`, ProviderSnapshot),
+              ),
+            });
+          }).pipe(
+            Effect.catchCause(() =>
+              Effect.sync(() => {
+                console.info(
+                  "NATIVE_ALARM_ATTRIBUTION final snapshot unavailable",
+                );
+              }),
+            ),
+          ),
+        ),
       );
-      const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
-      expect(
-        (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
-      ).toBe(204);
-      yield* reconstructedSnapshot(
-        get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
-        prepared.instance,
-      );
-      const recovered = yield* get(
-        `${u.account}/native-alarm/snapshot`,
-        snapshotSchema,
-      ).pipe(
-        Effect.repeat({
-          until: (value) => value.observation !== null,
-          times: 30,
-          schedule: Schedule.spaced("100 millis"),
-        }),
-      );
-      expect(recovered.instance).not.toBe(prepared.instance);
-      expect(recovered.observation?.runs).toBe(1);
-      expect(recovered.observation?.entryAlarm).toBeNull();
-      expect(recovered.observation?.intended).toBe(prepared.until);
-      expect(recovered.observation?.native).toBe(prepared.until);
-      expect(recovered.native).toBe(prepared.until);
-      expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
-          "GET /oauth/validate"
-        ],
-      ).toBe(before.calls["GET /oauth/validate"]);
-      const validated = yield* get(
-        `${u.account}/native-alarm/snapshot`,
-        snapshotSchema,
-      ).pipe(
-        Effect.repeat({
-          until: (value) =>
-            value.observation !== null && value.observation.runs >= 2,
-          times: 120,
-          schedule: Schedule.spaced("100 millis"),
-        }),
-      );
-      expect(validated.observation?.runs).toBe(2);
-      expect(validated.lease).toBeNull();
-      expect(validated.intended ?? 0).toBeGreaterThan(prepared.until);
-      expect(validated.native).toBe(validated.intended);
-      expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
-          "GET /oauth/validate"
-        ],
-      ).toBe((before.calls["GET /oauth/validate"] ?? 0) + 1);
     }),
     { timeout: 90_000 },
   );

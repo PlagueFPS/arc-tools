@@ -19,6 +19,12 @@ import {
 import { makeProvider } from "../../apps/bot/src/twitch-provider.js";
 import { AccountState, policy } from "../../apps/bot/src/twitch-state.js";
 import {
+  CurrentValidationOrigin,
+  observeValidations,
+  readAccountAttribution,
+  recordActivation,
+} from "./alarm-attribution.js";
+import {
   acknowledgeReconstruction,
   identifyFixtureResponse,
 } from "./fixture-response.js";
@@ -40,6 +46,11 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
     const config = yield* runtimeConfig.pipe(Effect.orDie);
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
+      const event = (
+        kind: Parameters<typeof recordActivation>[1]["kind"],
+        alarmRun: number | null = null,
+      ) => recordActivation(state.storage, { kind, instance, alarmRun });
+      yield* event("activation");
       const logs: string[] = [];
       const logger = Logger.make((options) => {
         logs.push(
@@ -69,6 +80,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         sleep: (duration) => realClock.sleep(duration),
       };
       const build = Effect.fnUntraced(function* () {
+        yield* event("build");
         const override = (yield* state.storage.get<typeof Configure.Type>(
           "fixtureConfig",
         )) ?? {
@@ -104,11 +116,15 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
               signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
             }),
           },
-          provider,
+          yield* observeValidations(provider, state.storage, instance),
         );
       });
       let account = yield* build().pipe(
         Effect.provideService(Clock.Clock, clock),
+        Effect.provideService(CurrentValidationOrigin, {
+          operation: "construction",
+          alarmRun: null,
+        }),
       );
       const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         effect.pipe(
@@ -122,23 +138,48 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         dispatch: (input: Dispatch) => run(account.dispatch(input)),
         observe: (input: SubscriptionObservation) =>
           run(account.observeSubscription(input)),
-        credential: () => run(account.alarm()),
+        credential: () =>
+          run(account.alarm()).pipe(
+            Effect.provideService(CurrentValidationOrigin, {
+              operation: "credential",
+              alarmRun: null,
+            }),
+          ),
         alarm: Effect.fnUntraced(function* () {
           const entryAlarm = yield* state.storage.getAlarm();
           const runs =
             ((yield* state.storage.get<number>("fixtureAlarmRuns")) ?? 0) + 1;
           yield* state.storage.put("fixtureAlarmRuns", runs);
-          yield* run(account.alarm());
+          yield* event("alarm-entry", runs);
+          yield* run(account.alarm()).pipe(
+            Effect.provideService(CurrentValidationOrigin, {
+              operation: "alarm",
+              alarmRun: runs,
+            }),
+          );
           const persisted = yield* state.storage.get<unknown>("account:v1");
           const record = yield* Schema.decodeUnknownEffect(AccountState)(
             persisted,
           ).pipe(Effect.orDie);
           yield* state.storage.put("fixtureAlarmObservation", {
             runs,
+            instance,
+            completedAt: Date.now(),
+            lease: record.tokenLease,
+            validationInvocationIds: (yield* readAccountAttribution(
+              state.storage,
+            )).invocations
+              .filter(
+                (invocation) =>
+                  invocation.instance === instance &&
+                  invocation.origin.alarmRun === runs,
+              )
+              .map((invocation) => invocation.id),
             entryAlarm,
             intended: record.nextCredentialCheck,
             native: yield* state.storage.getAlarm(),
           });
+          yield* event("alarm-complete", runs);
         }),
         prepareNativeAlarm: Effect.fnUntraced(function* () {
           realtime = true;
@@ -167,19 +208,34 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           return { instance, until };
         }),
         nativeAlarmSnapshot: Effect.fnUntraced(function* () {
-          const raw = yield* state.storage.get<unknown>("account:v1");
-          const record = yield* Schema.decodeUnknownEffect(AccountState)(
-            raw,
-          ).pipe(Effect.orDie);
-          return {
-            instance,
-            intended: record.nextCredentialCheck,
-            native: yield* state.storage.getAlarm(),
-            lease: record.tokenLease,
-            observation:
-              (yield* state.storage.get("fixtureAlarmObservation")) ?? null,
-          };
+          return yield* state.storage
+            .transaction(
+              Effect.gen(function* () {
+                const raw = yield* state.storage.get<unknown>("account:v1");
+                const record = yield* Schema.decodeUnknownEffect(AccountState)(
+                  raw,
+                ).pipe(Effect.orDie);
+                return {
+                  instance,
+                  capturedAt: Date.now(),
+                  liveAlarmRuns:
+                    (yield* state.storage.get<number>("fixtureAlarmRuns")) ?? 0,
+                  attribution: yield* readAccountAttribution(state.storage),
+                  intended: record.nextCredentialCheck,
+                  native: yield* state.storage.getAlarm(),
+                  lease: record.tokenLease,
+                  observation:
+                    (yield* state.storage.get("fixtureAlarmObservation")) ??
+                    null,
+                };
+              }),
+            )
+            .pipe(Effect.orDie);
         }),
+        attribution: () =>
+          state.storage
+            .transaction(readAccountAttribution(state.storage))
+            .pipe(Effect.orDie),
         time: Effect.fnUntraced(function* (next: number) {
           time = next;
           yield* state.storage.put("fixtureTime", next);
@@ -189,6 +245,10 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           account = yield* build().pipe(
             Effect.provideService(Cloudflare.DurableObjectState, state),
             Effect.provideService(Clock.Clock, clock),
+            Effect.provideService(CurrentValidationOrigin, {
+              operation: "construction",
+              alarmRun: null,
+            }),
           );
         }),
         snapshot: Effect.fnUntraced(function* () {
@@ -206,6 +266,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           };
         }),
         reconstruct: Effect.fnUntraced(function* () {
+          yield* event("reconstruct");
           yield* state.storage.sync();
           yield* state.abort("account reconstruction fixture");
         }),
@@ -224,6 +285,7 @@ class AccountApi extends HttpApi.make("account-fixture").add(
     HttpApiEndpoint.post("configure", "/configure"),
     HttpApiEndpoint.post("reconstruct", "/reconstruct"),
     HttpApiEndpoint.get("snapshot", "/snapshot"),
+    HttpApiEndpoint.get("attribution", "/attribution"),
     HttpApiEndpoint.post("credential", "/credential"),
     HttpApiEndpoint.post("nativePrepare", "/native-alarm/prepare"),
     HttpApiEndpoint.post("nativeReconstruct", "/native-alarm/reconstruct"),
@@ -261,6 +323,7 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
         .handleRaw("setup", () => json(object().setup()))
         .handleRaw("status", () => json(object().status()))
         .handleRaw("snapshot", () => json(object().snapshot()))
+        .handleRaw("attribution", () => json(object().attribution()))
         .handleRaw("nativePrepare", () =>
           json(nativeObject().prepareNativeAlarm()).pipe(
             Effect.tapCause((cause) =>
