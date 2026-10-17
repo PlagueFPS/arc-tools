@@ -714,7 +714,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       }
       if (first >= valid.deadline)
         return { kind: "expired" } satisfies DispatchOutcome;
-      if (!current(state) || valid.deadline > first + 10_000)
+      if (!current(state))
         return { kind: "rejected" } satisfies DispatchOutcome;
       return null;
     });
