@@ -13,9 +13,15 @@ import {
   SetupResult,
 } from "../../apps/bot/src/twitch-contracts.js";
 import {
-  AccountAttribution,
+  LiveAccountAttribution,
   NativeAlarmSnapshot,
 } from "./alarm-attribution.js";
+import {
+  completedRunKey,
+  selectCompletedRun,
+  verifyCompletedRecovery,
+  verifyCompletedValidation,
+} from "./completed-recovery.js";
 import { get, json, post, reconstructedSnapshot } from "./fixture-http.js";
 import type * as Foundation from "./foundation.test.js";
 import { ProviderSnapshot } from "./twitch-provider-fixture.js";
@@ -597,7 +603,7 @@ export function registerAccountTests({
             `${u.account}/native-alarm/snapshot`,
             snapshotSchema,
           ),
-          other: yield* get(`${u.account}/attribution`, AccountAttribution),
+          other: yield* get(`${u.account}/attribution`, LiveAccountAttribution),
         });
         expect(
           (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
@@ -611,44 +617,132 @@ export function registerAccountTests({
           snapshotSchema,
         ).pipe(
           Effect.repeat({
-            until: (value) => value.observation !== null,
+            until: (value) =>
+              value.attribution.completedRuns.some((run) => run.alarmRun === 1),
             times: 30,
             schedule: Schedule.spaced("100 millis"),
           }),
         );
         yield* retain("early-account", recovered);
-        expect(recovered.instance).not.toBe(prepared.instance);
-        expect(recovered.observation?.runs).toBe(1);
-        expect(recovered.observation?.entryAlarm).toBeNull();
-        expect(recovered.observation?.intended).toBe(prepared.until);
-        expect(recovered.observation?.native).toBe(prepared.until);
-        expect(recovered.native).toBe(prepared.until);
-        expect(
-          (yield* get(`${u.provider}/snapshot`, ProviderSnapshot).pipe(
-            Effect.tap((provider) => retain("early-provider", provider)),
-          )).calls["GET /oauth/validate"],
-        ).toBe(before.calls["GET /oauth/validate"]);
+        const earlyKey = completedRunKey(recovered.attribution, 1);
+        const early = selectCompletedRun(recovered.attribution, earlyKey);
+        expect(early.instance).not.toBe(prepared.instance);
+        expect(early.alarmRun).toBe(1);
+        expect(early.entryAlarm).toBeNull();
+        expect(early.intended).toBe(prepared.until);
+        expect(early.native).toBe(prepared.until);
+        expect(early.lease?.until).toBe(prepared.until);
+        yield* retain(
+          "early-provider",
+          yield* get(`${u.provider}/snapshot`, ProviderSnapshot),
+        );
         const validated = yield* get(
           `${u.account}/native-alarm/snapshot`,
           snapshotSchema,
         ).pipe(
           Effect.repeat({
             until: (value) =>
-              value.observation !== null && value.observation.runs >= 2,
+              value.attribution.completedRuns.some((run) => run.alarmRun === 2),
             times: 120,
             schedule: Schedule.spaced("100 millis"),
           }),
         );
         yield* retain("late-account", validated);
-        expect(validated.observation?.runs).toBe(2);
-        expect(validated.lease).toBeNull();
-        expect(validated.intended ?? 0).toBeGreaterThan(prepared.until);
-        expect(validated.native).toBe(validated.intended);
+        const recoveryKey = completedRunKey(validated.attribution, 2);
+        const recovery = selectCompletedRun(validated.attribution, recoveryKey);
+        expect(recovery.alarmRun).toBe(2);
+        expect(recovery.lease).toBeNull();
+        expect(recovery.intended ?? 0).toBeGreaterThan(prepared.until);
+        expect(recovery.native).toBe(recovery.intended);
+        const lateProvider = yield* get(
+          `${u.provider}/snapshot`,
+          ProviderSnapshot,
+        );
+        yield* retain("late-provider", lateProvider);
+        const evidence = {
+          earlyRunKey: earlyKey,
+          recoveryRunKey: recoveryKey,
+          preparedInstance: prepared.instance,
+          leaseUntil: prepared.until,
+        };
+        const verified = yield* Effect.sync(() =>
+          verifyCompletedRecovery({
+            ...evidence,
+            account: validated.attribution,
+            provider: lateProvider.validations,
+          }),
+        );
+        expect(verified.runKey).toBe(recoveryKey);
+        yield* retain("verified-recovery", verified);
+        const beforePaired = yield* get(
+          `${u.account}/native-alarm/snapshot`,
+          snapshotSchema,
+        );
+        const priorInstances = new Set(
+          beforePaired.attribution.events.map((event) => event.instance),
+        );
+        const pairedRuns = (value: typeof snapshotSchema.Type) =>
+          value.attribution.completedRuns.filter(
+            (run) =>
+              run.alarmRun > beforePaired.liveAlarmRuns &&
+              !priorInstances.has(run.instance) &&
+              run.validationInvocationIds.length > 0,
+          );
         expect(
-          (yield* get(`${u.provider}/snapshot`, ProviderSnapshot).pipe(
-            Effect.tap((provider) => retain("late-provider", provider)),
-          )).calls["GET /oauth/validate"],
-        ).toBe((before.calls["GET /oauth/validate"] ?? 0) + 1);
+          (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
+        ).toBe(204);
+        yield* reconstructedSnapshot(
+          get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
+          beforePaired.instance,
+        );
+        const paired = yield* get(
+          `${u.account}/native-alarm/snapshot`,
+          snapshotSchema,
+        ).pipe(
+          Effect.repeat({
+            until: (value) => pairedRuns(value).length > 0,
+            times: 120,
+            schedule: Schedule.spaced("100 millis"),
+          }),
+        );
+        const pairedOrdinal = Math.min(
+          ...pairedRuns(paired).map((run) => run.alarmRun),
+        );
+        const pairedKey = completedRunKey(paired.attribution, pairedOrdinal);
+        const pairedRun = selectCompletedRun(paired.attribution, pairedKey);
+        expect(pairedRun.instance).not.toBe(beforePaired.instance);
+        const latestProvider = yield* get(
+          `${u.provider}/snapshot`,
+          ProviderSnapshot,
+        );
+        const pairedVerified = yield* Effect.sync(() =>
+          verifyCompletedValidation({
+            account: paired.attribution,
+            provider: latestProvider.validations,
+            runKey: pairedKey,
+          }),
+        );
+        expect(pairedRun.lease).toBeNull();
+        expect(pairedRun.native).toBe(pairedRun.intended);
+        expect(pairedVerified.invocationId).not.toBe(verified.invocationId);
+        expect(
+          latestProvider.calls["GET /oauth/validate"] ?? 0,
+        ).toBeGreaterThan((before.calls["GET /oauth/validate"] ?? 0) + 1);
+        const reverified = yield* Effect.sync(() =>
+          verifyCompletedRecovery({
+            ...evidence,
+            account: paired.attribution,
+            provider: latestProvider.validations,
+          }),
+        );
+        expect(reverified).toEqual(verified);
+        yield* retain("paired-native-revalidation", {
+          before: beforePaired,
+          target: paired,
+          provider: latestProvider,
+          pairedVerified,
+          reverified,
+        });
       }).pipe(
         Effect.ensuring(
           Effect.gen(function* () {
@@ -661,21 +755,13 @@ export function registerAccountTests({
                 get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
               ),
               other: yield* safe(
-                get(`${u.account}/attribution`, AccountAttribution),
+                get(`${u.account}/attribution`, LiveAccountAttribution),
               ),
               provider: yield* safe(
                 get(`${u.provider}/snapshot`, ProviderSnapshot),
               ),
             });
-          }).pipe(
-            Effect.catchCause(() =>
-              Effect.sync(() => {
-                console.info(
-                  "NATIVE_ALARM_ATTRIBUTION final snapshot unavailable",
-                );
-              }),
-            ),
-          ),
+          }),
         ),
       );
     }),

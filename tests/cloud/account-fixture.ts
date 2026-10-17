@@ -23,6 +23,8 @@ import {
   observeValidations,
   readAccountAttribution,
   recordActivation,
+  recordCompletedAlarm,
+  validationEndpoints,
 } from "./alarm-attribution.js";
 import {
   acknowledgeReconstruction,
@@ -93,16 +95,19 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         }).pipe(Effect.orDie);
         const callback = "https://fixture.invalid/webhooks/twitch";
         const redirect = "https://fixture.invalid/oauth/twitch/callback";
-        const provider = makeProvider(
-          {
-            clientId: identity.twitchClientId,
-            clientSecret: Redacted.make("CANARY-CLIENT-SECRET"),
-            signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
-            callback,
-            redirect,
-          },
-          { api: `${baseUrl}/helix`, oauth: `${baseUrl}/oauth` },
-        );
+        const providerFor = (
+          correlation: Parameters<typeof validationEndpoints>[1],
+        ) =>
+          makeProvider(
+            {
+              clientId: identity.twitchClientId,
+              clientSecret: Redacted.make("CANARY-CLIENT-SECRET"),
+              signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+              callback,
+              redirect,
+            },
+            validationEndpoints(baseUrl, correlation),
+          );
         return yield* makeAccountRpc(
           {
             identity,
@@ -116,7 +121,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
               signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
             }),
           },
-          yield* observeValidations(provider, state.storage, instance),
+          yield* observeValidations(providerFor, state.storage, instance),
         );
       });
       let account = yield* build().pipe(
@@ -157,29 +162,12 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
               alarmRun: runs,
             }),
           );
-          const persisted = yield* state.storage.get<unknown>("account:v1");
-          const record = yield* Schema.decodeUnknownEffect(AccountState)(
-            persisted,
-          ).pipe(Effect.orDie);
-          yield* state.storage.put("fixtureAlarmObservation", {
-            runs,
+          yield* recordCompletedAlarm(state.storage, {
             instance,
-            completedAt: Date.now(),
-            lease: record.tokenLease,
-            validationInvocationIds: (yield* readAccountAttribution(
-              state.storage,
-            )).invocations
-              .filter(
-                (invocation) =>
-                  invocation.instance === instance &&
-                  invocation.origin.alarmRun === runs,
-              )
-              .map((invocation) => invocation.id),
+            alarmRun: runs,
             entryAlarm,
-            intended: record.nextCredentialCheck,
-            native: yield* state.storage.getAlarm(),
+            accountTime: now(),
           });
-          yield* event("alarm-complete", runs);
         }),
         prepareNativeAlarm: Effect.fnUntraced(function* () {
           realtime = true;
@@ -224,9 +212,6 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
                   intended: record.nextCredentialCheck,
                   native: yield* state.storage.getAlarm(),
                   lease: record.tokenLease,
-                  observation:
-                    (yield* state.storage.get("fixtureAlarmObservation")) ??
-                    null,
                 };
               }),
             )
@@ -234,7 +219,11 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         }),
         attribution: () =>
           state.storage
-            .transaction(readAccountAttribution(state.storage))
+            .transaction(
+              readAccountAttribution(state.storage).pipe(
+                Effect.map((attribution) => ({ instance, attribution })),
+              ),
+            )
             .pipe(Effect.orDie),
         time: Effect.fnUntraced(function* (next: number) {
           time = next;

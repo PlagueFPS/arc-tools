@@ -8,7 +8,7 @@
   "packageManager": "bun@1.3.5",
   "scripts": {
     "build": "turbo run build",
-    "test": "turbo run test && bun test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-response.test.ts",
+    "test": "turbo run test && bun test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-response.test.ts ./tests/cloud/alarm-attribution.test.ts",
     "dev": "alchemy dev",
     "lint": "turbo run format-and-lint",
     "format-and-lint": "biome check .",

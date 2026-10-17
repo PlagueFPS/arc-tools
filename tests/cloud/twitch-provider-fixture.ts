@@ -23,6 +23,7 @@ import {
   type AttributionStorage,
   credentialFingerprint,
   ProviderAttribution,
+  parseValidationPath,
   readProviderAttribution,
   recordProviderValidation,
 } from "./alarm-attribution.js";
@@ -82,6 +83,10 @@ export const makeProviderFixture = Effect.fnUntraced(function* (
   const observation = Effect.fnUntraced(function* (
     key: string,
     fingerprint: string | null = null,
+    scope: Pick<
+      ReturnType<typeof parseValidationPath>,
+      "correlation" | "correlationError"
+    > = { correlation: null, correlationError: false },
   ) {
     return yield* storage
       .transaction(
@@ -89,7 +94,7 @@ export const makeProviderFixture = Effect.fnUntraced(function* (
           const n = ((yield* storage.get<number>(`call:${key}`)) ?? 0) + 1;
           yield* storage.put(`call:${key}`, n);
           if (fingerprint !== null)
-            yield* recordProviderValidation(storage, fingerprint, n);
+            yield* recordProviderValidation(storage, fingerprint, n, scope);
           const logs = (yield* storage.get<string[]>("logs")) ?? [];
           yield* storage.put("logs", [...logs.slice(-255), key]);
           return n;
@@ -153,12 +158,17 @@ export const makeProviderFixture = Effect.fnUntraced(function* (
       authorization: string,
     ) {
       const url = new URL(path, "https://fixture.invalid");
+      const parsed = parseValidationPath(path);
+      url.pathname = parsed.path;
       const key = `${method} ${url.pathname}`;
       const fingerprint =
         url.pathname === "/oauth/validate"
           ? yield* credentialFingerprint(authorization.replace(/^OAuth /, ""))
           : null;
-      const count = yield* observation(key, fingerprint);
+      const count = yield* observation(key, fingerprint, {
+        correlation: parsed.correlation,
+        correlationError: parsed.correlationError,
+      });
       const control =
         (yield* storage.get<typeof ProviderControl.Type>("control")) ?? {};
       if (url.pathname === "/health")
@@ -404,6 +414,10 @@ class ProviderApi extends HttpApi.make("provider-fixture").add(
     HttpApiEndpoint.get("snapshot", "/snapshot"),
     HttpApiEndpoint.post("token", "/oauth/token"),
     HttpApiEndpoint.get("validate", "/oauth/validate"),
+    HttpApiEndpoint.get(
+      "correlatedValidate",
+      "/fixture-validation/:instance/:operation/:alarmRun/:invocationId/oauth/validate",
+    ),
     HttpApiEndpoint.get("users", "/helix/users"),
     HttpApiEndpoint.get("list", "/helix/eventsub/subscriptions"),
     HttpApiEndpoint.post("create", "/helix/eventsub/subscriptions"),
@@ -470,6 +484,7 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
           ),
         )
         .handleRaw("validate", ({ request }) => provider(request))
+        .handleRaw("correlatedValidate", ({ request }) => provider(request))
         .handleRaw("users", ({ request }) => provider(request))
         .handleRaw("list", ({ request }) => provider(request))
         .handleRaw("create", ({ request }) => provider(request))
