@@ -14,3 +14,4 @@ tokens.json
 
 .alchemy/
 .cloud-tests/
+!.env.example
