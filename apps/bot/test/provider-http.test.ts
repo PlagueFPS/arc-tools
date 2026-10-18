@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer, Schema } from "effect";
-import { request } from "../src/provider-http.js";
+import { Effect, Fiber, Layer, Schema } from "effect";
+import { digest, request } from "../src/provider-http.js";
 import { Dispatch } from "../src/twitch-contracts.js";
 import { fixture } from "./subscription-fixture.js";
 
@@ -178,6 +178,152 @@ test(
       { method: "GET", path: "/users" },
       { method: "POST", path: "/chat/messages" },
     ]);
+  }),
+);
+
+for (const status of [200, 204, 429])
+  test(
+    `empty HTTP ${status} bodies decode to null`,
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      f.control.responses.set(
+        "GET /users",
+        () => new Response(null, { status }),
+      );
+      expect(yield* request(`${f.base}/users`, {})).toMatchObject({
+        status,
+        body: null,
+      });
+      expect(f.control.requests).toEqual([{ method: "GET", path: "/users" }]);
+    }),
+  );
+
+for (const status of [200, 429])
+  test(
+    `a truncated HTTP ${status} body fails even when its received bytes are valid JSON`,
+    Effect.gen(function* () {
+      let calls = 0;
+      const server = Bun.listen({
+        hostname: "127.0.0.1",
+        port: 0,
+        socket: {
+          data(socket) {
+            calls++;
+            socket.end(
+              `HTTP/1.1 ${status} Response\r\nContent-Length: 10000\r\nConnection: close\r\n\r\n{}`,
+            );
+          },
+        },
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
+      expect(
+        yield* request(`http://127.0.0.1:${server.port}/users`, {}).pipe(
+          Effect.flip,
+        ),
+      ).toMatchObject({
+        _tag: "ProviderError",
+        kind: "network",
+      });
+      expect(calls).toBe(1);
+    }),
+  );
+
+for (const phase of ["headers", "body"])
+  for (const stop of ["timeout", "interrupt"])
+    test(
+      `${stop} while awaiting ${phase} aborts the HTTP connection after one attempt`,
+      Effect.gen(function* () {
+        let calls = 0;
+        const entered = Promise.withResolvers<void>();
+        const closed = Promise.withResolvers<void>();
+        const server = Bun.listen({
+          hostname: "127.0.0.1",
+          port: 0,
+          socket: {
+            data(socket) {
+              calls++;
+              if (phase === "body")
+                socket.write(
+                  "HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n{",
+                );
+              entered.resolve();
+            },
+            close() {
+              closed.resolve();
+            },
+          },
+        });
+        yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
+        const fiber = yield* request(
+          `http://127.0.0.1:${server.port}/users`,
+          {},
+          stop === "timeout" ? 100 : 2_000,
+        ).pipe(Effect.result, Effect.forkChild);
+        yield* Effect.promise(() => entered.promise).pipe(
+          Effect.timeout(1_000),
+        );
+        if (stop === "interrupt") yield* Fiber.interrupt(fiber);
+        else
+          expect(yield* Fiber.join(fiber)).toMatchObject({
+            _tag: "Failure",
+            failure: { _tag: "ProviderError", kind: "network" },
+          });
+        yield* Effect.promise(() => closed.promise).pipe(Effect.timeout(1_000));
+        expect(calls).toBe(1);
+      }),
+    );
+
+test(
+  "accepted bodies are capped at 256 KiB of bytes including JSON framing",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const text = "é".repeat(131_071);
+    f.control.responses.set("GET /users", () => Response.json(text));
+    expect((yield* request(`${f.base}/users`, {})).body).toBe(text);
+    f.control.responses.set("GET /users", () => Response.json(`${text}a`));
+    expect(
+      yield* request(`${f.base}/users`, {}).pipe(Effect.flip),
+    ).toMatchObject({ kind: "network" });
+    expect(f.control.requests).toHaveLength(2);
+  }),
+);
+
+test(
+  "manual redirects preserve the original method, headers and body without a second request",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    f.control.responses.set("POST /redirect", async (incoming) => {
+      expect(incoming.headers.get("Authorization")).toBe("canary-token");
+      expect(await incoming.text()).toBe("payload");
+      return new Response(null, {
+        status: 307,
+        headers: { Location: `${f.base}/users` },
+      });
+    });
+    const response = yield* request(`${f.base}/redirect`, {
+      method: "POST",
+      headers: { Authorization: "canary-token" },
+      body: "payload",
+      redirect: "follow",
+    });
+    expect(response).toMatchObject({ status: 307, body: null });
+    expect(response.headers.get("Location")).toBe(`${f.base}/users`);
+    expect(f.control.requests).toEqual([{ method: "POST", path: "/redirect" }]);
+  }),
+);
+
+test(
+  "plain callers receive the same lowercase SHA-256 fingerprints for empty, ASCII and Unicode text",
+  Effect.gen(function* () {
+    expect(yield* digest("")).toBe(
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    );
+    expect(yield* digest("abc")).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
+    expect(yield* digest("Sensors 👋 café")).toBe(
+      "7b611a4150c96be3257287fed3fc069a01bb8dd2a249950b71edbd0afeec328a",
+    );
   }),
 );
 
