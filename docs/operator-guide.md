@@ -34,21 +34,37 @@ Inject `TWITCH_CLIENT_SECRET`, `TWITCH_SIGNING_SECRET`, `DISCORD_BOT_TOKEN`, and
 
 Pinned Alchemy has no application-secret `set` command. Its CLI accepts `--env-file`; this repository uses its default environment/config provider. Without that flag, exported process values override `.env`. An explicit `--env-file` takes precedence over process values for names in that file. Put public configuration in the file and inject secrets through your secret manager's environment wrapper, or use a protected ignored file for both. Do not put secret values in command arguments, shell history, output logs, or chat.
 
-Bun's `--env-file` loads the environment for the operator scripts, which do not accept Alchemy's flag. CLI profile credentials do not supply application secrets. Synthetic provider endpoints and test control routes cannot be selected for personal or production environments.
+Bun's `--env-file` loads the environment for the operator scripts, which do not accept Alchemy's flag. Exported process values take precedence over Bun's file values. The local shortcuts below explicitly give `.env.local` values precedence, including application secrets. Names absent from the file fall back to the environment, so secret-manager wrappers still work. CLI profile credentials do not supply application secrets. Synthetic provider endpoints and test control routes cannot be selected for personal or production environments.
 
 ## Develop with local workerd
 
 Set both stage fields to `local-yourname`, `ARC_ENVIRONMENT=personal`, `TWITCH_SENDER_KIND=personal`, and both login fields to your own login. Use separate local portal applications. Set `ARC_PUBLIC_URL` to a reachable HTTPS tunnel origin without a path, query, fragment, or credentials.
 
+For each new tunnel session, edit `ARC_PUBLIC_URL` in the repository root's protected `.env.local`. Keep the tunnel running separately. In terminal 1, start development:
+
 ```bash
-bun run dev --stage local-yourname --profile default --env-file .env.local
+bun run dev:local
 ```
 
-Alchemy prints the actual local HTTP address. Point your HTTPS tunnel at that address. Register these public routes in the corresponding portal applications:
+Alchemy prints the actual local HTTP address. Point your HTTPS tunnel at that address. The shortcut prints these public routes for you to paste into the corresponding portal applications:
 
 - Discord interactions endpoint is `https://YOUR_ORIGIN/interactions/discord`.
 - Twitch EventSub callback is `https://YOUR_ORIGIN/webhooks/twitch`.
 - Twitch OAuth redirect is `https://YOUR_ORIGIN/oauth/twitch/callback`.
+
+If the tunnel host changed, update the Discord interactions endpoint and Twitch OAuth redirect manually. Editing `ARC_PUBLIC_URL` does not change either portal. Setup uses the configured EventSub callback when it repairs subscriptions.
+
+In terminal 2, register Discord commands and run Twitch setup:
+
+```bash
+bun run setup:local
+```
+
+Setup runs the existing Discord sync with `--wait`, then the existing operator setup command. A failed sync stops setup. Registration checks the exact stage, revision, ready status, and manifest hash before it changes commands. OAuth links print last. Keep setup output private because those links contain one-time OAuth state. Open each link yourself as the intended identity, then repeat `bun run setup:local` after completing grants if setup requests it. The shortcut does not open a browser.
+
+Use `bun run status:local` for Twitch status and Discord drift at the selected revision. Use `bun run sync:discord:local` to repeat only Discord synchronization with readiness waiting.
+
+All four shortcuts read `.env.local` themselves and accept no additional arguments. They require matching `local-*` stage fields and a personal sender in its own single channel. Every child receives the resolved file values, even when stale values remain exported in the shell. `ARC_BUILD_REVISION` defaults to `unreleased` only when absent from both sources. If you set it, use the same nonempty revision for development and setup. Set `ALCHEMY_PROFILE` in the file or environment to select a profile, or omit it to use Alchemy's configured selection. Restart development after changing the file. The generic `dev`, `deploy`, `ops`, and `sync:discord` commands retain their explicit release flags.
 
 Inspect `GET /health` at the local address. It returns `status: "ready"`, the stage, revision, and command manifest hash. This proves application build identity, not provider authorization. Stop development with Ctrl+C. Local workerd is an interactive development check; real Cloudflare tests provide integration acceptance.
 
