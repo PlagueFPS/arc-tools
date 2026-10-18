@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Fiber, Layer, Schema } from "effect";
+import { FetchHttpClient } from "effect/http";
 import { digest, request } from "../src/provider-http.js";
 import { Dispatch } from "../src/twitch-contracts.js";
 import { fixture } from "./subscription-fixture.js";
@@ -116,25 +117,46 @@ test(
 );
 
 test(
-  "a truncated HTTP 401 keeps its rejection despite a short body on the wire",
+  "a returned HTTP 401 survives wire truncation without consuming its body",
+  Effect.gen(function* () {
+    const wire = yield* truncatedWireResponse(401);
+    const fiber = yield* request(wire.url, {}).pipe(
+      Effect.provideService(FetchHttpClient.Fetch, wire.fetch),
+      Effect.forkChild,
+    );
+    const { response, signal } = yield* Effect.promise(() => wire.observed);
+    expect(response.status).toBe(401);
+    expect(response.bodyUsed).toBe(false);
+    yield* wire.truncate;
+    expect(yield* Fiber.join(fiber)).toMatchObject({ status: 401, body: null });
+    expect(response.bodyUsed).toBe(false);
+    expect(signal?.aborted).toBe(true);
+    expect(wire.calls).toEqual({ fetch: 1, requests: 1, bodyAccesses: 0 });
+  }).pipe(Effect.timeout(2_000)),
+);
+
+test(
+  "fetch rejection without a Response remains a network failure after one attempt",
   Effect.gen(function* () {
     let calls = 0;
-    const server = Bun.listen({
-      hostname: "127.0.0.1",
-      port: 0,
-      socket: {
-        data(socket) {
-          calls++;
-          socket.end(
-            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 10000\r\nConnection: close\r\n\r\n{",
-          );
-        },
+    const rejectedFetch: typeof fetch = Object.assign(
+      async () => {
+        calls++;
+        throw Object.assign(
+          new Error("The socket connection was closed unexpectedly."),
+          {
+            code: "ECONNRESET",
+          },
+        );
       },
-    });
-    yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
+      { preconnect: fetch.preconnect },
+    );
     expect(
-      yield* request(`http://127.0.0.1:${server.port}/users`, {}),
-    ).toMatchObject({ status: 401, body: null });
+      yield* request("http://127.0.0.1/users", {}).pipe(
+        Effect.provideService(FetchHttpClient.Fetch, rejectedFetch),
+        Effect.flip,
+      ),
+    ).toMatchObject({ _tag: "ProviderError", kind: "network" });
     expect(calls).toBe(1);
   }),
 );
@@ -196,6 +218,30 @@ for (const status of [200, 204, 429])
       });
       expect(f.control.requests).toEqual([{ method: "GET", path: "/users" }]);
     }),
+  );
+
+for (const status of [200, 429])
+  test(
+    `a returned HTTP ${status} fails on wire truncation after receiving valid JSON bytes`,
+    Effect.gen(function* () {
+      const wire = yield* truncatedWireResponse(status);
+      const fiber = yield* request(wire.url, {}).pipe(
+        Effect.provideService(FetchHttpClient.Fetch, wire.fetch),
+        Effect.result,
+        Effect.forkChild,
+      );
+      const { response, signal } = yield* Effect.promise(() => wire.observed);
+      expect(response.status).toBe(status);
+      yield* wire.truncate;
+      expect(yield* Fiber.join(fiber)).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "ProviderError", kind: "network" },
+      });
+      expect(signal?.aborted).toBe(true);
+      expect(wire.calls.fetch).toBe(1);
+      expect(wire.calls.requests).toBe(1);
+      expect(wire.calls.bodyAccesses).toBeGreaterThan(0);
+    }).pipe(Effect.timeout(2_000)),
   );
 
 for (const status of [200, 429])
@@ -353,6 +399,74 @@ for (const body of [
     }),
   );
 }
+
+const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
+  const connected = Promise.withResolvers<Bun.Socket<string>>();
+  const observed = Promise.withResolvers<{
+    response: Response;
+    signal: AbortSignal | null | undefined;
+  }>();
+  const closed = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  const calls = { fetch: 0, requests: 0, bodyAccesses: 0 };
+  const server = Bun.listen<string>({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: {
+      open(socket) {
+        socket.data = "";
+      },
+      data(socket, bytes) {
+        socket.data += bytes.toString();
+        if (!socket.data.includes("\r\n\r\n")) return;
+        socket.data = "";
+        calls.requests++;
+        socket.write(
+          `HTTP/1.1 ${status} Response\r\nContent-Length: 10000\r\nConnection: close\r\n\r\n{}`,
+        );
+        connected.resolve(socket);
+      },
+      close() {
+        closed.resolve();
+      },
+    },
+  });
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      released.resolve();
+      server.stop(true);
+    }),
+  );
+  const coordinatedFetch: typeof fetch = Object.assign(
+    async (...args: Parameters<typeof fetch>) => {
+      calls.fetch++;
+      const response = await fetch(...args);
+      const body = response.body;
+      Object.defineProperty(response, "body", {
+        get() {
+          calls.bodyAccesses++;
+          return body;
+        },
+      });
+      observed.resolve({ response, signal: args[1]?.signal });
+      await released.promise;
+      return response;
+    },
+    { preconnect: fetch.preconnect },
+  );
+  return {
+    url: `http://127.0.0.1:${server.port}/users`,
+    fetch: coordinatedFetch,
+    observed: observed.promise,
+    calls,
+    truncate: Effect.promise(async () => {
+      const socket = await connected.promise;
+      socket.end();
+      await closed.promise;
+      released.resolve();
+    }),
+  };
+});
 
 function sendInput() {
   return Schema.decodeUnknownSync(Dispatch)({
