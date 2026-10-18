@@ -1,0 +1,2 @@
+ts	phase	decision	why	evidence	result
+2026-10-18T21:09:26Z	review-comment-triage	Partition 62 supplied comments into protocol, state, and data/schema units	Mechanical Effect preferences are explicit; HTTP/crypto/UTF8/duration changes require pinned API equivalence and response prefix is intended behavior change	User refs1-13,15-38,40-57,59-65;Effect4.0.4Crypto.ts;Hex.ts244;ingress.ts162,412	Three isolated/read-only delegates active; preserve user .env.example; no live provider calls; keep raw strict UTF8 and native signature verification where Effect lacks equivalent
