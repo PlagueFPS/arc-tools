@@ -1,6 +1,6 @@
 # ARC Tools Cloudflare migration plan
 
-Status is approved for delegated implementation. The user confirmed shared understanding after the environment and real-cloud testing corrections. Root remains the orchestrator and reviewer; implementation belongs to delegated workers. Production deployment is not authorized by this approval.
+Status is implementation accepted and integrated. All five units pass their reviewed implementation and executed controlled-provider gates. See the [final root review](verification/final-integration-root-review.md) for the integrated checks, retained failures, and remaining live-provider gates. The design and sequencing below retain the approved planning record. Root orchestrated and reviewed; delegated workers implemented. Production deployment remains outside this approval.
 
 ## User and operator experience
 

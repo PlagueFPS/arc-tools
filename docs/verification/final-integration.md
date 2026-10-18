@@ -1,6 +1,6 @@
 # Final single-stack integration
 
-Unit 5 owner verification is VERIFIED on application commit `c3bb49e` for the local and controlled-cloud checks below. Root review and complete migration acceptance remain pending. Root previously accepted implementation Units 1, 2, 4, and 3; those acceptances do not close live-provider, privacy, onboarding-token-expiry, CI/release, or cost gates.
+This owner record describes application commit `c3bb49e` and its local and controlled-cloud checks. Root subsequently accepted and integrated Unit 5 with the completed-alarm test correction. See the [final root review](final-integration-root-review.md) for current acceptance and final integrated evidence. Live-provider, privacy, onboarding-token-expiry, CI/release, and cost gates remain NOT VERIFIED.
 
 ## Revision and ownership
 

@@ -1,6 +1,6 @@
 # Migration verification records
 
-Root accepted and integrated implementation Units 1, 2, 4, and 3. Those acceptances establish their reviewed implementation and executed controlled-provider gates. Complete migration acceptance remains open until final integration review and the separate live-provider gates pass.
+Root accepted and integrated all five implementation units. The final integrated checkout passes 313 local tests and 1,633 assertions, build, typechecks, lint, and 29 real-cloud cases with 637 assertions. Independent cleanup verifies no disposable stage resources remain. These results establish implementation acceptance and controlled-provider behavior. Production readiness remains open for the live-provider and launch checks below.
 
 | Record | Current reading |
 | --- | --- |
@@ -9,6 +9,9 @@ Root accepted and integrated implementation Units 1, 2, 4, and 3. Those acceptan
 | [Twitch and release root review](twitch-release-root-review.md) | Its final section accepts the corrected account and release implementation. Earlier failures remain historical. |
 | [Tenant and ingress root review](tenant-ingress-root-review.md) | Its final section accepts ingress, Tenant execution, recovery, and cross-service deadline corrections. Integrated-root frozen installation and the subsequent 311-test/1,572-assertion pass are recorded separately from the initial missing-link setup failure. |
 | [Final integration](final-integration.md) | Unit 5 deletion, current configuration/docs, health, local workerd, final checks, and disposable-cloud evidence. Root review remains separate. |
+| [Final integration root review](final-integration-root-review.md) | Current integration status, independent checks, review verdicts, retained failed run, and final root acceptance. |
+| [Completed-alarm recovery](completed-alarm-recovery.md) | Exact completed-run HTTP verification, duplicate-request negative proofs, and native reconstruction after recovery. |
+| [Native alarm attribution](native-alarm-attribution.md) | Initial instrumentation and a passing run that did not explain the historical failed global count. |
 | [Cloud helper evidence](cloud-harness.md) | Strict pre-execution readiness classification, native reconstruction, retained failures, and default discovery of all eight pure helper tests. |
 | [Tenant corrections](tenant-corrections.md) | Historical failures and corrected native recovery, allocation observation, and live-dispatch joining. |
 | [Twitch deadline correction](twitch-deadline-contract.md) | Sixteen full signed-path clock tests and the narrow account correction. Later acceptance is in the root review. |

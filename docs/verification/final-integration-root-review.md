@@ -1,6 +1,6 @@
 # Final integration root review
 
-Unit 5 is NOT ACCEPTED yet. Root received clean candidate `3703cc7` in `/home/angel/.t3/worktrees/arc-tools/t3-c4c91958`, based on accepted root `8c332b3`. Commit `c3bb49e` removes the legacy bot applications and obsolete command runtime and updates final health. Commit `3703cc7` adds current documentation, a public environment template, and owner evidence. No candidate changes are integrated.
+Unit 5 implementation is ACCEPTED and integrated at `3240db7`. Integrated local checks, the final real-cloud run, independent teardown, and all final technical reviews pass. The sections below retain successive candidate revisions, failed runs, investigations, and corrections. Live-provider and launch gates remain NOT VERIFIED.
 
 ## Scope and evidence inspected
 
@@ -91,3 +91,31 @@ The run records test and cleanup exit zero. Independent cleanup reports zero Wor
 Correction reviewer A returns PASS with no actionable findings. It independently executes all 18 focused tests and 139 assertions, replays the retained cloud journal without rewriting its output artifact, matches four artifact hashes, and verifies production paths remain unchanged. It confirms later activation does not replace selected recovery evidence while duplicate invocation/HTTP, mismatched, incomplete, and truncated evidence still fail. Reviewers B and C remain outstanding. This scoped verdict does not explain the historical failure or accept the migration.
 
 Correction reviewer B also returns PASS with no actionable findings. It independently runs the 18 focused tests and 139 assertions and the offline cloud replay, verifies the documented stage artifact hashes, and inspects the retained full-suite, build, typecheck, lint, and cleanup logs. It confirms direct correlation, immutable transactional completion, strict zero/one request counts, diagnostic fault handling, and production-path isolation. Reviewer C remains outstanding; integration is still pending.
+
+## Reviewed integration and final root checks
+
+Correction reviewer C returns PASS with no findings. It independently executes all 18 focused tests and 139 assertions, replays the retained cloud journal, matches stage artifact hashes, and checks source isolation. All three final cleanup reviews and all three correction reviews now pass. The comment reviews have no remaining findings.
+
+Root integrated the seven reviewed commits as `cfce2c6`, `20007f7`, `901a1ea`, `32d2993`, `ca00ecd`, `2664ea3`, and `3240db7`. They contain final legacy deletion, operator documentation and template, fixture attribution, and the completed-alarm correction. Root independently compares the integrated application, package, script, test, workflow, stack, manifest, lockfile, template, README, and operator guide with `4f74c2e`; the comparison is empty. Root wrote no implementation code.
+
+After a fresh frozen installation, the integrated checkout passes the uncached default suite with 313 tests and 1,633 assertions, four build tasks, five workspace typecheck tasks plus root TypeScript, and lint over 127 files. Each process exits zero. Logs are `/tmp/arc-final-integrated-{install,tests,build,types,lint}.log`.
+
+Root started one final canonical tenant cloud run on integrated source `3240db7`. Its stage is `test-tenant-18c32360-ded0bfb9f052`, with console `/tmp/arc-final-integrated-cloud.log`. The result and independent cleanup are pending. Earlier historical acceptance statements remain scoped to their recorded revisions. Unit 5 final acceptance remains pending this integrated run; the old failed stage remains failed and unattributed.
+
+## Final implementation acceptance
+
+The final root run on `3240db7` passes all 29 cases and 637 assertions. Its test process and independent cleanup both exit zero. Cleanup verifies zero stage Workers and Durable Object namespaces and absent stage state/output, with the state control backend retained. The native account case uses actual Cloudflare alarm delivery for both recovery and the subsequent explicit reconstruction. Both protocols execute all ten commands through the actual Bot, production cache, and accepted account dispatch contracts.
+
+Root decodes the final retained account/provider schemas and replays the production test verifiers against the latest journals. The original recovery returns the same invocation and HTTP event IDs after native run 3. The global validation count is 21, completed-record truncation is zero, and the integrity-error list is empty. Output is retained at `/tmp/arc-final-integrated-replay.log`. Exact zero/one completed-run HTTP evidence replaces the invalid global counter assertion. This passing proof does not identify the cause of historical stage `test-tenant-8c6e6c0f-18de621764a7`; that stage remains failed and unattributed.
+
+The final stage artifacts are in `.cloud-tests/test-tenant-18c32360-ded0bfb9f052/`. Their SHA-256 values are:
+
+```text
+result.json                    7f5eeec0ddd1ef54bd1154f006155c1a875fad6bb6bcdd465d194689d56f1327
+resources.json                 b18f0c4e24723fdd3fec578226da69499b3fb364e629bbba84715cf1d52c4ae8
+native-alarm-attribution.jsonl  84331f3f7b95ce853f79bcdfed193c4b00cc6074984cbbdbc0ace79703b757bf
+```
+
+Root accepts Unit 5 implementation and its executed local and controlled-provider cloud gates. All five implementation units are now integrated. The legacy Discord.js and Twurple applications, direct SDK dependencies, application database schema/migrations, and singleton command runtime are removed. The Alchemy tooling retains its required transitive dependency graph. No compatibility path is retained for the deleted applications.
+
+Production readiness remains separate. Live Twitch authorization, EventSub delivery and timing, grants after onboarding-token expiry, Discord client privacy and registration, remote CI/release configuration and execution, and observed launch cost remain NOT VERIFIED. No production or persistent staging deployment, real provider mutation, push, or PR occurred. The [operator guide](../operator-guide.md) describes environment preparation, deployment, registration, Twitch setup, and launch checks. No further implementation gate is open in this migration.
