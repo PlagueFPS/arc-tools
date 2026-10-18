@@ -4,6 +4,7 @@ Root accepted and integrated all five implementation units. The final integrated
 
 | Record | Current reading |
 | --- | --- |
+| [Effect review comments](effect-review-comments.md) | Resolution of all 62 inline comments, API exceptions, and the corrected HTTP transport proof. |
 | [Foundation root review](foundation-root-review.md) | Accepted foundation, raw HttpApi, native storage, reconstruction, and alarms. |
 | [Cache root review](cache-root-review.md) | Accepted cache and absolute command-deadline correction. |
 | [Twitch and release root review](twitch-release-root-review.md) | Its final section accepts the corrected account and release implementation. Earlier failures remain historical. |
