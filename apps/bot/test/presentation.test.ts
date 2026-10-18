@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parseTwitchCommand } from "../src/ingress.js";
 import {
   discordResponse,
+  friendlyFailure,
   oversized,
   twitchParts,
 } from "../src/presentation.js";
@@ -9,7 +9,7 @@ import {
 describe("transport presentation", () => {
   test("Twitch breaks accidental username mentions without removing their text", () => {
     expect(twitchParts("Look @player and @everyone")).toEqual([
-      "ARC: Look @\u200bplayer and @\u200beveryone",
+      "Look @\u200bplayer and @\u200beveryone",
     ]);
   });
   test("keeps all Unicode and whitespace across deterministic parts within 500 UTF-16 units", () => {
@@ -24,23 +24,30 @@ describe("transport presentation", () => {
       expect(parts.length).toBeLessThanOrEqual(8);
       expect(parts.every((part) => part.length <= 500)).toBeTrue();
       expect(
-        parts
-          .map((part) => part.replace(/^ARC(?: \[\d\/\d\])?: /, ""))
-          .join(""),
+        parts.map((part) => part.replace(/^\[\d\/\d\]: /, "")).join(""),
       ).toBe(input);
-      expect(parts.map(parseTwitchCommand)).toEqual(parts.map(() => null));
       expect(twitchParts(input)).toEqual(parts);
       expect(parts.some((part) => /[\uD800-\uDBFF]$/.test(part))).toBeFalse();
     }
   });
   test("oversized plans fail explicitly without a partial result", () => {
-    expect(twitchParts("a".repeat(4000))).toEqual([`ARC: ${oversized}`]);
+    expect(twitchParts("a".repeat(4000))).toEqual([oversized]);
     expect(discordResponse("a".repeat(2001))).toEqual(
       discordResponse(oversized, true),
     );
     expect(discordResponse("\u0000".repeat(2000))).toEqual(
       discordResponse(oversized, true),
     );
+  });
+  test("single replies and fallbacks have no label while multiple parts retain their order", () => {
+    expect(twitchParts("Sensors")).toEqual(["Sensors"]);
+    expect(twitchParts("!sell sensors")).toEqual(["!sell sensors"]);
+    expect(twitchParts("")).toEqual([friendlyFailure]);
+    expect(twitchParts("a".repeat(496))).toEqual([
+      `[1/2]: ${"a".repeat(489)}`,
+      `[2/2]: ${"a".repeat(7)}`,
+    ]);
+    expect(twitchParts("ARC Raiders")).toEqual(["ARC Raiders"]);
   });
   test("Discord success is public and complete while errors are private with every mention disabled", () => {
     expect(discordResponse("@everyone <@123> 👋")).toEqual({

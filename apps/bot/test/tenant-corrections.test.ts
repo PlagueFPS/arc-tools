@@ -255,9 +255,7 @@ for (const transport of ["discord", "twitch"] as const)
       } else {
         yield* tenant.acceptTwitch(twitchReceipt());
         yield* f.drain;
-        expect(f.sent.map((send) => send.text)).toEqual([
-          `ARC: ${friendlyFailure}`,
-        ]);
+        expect(f.sent.map((send) => send.text)).toEqual([friendlyFailure]);
       }
       expect(f.snapshot().works.work?.kind).toBe("terminal");
       expect(JSON.stringify(f.snapshot())).not.toContain("CANARY");

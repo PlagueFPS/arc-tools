@@ -1,4 +1,11 @@
-import { Clock, Effect, Redacted, Schema } from "effect";
+import {
+  Clock,
+  Duration,
+  Effect,
+  Redacted,
+  Schema,
+  SchemaTransformation,
+} from "effect";
 import {
   canonicalManifest,
   commandManifest,
@@ -29,6 +36,21 @@ export interface Release {
   readonly applicationId: string;
   readonly token: Redacted.Redacted<string>;
 }
+export const RetryAfter = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThan(0),
+).pipe(
+  Schema.decodeTo(
+    Schema.Duration.check(
+      Schema.makeFilter(Duration.isFinite),
+      Schema.makeFilter(Duration.isGreaterThan(Duration.zero)),
+    ),
+    SchemaTransformation.transform({
+      decode: (seconds) => Duration.millis(Math.ceil(seconds * 1000)),
+      encode: Duration.toSeconds,
+    }),
+  ),
+);
 export const syncCommands = Effect.fn("Discord.sync")(function* (
   release: Release,
   options: {
@@ -59,7 +81,7 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
     (effect, phase) =>
       effect.pipe(
         Effect.mapError((error) =>
-          error instanceof SyncError
+          error._tag === "SyncError"
             ? error
             : new SyncError({ code: "provider", phase }),
         ),
@@ -86,15 +108,18 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
             Schema.Struct({ retry_after: Schema.Number }),
             response.body,
           );
-          const milliseconds = Math.ceil(retry.retry_after * 1000);
+          const delay = yield* Schema.decodeUnknownEffect(RetryAfter)(
+            retry.retry_after,
+          ).pipe(
+            Effect.mapError(() => new SyncError({ code: "rate-limit", phase })),
+          );
           if (
-            !Number.isFinite(milliseconds) ||
-            milliseconds <= 0 ||
-            (yield* Clock.currentTimeMillis) + milliseconds >= end ||
+            (yield* Clock.currentTimeMillis) + Duration.toMillis(delay) >=
+              end ||
             attempt === 3
           )
             return yield* new SyncError({ code: "rate-limit", phase });
-          yield* Effect.sleep(milliseconds);
+          yield* Effect.sleep(delay);
           continue;
         }
         if (response.status !== 200)
@@ -106,7 +131,7 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
     (effect, _method, phase) =>
       effect.pipe(
         Effect.mapError((error) =>
-          error instanceof SyncError
+          error._tag === "SyncError"
             ? error
             : new SyncError({ code: "provider", phase }),
         ),

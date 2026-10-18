@@ -55,7 +55,7 @@ describe("Tenant durable behavior", () => {
       expect(fixture.sent).toHaveLength(1);
       expect(fixture.sent[0]).toMatchObject({
         attemptId: "work:0",
-        text: "ARC: Sensors can be sold for 10 coins each",
+        text: "Sensors can be sold for 10 coins each",
         deadline: 10000,
         replyParentId: "parent",
       });
@@ -98,7 +98,7 @@ describe("Tenant durable behavior", () => {
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(running);
       expect(fixture.sent.map((send) => send.text)).toEqual([
-        "ARC: New can be sold for 20 coins each",
+        "New can be sold for 20 coins each",
       ]);
       expect(fixture.snapshot().generation).toBe(3);
       expect(fixture.alarm()).toBeNull();
@@ -178,7 +178,7 @@ describe("Tenant durable behavior", () => {
         yield* tenant.acceptTwitch(twitchReceipt());
         yield* fixture.drain;
         expect(fixture.sent).toHaveLength(1);
-        expect(fixture.sent[0]?.text.startsWith("ARC [1/3]: ")).toBeTrue();
+        expect(fixture.sent[0]?.text.startsWith("[1/3]: ")).toBeTrue();
         expect(fixture.snapshot().works.work).toMatchObject({
           kind: "terminal",
           outcome: kind,
@@ -511,7 +511,7 @@ test(
       yield* twitchFixture.drain;
     }
     expect(twitchFixture.sent.map((message) => message.text)).toEqual(
-      cases.map(([, , text]) => `ARC: ${text}`),
+      cases.map(([, , text]) => text),
     );
     expect(fixture.source.calls).toHaveLength(5);
   }),

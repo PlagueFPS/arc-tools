@@ -30,7 +30,7 @@ import {
 import { tenantFixture } from "./tenant-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
-const text = "ARC: Sensors can be sold for 10 coins each";
+const text = "Sensors can be sold for 10 coins each";
 const clockAt = (base: Clock.Clock, now: () => number): Clock.Clock => ({
   currentTimeMillis: Effect.sync(now),
   currentTimeMillisUnsafe: now,

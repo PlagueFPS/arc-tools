@@ -689,7 +689,7 @@ export function registerTenantTests({
           (message) =>
             message.body.reply_parent_message_id === `all-${command}`,
         );
-        expect(sent?.body.message).toBe(`ARC: ${text}`);
+        expect(sent?.body.message).toBe(text);
         expect(sent?.at).toBeLessThan(receivedAt + 10000);
         const timing = pendingTwitchSamples.get(`notification-${command}`);
         if (!timing) return yield* Effect.die("Missing Twitch timing");
@@ -857,7 +857,7 @@ export function registerTenantTests({
         (yield* provider(u.provider)).messages.find(
           (message) => message.body.reply_parent_message_id === "native-alarm",
         )?.body.message,
-      ).toBe("ARC: Sensors can be sold for 10 coins each");
+      ).toBe("Sensors can be sold for 10 coins each");
       expect(completed.alarmRuns).toBeGreaterThan(0);
       expect(completed.alarm).toBeNull();
       expect(JSON.stringify(completed.state)).not.toContain("parent");
@@ -905,7 +905,7 @@ export function registerTenantTests({
         (yield* provider(u.provider)).messages.find(
           (message) => message.body.reply_parent_message_id === "lost-rpc",
         )?.body.message,
-      ).toBe("ARC: Sensors can be sold for 10 coins each");
+      ).toBe("Sensors can be sold for 10 coins each");
       expect(completed.alarm).toBeNull();
     }),
     { timeout: 90000 },
@@ -1103,7 +1103,7 @@ export function registerTenantTests({
             (message) =>
               message.body.reply_parent_message_id === "ambiguous-parts",
           )
-          ?.body.message.startsWith("ARC [1/3]: "),
+          ?.body.message.startsWith("[1/3]: "),
       ).toBeTrue();
       expect(
         (yield* signedTwitch(u.bot, event, "ambiguous-replay")).status,

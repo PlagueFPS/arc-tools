@@ -21,7 +21,11 @@ import {
 } from "../src/ingress.js";
 import { operatorHandlers } from "../src/operator.js";
 import { discordResponse } from "../src/presentation.js";
-import { type TenantService, Tenants } from "../src/tenant-contracts.js";
+import {
+  TenantError,
+  type TenantService,
+  Tenants,
+} from "../src/tenant-contracts.js";
 import {
   type Account,
   AccountError,
@@ -287,7 +291,87 @@ describe("signed HttpApi ingress", () => {
     ),
   );
   test(
-    "ordinary chat, unknown commands and generated personal replies allocate no tenant",
+    "slash options trim before empty values are omitted from the invocation",
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      const options: ReadonlyArray<readonly [string, string, string]> = [
+        ["blank", " \t ", ""],
+        ["trimmed", "  sensors\t ", "sensors"],
+        ["internal", " heavy  gun parts ", "heavy  gun parts"],
+      ];
+      for (const [id, input, expected] of options) {
+        expect(
+          (yield* f.discord(discordCommand(id, "sell", input))).status,
+        ).toBe(200);
+        expect(f.admissions.at(-1)).toMatchObject({
+          id,
+          invocation: { command: "sell", input: expected },
+        });
+      }
+      expect(f.admissions).toHaveLength(3);
+    }),
+  );
+  test(
+    "authentication header schema failures stay 401 before account reads",
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      const body = encode(twitchEvent("headers"));
+      const twitch = yield* signTwitch(body, "event", f.receivedAt);
+      for (const headers of [
+        { ...twitch, "twitch-eventsub-message-id": "" },
+        { ...twitch, "twitch-eventsub-message-id": "x".repeat(129) },
+        { ...twitch, "twitch-eventsub-message-timestamp": "123" },
+        {
+          ...twitch,
+          "twitch-eventsub-message-signature": `sha256=${"g".repeat(64)}`,
+        },
+      ])
+        expect(
+          (yield* f.request("/webhooks/twitch", body, headers)).status,
+        ).toBe(401);
+      const discordBody = encode(discordCommand("headers"));
+      const discord = yield* signDiscord(discordBody, f.receivedAt);
+      for (const headers of [
+        {},
+        { ...discord, "x-signature-timestamp": "" },
+        { ...discord, "x-signature-timestamp": "1.5" },
+        { ...discord, "x-signature-ed25519": "g".repeat(128) },
+      ])
+        expect(
+          (yield* f.request("/interactions/discord", discordBody, headers))
+            .status,
+        ).toBe(401);
+      expect(f.reads()).toBe(0);
+      expect(f.admissions).toEqual([]);
+    }),
+  );
+  test(
+    "signed delivery-type errors retain their validation position and never observe or admit",
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      const body = encode(twitchEvent("delivery"));
+      const signed = yield* signTwitch(body, "event", f.receivedAt);
+      expect(
+        (yield* f.request("/webhooks/twitch", body, {
+          ...signed,
+          "twitch-eventsub-subscription-version": "2",
+        })).status,
+      ).toBe(400);
+      expect(f.reads()).toBe(0);
+      for (const type of ["", "unknown", "Notification"])
+        expect(
+          (yield* f.request("/webhooks/twitch", body, {
+            ...signed,
+            "twitch-eventsub-message-type": type,
+          })).status,
+        ).toBe(400);
+      expect(f.reads()).toBe(3);
+      expect(f.observations).toEqual([]);
+      expect(f.admissions).toEqual([]);
+    }),
+  );
+  test(
+    "ordinary chat and unknown commands allocate no tenant",
     Effect.scoped(
       Effect.gen(function* () {
         const f = yield* fixture();
@@ -411,6 +495,35 @@ describe("signed HttpApi ingress", () => {
         );
       }),
     ),
+  );
+  test(
+    "tagged tenant failures preserve only their known code in the private fallback",
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        tenants: {
+          respondDiscord: () => new TenantError({ code: "capacity" }),
+        },
+      });
+      const response = yield* f.discord(discordCommand("capacity"));
+      expect(response.headers.get("x-arc-command-code")).toBe("capacity");
+      expect(yield* json(response)).toEqual(
+        discordResponse(
+          "I couldn't finish that command in time. Please try again.",
+          true,
+        ),
+      );
+      const unknown = yield* fixture({
+        tenants: {
+          respondDiscord: () =>
+            Effect.die({ _tag: "TenantError", code: "CANARY-SECRET" }),
+        },
+      });
+      const failed = yield* unknown.discord(discordCommand("unknown"));
+      expect(failed.headers.get("x-arc-command-code")).toBe("rpc-defect");
+      expect(JSON.stringify(yield* json(failed))).not.toContain(
+        "CANARY-SECRET",
+      );
+    }),
   );
   test(
     "one deployed origin controls callbacks and local tunnels must be explicit validated HTTPS origins",

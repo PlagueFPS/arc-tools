@@ -32,8 +32,7 @@ export function discordResponse(text: string, failed = false): DiscordResponse {
 
 export function twitchParts(content: string): readonly string[] {
   const text = content.replaceAll("@", "@\u200b");
-  if (text && text.length <= 495 && encodedBytes(text) <= 7000)
-    return [`ARC: ${text}`];
+  if (text && text.length <= 495 && encodedBytes(text) <= 7000) return [text];
   const parts: string[] = [];
   let part = "";
   for (const point of text) {
@@ -44,12 +43,10 @@ export function twitchParts(content: string): readonly string[] {
     part += point;
   }
   if (part) parts.push(part);
-  if (parts.length === 0) return [`ARC: ${friendlyFailure}`];
-  if (parts.length > 8) return [`ARC: ${oversized}`];
+  if (parts.length === 0) return [friendlyFailure];
+  if (parts.length > 8) return [oversized];
   const labelled = parts.map((value, index) =>
-    parts.length === 1
-      ? `ARC: ${value}`
-      : `ARC [${index + 1}/${parts.length}]: ${value}`,
+    parts.length === 1 ? value : `[${index + 1}/${parts.length}]: ${value}`,
   );
-  return encodedBytes(labelled) > 7000 ? [`ARC: ${oversized}`] : labelled;
+  return encodedBytes(labelled) > 7000 ? [oversized] : labelled;
 }

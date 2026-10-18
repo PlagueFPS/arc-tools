@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Duration, Effect, Layer, Redacted, Result, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import {
   canonicalManifest,
   commandManifest,
@@ -8,7 +9,7 @@ import {
   normalizeManifest,
   RemoteCommands,
 } from "../src/discord-manifest.js";
-import { syncCommands } from "../src/discord-sync.js";
+import { RetryAfter, syncCommands } from "../src/discord-sync.js";
 import { digest } from "../src/provider-http.js";
 
 const { test } = Test.make({ providers: Layer.empty });
@@ -22,6 +23,9 @@ const fixture = Effect.fnUntraced(function* () {
     writes: 0,
     reads: 0,
     rateLimits: 0,
+    rateLimitBody: JSON.stringify({ retry_after: 0.001 }),
+    commandAttempts: 0,
+    healthReads: 0,
     badReadback: false,
     changeAfterWrite: false,
     localizedReadback: false,
@@ -32,18 +36,21 @@ const fixture = Effect.fnUntraced(function* () {
     async fetch(request) {
       const url = new URL(request.url);
       const path = url.pathname;
-      if (path === "/health")
+      if (path === "/health") {
+        control.healthReads++;
         return Response.json({
           status: control.status,
           stage: "staging",
           revision: control.revision,
           manifestHash: control.hash,
         });
+      }
       if (path !== "/applications/fixture-discord/commands")
         return new Response(null, { status: 404 });
+      control.commandAttempts++;
       if (control.rateLimits > 0) {
         control.rateLimits--;
-        return Response.json({ retry_after: 0.001 }, { status: 429 });
+        return new Response(control.rateLimitBody, { status: 429 });
       }
       if (request.method === "PUT") {
         control.writes++;
@@ -278,6 +285,79 @@ test(
     const error = yield* syncCommands(f.release, f.options).pipe(Effect.flip);
     expect(error.code).toBe("rate-limit");
     expect(f.control.writes).toBe(1);
+  }),
+);
+
+test(
+  "retry delays round positive fractional seconds up to whole milliseconds and reject invalid numbers",
+  Effect.gen(function* () {
+    const delays: ReadonlyArray<readonly [number, number]> = [
+      [0.0011, 2],
+      [0.000_000_1, 1],
+      [Number.MIN_VALUE, 1],
+      [1.25, 1250],
+    ];
+    for (const [seconds, milliseconds] of delays) {
+      const delay = yield* Schema.decodeUnknownEffect(RetryAfter)(seconds);
+      expect(Duration.toMillis(delay)).toBe(milliseconds);
+    }
+    for (const value of [
+      0,
+      -1,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NaN,
+      Number.MAX_VALUE,
+    ])
+      expect(
+        Result.isFailure(
+          yield* Schema.decodeUnknownEffect(RetryAfter)(value).pipe(
+            Effect.result,
+          ),
+        ),
+      ).toBeTrue();
+  }),
+);
+
+const invalidRetryBodies: ReadonlyArray<
+  readonly [string, "rate-limit" | "provider"]
+> = [
+  ['{"retry_after":0}', "rate-limit"],
+  ['{"retry_after":-0.1}', "rate-limit"],
+  ['{"retry_after":1e999}', "rate-limit"],
+  ['{"retry_after":1e308}', "rate-limit"],
+  ['{"retry_after":30}', "rate-limit"],
+  ['{"retry_after":"0.001"}', "provider"],
+  ['{"retry_after":null}', "provider"],
+  ["{}", "provider"],
+];
+for (const [body, code] of invalidRetryBodies)
+  test(
+    `429 delay ${body} stays ${code} and never retries or overwrites`,
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      f.control.remote = [];
+      f.control.rateLimits = 4;
+      f.control.rateLimitBody = body;
+      const error = yield* syncCommands(f.release, f.options).pipe(Effect.flip);
+      expect(error.code).toBe(code);
+      expect(error.phase).toBe("before");
+      expect(f.control.commandAttempts).toBe(1);
+      expect(f.control.healthReads).toBe(1);
+      expect(f.control.writes).toBe(0);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+test(
+  "a fractional retry rechecks health before the next attempt and after completion",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    f.control.rateLimits = 1;
+    f.control.rateLimitBody = '{"retry_after":0.0000001}';
+    expect((yield* syncCommands(f.release, f.options)).changed).toBeFalse();
+    expect(f.control.commandAttempts).toBe(2);
+    expect(f.control.healthReads).toBe(3);
+    expect(f.control.writes).toBe(0);
   }),
 );
 
