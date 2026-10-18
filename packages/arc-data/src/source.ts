@@ -1,5 +1,5 @@
 import { BASE_API_URL } from "@arctools/utils";
-import { Clock, Effect, Schema, SchemaIssue, Stream } from "effect";
+import { Clock, Effect, Predicate, Schema, SchemaIssue, Stream } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import {
   ArcData,
@@ -32,7 +32,7 @@ export function canonicalRequest(query: ResourceQuery) {
     for (const [key, value] of Object.entries(query.params).sort(([a], [b]) =>
       a.localeCompare(b),
     )) {
-      if (value !== undefined) params.set(key, String(value));
+      if (Predicate.isNotUndefined(value)) params.set(key, String(value));
     }
   }
   const suffix = params.size ? `?${params}` : "";

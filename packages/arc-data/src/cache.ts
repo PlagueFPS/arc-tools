@@ -1,4 +1,4 @@
-import { Clock, Effect, Layer, Schema, Semaphore } from "effect";
+import { Clock, Effect, Layer, Predicate, Schema, Semaphore } from "effect";
 import {
   ArcData,
   DataUnavailable,
@@ -50,12 +50,12 @@ const prefix = "entry:";
 const decodeRow = Schema.decodeUnknownEffect(CacheRow);
 const rowAt = Effect.fnUntraced(function* (storage: CacheStorage, key: string) {
   const row = yield* storage.get(key);
-  return row === undefined
+  return Predicate.isUndefined(row)
     ? undefined
     : yield* decodeRow(row).pipe(Effect.orDie);
 });
 const usable = (row: CacheRow, now: number, policy: CachePolicy) =>
-  row.value !== null &&
+  Predicate.isNotNull(row.value) &&
   now - row.value.fetchedAt <=
     (row.schedule ? policy.scheduleFreshMs - 1 : policy.metadataFallbackMs);
 const fallback = (
@@ -63,7 +63,7 @@ const fallback = (
   now: number,
   policy: CachePolicy,
 ): EncodedRead | undefined =>
-  !row.schedule && row.value !== null && usable(row, now, policy)
+  !row.schedule && Predicate.isNotNull(row.value) && usable(row, now, policy)
     ? {
         body: row.value.body,
         provenance: { freshness: "fallback", fetchedAt: row.value.fetchedAt },
@@ -125,7 +125,7 @@ export const makeCache = Effect.fnUntraced(function* (
     return yield* Effect.acquireUseRelease(
       Effect.sync(() => {
         let lock = locks.get(key);
-        if (lock === undefined) {
+        if (Predicate.isUndefined(lock)) {
           lock = { semaphore: Semaphore.makeUnsafe(1), users: 0 };
           locks.set(key, lock);
         }
@@ -139,7 +139,7 @@ export const makeCache = Effect.fnUntraced(function* (
             const claim = yield* storage.transaction(
               Effect.gen(function* () {
                 const row = yield* rowAt(storage, key);
-                if (row?.value !== null && row?.value !== undefined) {
+                if (Predicate.isNotNullish(row?.value)) {
                   const age = now - row.value.fetchedAt;
                   if (
                     age <
@@ -160,11 +160,11 @@ export const makeCache = Effect.fnUntraced(function* (
                   }
                 }
                 if (
-                  row !== undefined &&
+                  Predicate.isNotUndefined(row) &&
                   (row.retryAt > now || row.leaseUntil > now)
                 ) {
                   const cached = fallback(row, now, policy);
-                  if (cached !== undefined)
+                  if (Predicate.isNotUndefined(cached))
                     return { kind: "ready", result: cached } as const;
                   return yield* new DataUnavailable({
                     resource: query.resource,
@@ -185,7 +185,7 @@ export const makeCache = Effect.fnUntraced(function* (
                     count--;
                   }
                 }
-                if (row === undefined && count >= policy.maxKeys) {
+                if (Predicate.isUndefined(row) && count >= policy.maxKeys) {
                   return yield* new DataUnavailable({
                     resource: query.resource,
                     reason: "capacity",
@@ -214,7 +214,7 @@ export const makeCache = Effect.fnUntraced(function* (
               Effect.gen(function* () {
                 const current = yield* rowAt(storage, key);
                 if (
-                  current === undefined ||
+                  Predicate.isUndefined(current) ||
                   current.generation !== claim.generation
                 ) {
                   return new DataUnavailable({
@@ -224,7 +224,7 @@ export const makeCache = Effect.fnUntraced(function* (
                 }
                 let body: string | undefined;
                 if (response._tag === "Success") body = response.success;
-                if (body !== undefined) {
+                if (Predicate.isNotUndefined(body)) {
                   const bytes = new TextEncoder().encode(body).byteLength;
                   const entries = yield* storage.entries();
                   let total = bytes;
@@ -258,7 +258,7 @@ export const makeCache = Effect.fnUntraced(function* (
                   leaseUntil: 0,
                 });
                 const cached = fallback(current, completedAt, policy);
-                if (cached !== undefined) return cached;
+                if (Predicate.isNotUndefined(cached)) return cached;
                 return new DataUnavailable({
                   resource: query.resource,
                   reason: "source",

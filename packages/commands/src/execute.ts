@@ -1,5 +1,5 @@
 import { ArcData, type DataRead, DataUnavailable } from "@arctools/arc-data";
-import { Clock, Effect, Ref, Schema } from "effect";
+import { Clock, Effect, Predicate, Ref, Schema } from "effect";
 import { CommandError } from "./lib/command-error.js";
 import { commands } from "./registry.js";
 
@@ -46,7 +46,7 @@ export const executeCommand = Effect.fn("Command.execute")(function* (
     events: () => observe(data.events()),
   });
   const command = commands.find((command) => command.name === input.command);
-  if (command === undefined)
+  if (Predicate.isUndefined(command))
     return yield* new CommandError({ cause: "Unknown command" });
   const text = yield* command.handler(input.input).pipe(
     Effect.provideService(ArcData, local),
@@ -54,7 +54,7 @@ export const executeCommand = Effect.fn("Command.execute")(function* (
     Effect.catch(
       Effect.fnUntraced(function* (cause) {
         return yield* new CommandError({
-          cause: cause instanceof CommandError ? cause.cause : cause,
+          cause: cause._tag === "CommandError" ? cause.cause : cause,
           stale: yield* Ref.get(stale),
         });
       }),

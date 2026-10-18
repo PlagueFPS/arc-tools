@@ -1,7 +1,7 @@
 import * as Cloudflare from "alchemy/Cloudflare";
-import { DurableObjectStorageError } from "alchemy/Cloudflare/Workers/DurableObjectStorage";
+import type { DurableObjectStorageError } from "alchemy/Cloudflare/Workers/DurableObjectStorage";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Context, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/http";
 import {
   type CacheStorage,
@@ -32,7 +32,8 @@ export const makeDurableStorage: Effect.Effect<
     transaction: (effect) =>
       provide(storage.transaction(effect)).pipe(
         Effect.catchIf(
-          (error) => error instanceof DurableObjectStorageError,
+          (error): error is DurableObjectStorageError =>
+            Predicate.isTagged(error, "DurableObjectStorageError"),
           Effect.die,
         ),
       ),

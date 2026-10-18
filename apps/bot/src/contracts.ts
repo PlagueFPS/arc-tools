@@ -1,5 +1,7 @@
-import { commands } from "@arctools/commands";
+import { CommandName } from "@arctools/commands";
 import { Schema } from "effect";
+
+export { CommandName };
 
 const identifier = Schema.NonEmptyString;
 export const BroadcasterId = identifier.pipe(Schema.brand("BroadcasterId"));
@@ -22,9 +24,6 @@ export const tenantName = (key: TenantKey) =>
     ? `twitch:${key.broadcasterId}`
     : `discord:${key.guildId}`;
 
-export const CommandName = Schema.Literals(
-  commands.map((command) => command.name),
-);
 export const CommandInput = Schema.Struct({
   command: CommandName,
   input: Schema.String,
@@ -37,7 +36,6 @@ export type GuildId = typeof GuildId.Type;
 export type WorkId = typeof WorkId.Type;
 export type AttemptId = typeof AttemptId.Type;
 export type Deadline = typeof Deadline.Type;
-export type CommandName = typeof CommandName.Type;
 
 export const budgets = {
   discordInitialResponseMs: 3_000,
