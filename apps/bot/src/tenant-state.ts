@@ -1,4 +1,4 @@
-import { Context, type Effect, Schema } from "effect";
+import { Context, type Effect, Match, Schema } from "effect";
 import { BroadcasterId, Deadline, WorkId } from "./contracts.js";
 import { DiscordResponse, encodedBytes } from "./presentation.js";
 import { Invocation } from "./tenant-contracts.js";
@@ -126,12 +126,14 @@ export function nextAlarm(state: TenantState): number | null {
   let next = Infinity;
   for (const work of Object.values(state.works)) {
     if (work.transport !== "twitch" || work.kind === "terminal") continue;
-    const action =
-      work.kind === "accepted"
-        ? work.receivedAt
-        : work.kind === "ready"
-          ? work.retryAt
-          : work.claim.until;
+    const action = Match.value(work).pipe(
+      Match.discriminatorsExhaustive("kind")({
+        accepted: (work) => work.receivedAt,
+        ready: (work) => work.retryAt,
+        computing: (work) => work.claim.until,
+        delivering: (work) => work.claim.until,
+      }),
+    );
     next = Math.min(next, action, work.deadline);
   }
   return Number.isFinite(next) ? next : null;

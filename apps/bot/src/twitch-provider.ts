@@ -120,13 +120,12 @@ export interface ProviderConfig {
   readonly redirect: string;
 }
 export const makeProvider = (
-  configuration: ProviderConfig,
+  config: ProviderConfig,
   endpoints = {
     api: "https://api.twitch.tv/helix",
     oauth: "https://id.twitch.tv/oauth2",
   },
 ): Provider => {
-  const config = { ...configuration };
   const headers = (token: string) => ({
     "Client-Id": config.clientId,
     Authorization: `Bearer ${token}`,
@@ -165,7 +164,7 @@ export const makeProvider = (
     (effect) =>
       effect.pipe(
         Effect.mapError((error) =>
-          error instanceof AccountError
+          error._tag === "AccountError"
             ? error
             : new AccountError({ code: "provider" }),
         ),
@@ -193,7 +192,7 @@ export const makeProvider = (
       (effect) =>
         effect.pipe(
           Effect.mapError((error) =>
-            error instanceof AccountError
+            error._tag === "AccountError"
               ? error
               : new AccountError({ code: "provider" }),
           ),
@@ -212,7 +211,7 @@ export const makeProvider = (
       (effect) =>
         effect.pipe(
           Effect.mapError((error) =>
-            error instanceof AccountError
+            error._tag === "AccountError"
               ? error
               : new AccountError({ code: "provider" }),
           ),
@@ -246,7 +245,7 @@ export const makeProvider = (
       (effect) =>
         effect.pipe(
           Effect.mapError((error) =>
-            error instanceof AccountError
+            error._tag === "AccountError"
               ? error
               : new AccountError({ code: "provider" }),
           ),
@@ -306,7 +305,7 @@ export const makeProvider = (
       (effect) =>
         effect.pipe(
           Effect.catch((error) =>
-            error instanceof AccountError && error.code === "client"
+            error._tag === "AccountError" && error.code === "client"
               ? error
               : Effect.succeed<typeof CreateOutcome.Type>({ kind: "unknown" }),
           ),
@@ -326,7 +325,7 @@ export const makeProvider = (
       (effect) =>
         effect.pipe(
           Effect.mapError((error) =>
-            error instanceof AccountError
+            error._tag === "AccountError"
               ? error
               : new AccountError({ code: "provider" }),
           ),

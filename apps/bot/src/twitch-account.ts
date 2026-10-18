@@ -1,4 +1,12 @@
-import { Clock, Effect, Layer, Schema, Semaphore } from "effect";
+import {
+  Clock,
+  Effect,
+  Layer,
+  Match,
+  Predicate,
+  Schema,
+  Semaphore,
+} from "effect";
 import type { EnvironmentConfig } from "./config.js";
 import { BroadcasterId, Deadline } from "./contracts.js";
 import { digest } from "./provider-http.js";
@@ -72,16 +80,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   const decideChannel = (state: AccountState, id: string) => {
     const record = state.subscriptions[id];
     const confirmed =
-      record !== undefined &&
+      Predicate.isNotUndefined(record) &&
       record.broadcasterId === id &&
       matchesTarget(state, record) &&
       !state.revoked[record.id];
-    const subscription =
-      record === undefined
-        ? "missing"
-        : !confirmed
-          ? "obsolete"
-          : record.status;
+    const subscription = Predicate.isUndefined(record)
+      ? "missing"
+      : !confirmed
+        ? "obsolete"
+        : record.status;
     let kind: AccountStatus["setup"];
     if (
       !current(state) ||
@@ -201,66 +208,72 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         state.nextCredentialCheck = now + policy.tokenLeaseMs;
         return { kind: "claim", session } as const;
       });
-      if (claim.kind === "stale")
-        return yield* new AccountError({ code: "stale" });
-      if (claim.kind === "busy")
-        return yield* new AccountError({ code: "busy" });
-      if (claim.kind === "cached") return claim.session;
-      const acquire = Effect.fnUntraced(function* () {
-        let token = claim.session?.token;
-        if (!claim.session || claim.session.expiresAt <= now + 5_000)
-          token = (yield* provider.mint()).access_token;
-        if (!token) return yield* new AccountError({ code: "provider" });
-        const validation = yield* provider.validate(token);
-        if (
-          validation.client_id !== config.identity.twitchClientId ||
-          validation.user_id !== undefined
-        )
-          return yield* new AccountError({ code: "client" });
-        if (validation.expires_in <= 5)
-          return yield* new AccountError({ code: "client" });
-        const completed = yield* Clock.currentTimeMillis;
-        const session = {
-          token,
-          expiresAt: completed + validation.expires_in * 1000,
-          validatedAt: completed,
-          generation:
-            claim.session?.token === token ? claim.session.generation : owner,
-        };
-        const accepted = yield* store.update((state) => {
-          if (
-            !current(state) ||
-            state.tokenLease?.owner !== owner ||
-            state.session?.generation !== claim.session?.generation
-          )
-            return false;
-          state.session = session;
-          state.tokenLease = null;
-          state.tokenRetryAt = 0;
-          state.credentialFailures = 0;
-          state.nextCredentialCheck = Math.min(
-            completed + policy.hourlyMs,
-            session.expiresAt - 5_000,
-          );
-          return true;
-        });
-        if (!accepted) return yield* new AccountError({ code: "stale" });
-        validatedGeneration = session.generation;
-        return session;
-      });
-      return yield* acquire().pipe(
-        Effect.tapError(() =>
-          store.update((state) => {
-            if (current(state) && state.tokenLease?.owner === owner) {
-              state.tokenLease = null;
-              state.session = null;
-              state.tokenRetryAt = now + 5_000;
-              state.credentialFailures += 1;
-              state.nextCredentialCheck =
-                state.credentialFailures < 3 ? now + 60_000 : null;
-            }
-          }),
-        ),
+      return yield* Match.value(claim).pipe(
+        Match.discriminatorsExhaustive("kind")({
+          stale: () => new AccountError({ code: "stale" }),
+          busy: () => new AccountError({ code: "busy" }),
+          cached: ({ session }) => Effect.succeed(session),
+          claim: (claim) => {
+            const acquire = Effect.fnUntraced(function* () {
+              let token = claim.session?.token;
+              if (!claim.session || claim.session.expiresAt <= now + 5_000)
+                token = (yield* provider.mint()).access_token;
+              if (!token) return yield* new AccountError({ code: "provider" });
+              const validation = yield* provider.validate(token);
+              if (
+                validation.client_id !== config.identity.twitchClientId ||
+                Predicate.isNotUndefined(validation.user_id)
+              )
+                return yield* new AccountError({ code: "client" });
+              if (validation.expires_in <= 5)
+                return yield* new AccountError({ code: "client" });
+              const completed = yield* Clock.currentTimeMillis;
+              const session = {
+                token,
+                expiresAt: completed + validation.expires_in * 1000,
+                validatedAt: completed,
+                generation:
+                  claim.session?.token === token
+                    ? claim.session.generation
+                    : owner,
+              };
+              const accepted = yield* store.update((state) => {
+                if (
+                  !current(state) ||
+                  state.tokenLease?.owner !== owner ||
+                  state.session?.generation !== claim.session?.generation
+                )
+                  return false;
+                state.session = session;
+                state.tokenLease = null;
+                state.tokenRetryAt = 0;
+                state.credentialFailures = 0;
+                state.nextCredentialCheck = Math.min(
+                  completed + policy.hourlyMs,
+                  session.expiresAt - 5_000,
+                );
+                return true;
+              });
+              if (!accepted) return yield* new AccountError({ code: "stale" });
+              validatedGeneration = session.generation;
+              return session;
+            });
+            return acquire().pipe(
+              Effect.tapError(() =>
+                store.update((state) => {
+                  if (current(state) && state.tokenLease?.owner === owner) {
+                    state.tokenLease = null;
+                    state.session = null;
+                    state.tokenRetryAt = now + 5_000;
+                    state.credentialFailures += 1;
+                    state.nextCredentialCheck =
+                      state.credentialFailures < 3 ? now + 60_000 : null;
+                  }
+                }),
+              ),
+            );
+          },
+        }),
       );
     },
     (effect) => effect.pipe(tokenLock.withPermit),
@@ -268,7 +281,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
   const startedAt = yield* Clock.currentTimeMillis;
   yield* store.update((state) => {
-    if (current(state) && (state.session !== null || state.tokenLease !== null))
+    if (
+      current(state) &&
+      (Predicate.isNotNull(state.session) ||
+        Predicate.isNotNull(state.tokenLease))
+    )
       state.nextCredentialCheck = startedAt + 1;
   });
 
@@ -308,14 +325,13 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           setup,
           sender,
           channels,
-          credential:
-            state.session === null
-              ? "absent"
-              : validatedGeneration === state.session.generation &&
-                  state.session.expiresAt > now &&
-                  state.session.validatedAt + policy.hourlyMs > now
-                ? "valid"
-                : "validation-required",
+          credential: Predicate.isNull(state.session)
+            ? "absent"
+            : validatedGeneration === state.session.generation &&
+                state.session.expiresAt > now &&
+                state.session.validatedAt + policy.hourlyMs > now
+              ? "valid"
+              : "validation-required",
           attempts: Object.keys(state.attempts).length,
           credentialCheckAt: state.session?.validatedAt ?? null,
         } satisfies AccountStatus;
@@ -380,7 +396,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           subscription.transport.method === "webhook" &&
           !!subscription.condition.broadcaster_user_id &&
           !!subscription.condition.user_id &&
-          subscription.transport.callback !== undefined;
+          Predicate.isNotUndefined(subscription.transport.callback);
         if (!managed) continue;
         const channel = subscription.condition.broadcaster_user_id ?? "";
         const record = state.subscriptions[channel];
@@ -421,7 +437,8 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       }
       return [...ids];
     });
-    if (cleanup === null) return yield* new AccountError({ code: "stale" });
+    if (Predicate.isNull(cleanup))
+      return yield* new AccountError({ code: "stale" });
     for (const id of cleanup) yield* retire(id);
     for (const channel of channels) {
       const now = yield* Clock.currentTimeMillis;
@@ -701,17 +718,24 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const previous = state.attempts[valid.attemptId];
       if (previous && previous.fingerprint !== fingerprint)
         return { kind: "rejected" } satisfies DispatchOutcome;
-      if (previous?.kind === "terminal") return previous.outcome;
-      if (previous?.kind === "sending") {
-        if (previous.instance !== instance || first >= previous.deadline)
-          state.attempts[valid.attemptId] = {
-            ...previous,
-            kind: "terminal",
-            outcome: { kind: "ambiguous" },
-            privateCode: "interrupted",
-          };
-        return { kind: "ambiguous" } satisfies DispatchOutcome;
-      }
+      const recorded = Match.value(previous).pipe(
+        Match.when(Predicate.isUndefined, () => null),
+        Match.discriminatorsExhaustive("kind")({
+          terminal: (previous) => previous.outcome,
+          sending: (previous): DispatchOutcome => {
+            if (previous.instance !== instance || first >= previous.deadline)
+              state.attempts[valid.attemptId] = {
+                ...previous,
+                kind: "terminal",
+                outcome: { kind: "ambiguous" },
+                privateCode: "interrupted",
+              };
+            return { kind: "ambiguous" };
+          },
+          waiting: () => null,
+        }),
+      );
+      if (recorded) return recorded;
       if (first >= valid.deadline)
         return { kind: "expired" } satisfies DispatchOutcome;
       if (!current(state))
@@ -735,10 +759,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const prior = state.attempts[valid.attemptId];
       if (prior && prior.fingerprint !== fingerprint)
         return { kind: "outcome", outcome: { kind: "rejected" } } as const;
-      if (prior?.kind === "terminal")
-        return { kind: "outcome", outcome: prior.outcome } as const;
-      if (prior?.kind === "sending")
-        return { kind: "outcome", outcome: { kind: "ambiguous" } } as const;
+      const recorded = Match.value(prior).pipe(
+        Match.when(Predicate.isUndefined, () => null),
+        Match.discriminatorsExhaustive("kind")({
+          terminal: (prior) => prior.outcome,
+          sending: (): DispatchOutcome => ({ kind: "ambiguous" }),
+          waiting: () => null,
+        }),
+      );
+      if (recorded) return { kind: "outcome", outcome: recorded } as const;
       if (now >= valid.deadline)
         return { kind: "outcome", outcome: { kind: "expired" } } as const;
       const retainUntil = valid.deadline + policy.retentionMs;
@@ -829,46 +858,46 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const prior = state.attempts[valid.attemptId];
       if (prior?.kind !== "sending" || prior.owner !== owner)
         return { kind: "ambiguous" };
-      if (result.blockedUntil !== undefined)
+      if (Predicate.isNotUndefined(result.blockedUntil))
         state.apiBlockedUntil = Math.max(
           state.apiBlockedUntil,
           result.blockedUntil,
         );
-      let outcome: DispatchOutcome;
-      switch (result.kind) {
-        case "sent":
-          outcome = { kind: "sent", messageId: result.messageId };
-          break;
-        case "rejected":
-          outcome = { kind: "rejected" };
-          break;
-        case "ambiguous":
-          outcome = { kind: "ambiguous" };
-          break;
-        case "expired":
-          outcome = { kind: "expired" };
-          break;
-        case "limited":
-        case "unauthorized": {
-          if (result.kind === "unauthorized")
-            invalidateSession(state, session.generation);
-          const retryAt =
-            result.kind === "limited" ? result.retryAt : completed + 100;
-          if (result.kind === "limited")
-            state.apiBlockedUntil = Math.max(state.apiBlockedUntil, retryAt);
-          if (retryAt < valid.deadline) {
-            state.attempts[valid.attemptId] = {
-              kind: "waiting",
-              fingerprint,
-              deadline: valid.deadline,
-              retainUntil: prior.retainUntil,
-              retryAt,
-            };
-            return { kind: "retryable", retryAt: Deadline.make(retryAt) };
-          }
-          outcome = { kind: "expired" };
-        }
-      }
+      const outcome = Match.value(result).pipe(
+        Match.whenOr(
+          { kind: "limited" },
+          { kind: "unauthorized" },
+          (result): DispatchOutcome => {
+            if (result.kind === "unauthorized")
+              invalidateSession(state, session.generation);
+            const retryAt =
+              result.kind === "limited" ? result.retryAt : completed + 100;
+            if (result.kind === "limited")
+              state.apiBlockedUntil = Math.max(state.apiBlockedUntil, retryAt);
+            if (retryAt < valid.deadline) {
+              state.attempts[valid.attemptId] = {
+                kind: "waiting",
+                fingerprint,
+                deadline: valid.deadline,
+                retainUntil: prior.retainUntil,
+                retryAt,
+              };
+              return { kind: "retryable", retryAt: Deadline.make(retryAt) };
+            }
+            return { kind: "expired" };
+          },
+        ),
+        Match.discriminatorsExhaustive("kind")({
+          sent: (result): DispatchOutcome => ({
+            kind: "sent",
+            messageId: result.messageId,
+          }),
+          rejected: (): DispatchOutcome => ({ kind: "rejected" }),
+          ambiguous: (): DispatchOutcome => ({ kind: "ambiguous" }),
+          expired: (): DispatchOutcome => ({ kind: "expired" }),
+        }),
+      );
+      if (outcome.kind === "retryable") return outcome;
       state.attempts[valid.attemptId] = {
         kind: "terminal",
         fingerprint,
@@ -888,8 +917,8 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const maintained = yield* store.update((state) => {
       if (!current(state)) return false;
       const active =
-        (state.session !== null ||
-          state.tokenLease !== null ||
+        (Predicate.isNotNull(state.session) ||
+          Predicate.isNotNull(state.tokenLease) ||
           state.credentialFailures > 0) &&
         state.credentialFailures < 3;
       if (!active) state.nextCredentialCheck = null;

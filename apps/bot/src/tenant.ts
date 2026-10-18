@@ -3,7 +3,16 @@ import { bindData } from "@arctools/arc-data/cloudflare";
 import { executeCommand } from "@arctools/commands";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Cause, Clock, Deferred, Effect, Schema } from "effect";
+import {
+  Cause,
+  Clock,
+  Deferred,
+  Effect,
+  Match,
+  Predicate,
+  Result,
+  Schema,
+} from "effect";
 import { AttemptId, Deadline } from "./contracts.js";
 import {
   DiscordResponse,
@@ -92,8 +101,8 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     current: Work | undefined,
     captured: { readonly claim: Claim },
   ) =>
-    current !== undefined &&
-    "claim" in current &&
+    Predicate.isNotUndefined(current) &&
+    Predicate.hasProperty(current, "claim") &&
     sameClaim(current.claim, captured.claim);
   const decision = Effect.fnUntraced(function* (
     phase: TenantTrace["phase"],
@@ -154,7 +163,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     const completedAt = yield* Clock.currentTimeMillis;
     const again = yield* store.update((state) => {
       if (!matches(state.works[work.id], work)) return false;
-      if (outcome._tag === "Failure") {
+      if (Result.isFailure(outcome)) {
         if (completedAt >= work.deadline)
           state.works[work.id] = stopTwitch(work, "expired");
         else
@@ -168,43 +177,54 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
         return false;
       }
       const result = outcome.success;
-      if (
-        result.kind === "sent" &&
-        work.cursor + 1 < work.plan.length &&
-        completedAt < work.deadline
-      ) {
-        state.works[work.id] = {
-          ...base(work),
-          transport: "twitch",
-          kind: "ready",
-          plan: work.plan,
-          cursor: work.cursor + 1,
-          retryAt: completedAt,
-        };
-        return true;
-      }
-      if (result.kind === "retryable") {
-        if (completedAt < work.deadline && result.retryAt < work.deadline) {
-          state.works[work.id] = {
-            ...base(work),
-            transport: "twitch",
-            kind: "ready",
-            plan: work.plan,
-            cursor: work.cursor,
-            retryAt: Math.max(completedAt, result.retryAt),
-          };
-        } else state.works[work.id] = stopTwitch(work, "expired");
-        return false;
-      }
-      state.works[work.id] = stopTwitch(
-        work,
-        result.kind === "sent"
-          ? work.cursor + 1 === work.plan.length
-            ? "sent"
-            : "expired"
-          : result.kind,
+      return Match.value(result).pipe(
+        Match.discriminators("kind")({
+          sent: () => {
+            if (
+              work.cursor + 1 < work.plan.length &&
+              completedAt < work.deadline
+            ) {
+              state.works[work.id] = {
+                ...base(work),
+                transport: "twitch",
+                kind: "ready",
+                plan: work.plan,
+                cursor: work.cursor + 1,
+                retryAt: completedAt,
+              };
+              return true;
+            }
+            state.works[work.id] = stopTwitch(
+              work,
+              work.cursor + 1 === work.plan.length ? "sent" : "expired",
+            );
+            return false;
+          },
+          retryable: (result) => {
+            if (completedAt < work.deadline && result.retryAt < work.deadline) {
+              state.works[work.id] = {
+                ...base(work),
+                transport: "twitch",
+                kind: "ready",
+                plan: work.plan,
+                cursor: work.cursor,
+                retryAt: Math.max(completedAt, result.retryAt),
+              };
+            } else state.works[work.id] = stopTwitch(work, "expired");
+            return false;
+          },
+        }),
+        Match.whenOr(
+          { kind: "rejected" },
+          { kind: "ambiguous" },
+          { kind: "expired" },
+          (result) => {
+            state.works[work.id] = stopTwitch(work, result.kind);
+            return false;
+          },
+        ),
+        Match.exhaustive,
       );
-      return false;
     });
     if (again) yield* run(work.id);
   });
@@ -286,68 +306,89 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
           state.works[id] = stopTwitch(work, "expired");
           return null;
         }
-        if (work.kind === "ready") {
-          if (now < work.retryAt) return null;
-          const next: Delivering = {
-            ...base(work),
-            transport: "twitch",
-            kind: "delivering",
-            plan: work.plan,
-            cursor: work.cursor,
-            claim: claim(
-              state,
-              now,
-              work.deadline,
-              tenantPolicy.deliveryLeaseMs,
-            ),
-          };
-          state.works[id] = next;
-          return next;
-        }
-        if (
-          work.kind !== "accepted" &&
-          work.claim.activation === options.activation &&
-          now < work.claim.until
-        )
-          return null;
-        if (work.kind === "delivering") {
-          const pending = inFlight.get(id);
-          if (pending && sameClaim(work.claim, pending.claim))
-            return {
-              kind: "joining",
-              done: pending.done,
-              deadline: work.deadline,
+        return Match.value(work).pipe(
+          Match.discriminators("kind")({
+            ready: (work) => {
+              if (now < work.retryAt) return null;
+              const next: Delivering = {
+                ...base(work),
+                transport: "twitch",
+                kind: "delivering",
+                plan: work.plan,
+                cursor: work.cursor,
+                claim: claim(
+                  state,
+                  now,
+                  work.deadline,
+                  tenantPolicy.deliveryLeaseMs,
+                ),
+              };
+              state.works[id] = next;
+              return next;
+            },
+            delivering: (work) => {
+              if (
+                work.claim.activation === options.activation &&
+                now < work.claim.until
+              )
+                return null;
+              const pending = inFlight.get(id);
+              if (pending && sameClaim(work.claim, pending.claim))
+                return {
+                  kind: "joining",
+                  done: pending.done,
+                  deadline: work.deadline,
+                } satisfies {
+                  readonly kind: "joining";
+                  readonly done: Deferred.Deferred<void>;
+                  readonly deadline: number;
+                };
+              const next: Delivering = {
+                ...work,
+                claim: claim(
+                  state,
+                  now,
+                  work.deadline,
+                  tenantPolicy.deliveryLeaseMs,
+                ),
+              };
+              state.works[id] = next;
+              return next;
+            },
+          }),
+          Match.whenOr({ kind: "computing" }, { kind: "accepted" }, (work) => {
+            if (
+              work.kind === "computing" &&
+              work.claim.activation === options.activation &&
+              now < work.claim.until
+            )
+              return null;
+            const next: TwitchComputing = {
+              ...work,
+              kind: "computing",
+              claim: claim(state, now, work.deadline, tenantPolicy.leaseMs),
             };
-          const next: Delivering = {
-            ...work,
-            claim: claim(
-              state,
-              now,
-              work.deadline,
-              tenantPolicy.deliveryLeaseMs,
-            ),
-          };
-          state.works[id] = next;
-          return next;
-        }
-        const next: TwitchComputing = {
-          ...work,
-          kind: "computing",
-          claim: claim(state, now, work.deadline, tenantPolicy.leaseMs),
-        };
-        state.works[id] = next;
-        return next;
+            state.works[id] = next;
+            return next;
+          }),
+          Match.exhaustive,
+        );
       },
     );
-    if (action?.kind === "computing") yield* computeTwitch(action);
-    if (action?.kind === "delivering") yield* deliver(action);
-    if (action?.kind === "joining") {
-      yield* Deferred.await(action.done).pipe(
-        Effect.timeout(Math.max(1, action.deadline - now)),
-        Effect.catch(() => Effect.void),
-      );
-      yield* run(id);
-    }
+    yield* Match.value(action).pipe(
+      Match.when(Predicate.isNullish, () => Effect.void),
+      Match.discriminatorsExhaustive("kind")({
+        computing: computeTwitch,
+        delivering: deliver,
+        joining: Effect.fnUntraced(function* (action) {
+          yield* Deferred.await(action.done).pipe(
+            Effect.timeout(Math.max(1, action.deadline - now)),
+            Effect.catch(() => Effect.void),
+          );
+          yield* run(id);
+        }),
+      }),
+    );
   });
   const admit = Effect.fnUntraced(function* (
     receipt: TwitchReceipt | DiscordReceipt,
@@ -364,11 +405,10 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
             now >= work.claim.until)
         )
           state.works[id] = stopDiscord(work, failure());
-      const tenant =
-        "broadcasterId" in receipt
-          ? `twitch:${receipt.broadcasterId}`
-          : `discord:${receipt.guildId}`;
-      if (state.tenant !== null && state.tenant !== tenant)
+      const tenant = Predicate.hasProperty(receipt, "broadcasterId")
+        ? `twitch:${receipt.broadcasterId}`
+        : `discord:${receipt.guildId}`;
+      if (Predicate.isNotNull(state.tenant) && state.tenant !== tenant)
         return { kind: "input" } as const;
       const previous = Object.hasOwn(state.works, receipt.id)
         ? state.works[receipt.id]
@@ -388,29 +428,28 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
         deadline,
         retainUntil: deadline + tenantPolicy.retentionMs,
       };
-      const work: Work =
-        "broadcasterId" in receipt
-          ? {
-              ...shared,
-              transport: "twitch",
-              kind: "computing",
-              invocation: receipt.invocation,
-              broadcasterId: receipt.broadcasterId,
-              replyParentId: receipt.replyParentId,
-              claim: claim(state, now, deadline, tenantPolicy.leaseMs),
-            }
-          : {
-              ...shared,
-              transport: "discord",
-              kind: "computing",
-              invocation: receipt.invocation,
-              claim: claim(
-                state,
-                now,
-                receipt.receivedAt + tenantPolicy.computeMs,
-                tenantPolicy.computeMs,
-              ),
-            };
+      const work: Work = Predicate.hasProperty(receipt, "broadcasterId")
+        ? {
+            ...shared,
+            transport: "twitch",
+            kind: "computing",
+            invocation: receipt.invocation,
+            broadcasterId: receipt.broadcasterId,
+            replyParentId: receipt.replyParentId,
+            claim: claim(state, now, deadline, tenantPolicy.leaseMs),
+          }
+        : {
+            ...shared,
+            transport: "discord",
+            kind: "computing",
+            invocation: receipt.invocation,
+            claim: claim(
+              state,
+              now,
+              receipt.receivedAt + tenantPolicy.computeMs,
+              tenantPolicy.computeMs,
+            ),
+          };
       state.works[receipt.id] = work;
       if (!fits(state)) {
         delete state.works[receipt.id];
@@ -564,7 +603,7 @@ export const makeTenantStorage = Effect.fnUntraced(function* () {
   const runtime = yield* RuntimeContext;
   const read = Effect.gen(function* () {
     const raw = yield* storage.get("tenant:v1");
-    return raw === undefined
+    return Predicate.isUndefined(raw)
       ? emptyTenant()
       : yield* Schema.decodeUnknownEffect(TenantState)(raw).pipe(Effect.orDie);
   });
@@ -575,12 +614,11 @@ export const makeTenantStorage = Effect.fnUntraced(function* () {
         .transaction(
           Effect.gen(function* () {
             const raw = yield* storage.get("tenant:v1");
-            const state: TenantState =
-              raw === undefined
-                ? emptyTenant()
-                : yield* Schema.decodeUnknownEffect(TenantState)(raw).pipe(
-                    Effect.orDie,
-                  );
+            const state: TenantState = Predicate.isUndefined(raw)
+              ? emptyTenant()
+              : yield* Schema.decodeUnknownEffect(TenantState)(raw).pipe(
+                  Effect.orDie,
+                );
             const result = f(state);
             const encoded = yield* Schema.encodeEffect(TenantState)(state).pipe(
               Effect.orDie,
@@ -590,7 +628,7 @@ export const makeTenantStorage = Effect.fnUntraced(function* () {
             yield* storage.put("tenant:v1", encoded);
             const alarm = nextAlarm(state);
             if ((yield* storage.getAlarm()) !== alarm)
-              yield* alarm === null
+              yield* Predicate.isNull(alarm)
                 ? storage.deleteAlarm()
                 : storage.setAlarm(alarm);
             return result;
@@ -632,7 +670,9 @@ export class TenantDO extends Cloudflare.DurableObject<TenantDO>()(
           phase: "uncommitted",
           code: "rpc-entry",
           admissionDeltaMs: (yield* Clock.currentTimeMillis) - input.receivedAt,
-          cutoff: input.receivedAt + ("guildId" in input ? 3000 : 10000),
+          cutoff:
+            input.receivedAt +
+            (Predicate.hasProperty(input, "guildId") ? 3000 : 10000),
           activation,
         };
         const value = yield* effect.pipe(

@@ -1,6 +1,14 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Context, Effect, Layer, Option, Redacted, Schema } from "effect";
+import {
+  Context,
+  Effect,
+  Layer,
+  Option,
+  Predicate,
+  Redacted,
+  Schema,
+} from "effect";
 import { bindOrigin, runtimeConfig } from "./config.js";
 import { digest } from "./provider-http.js";
 import { makeAccount } from "./twitch-account.js";
@@ -41,12 +49,11 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
         storage.transaction(
           Effect.gen(function* () {
             const raw = yield* storage.get("account:v1");
-            const state: AccountState =
-              raw === undefined
-                ? emptyState("")
-                : yield* Schema.decodeUnknownEffect(AccountState)(raw).pipe(
-                    Effect.orDie,
-                  );
+            const state: AccountState = Predicate.isUndefined(raw)
+              ? emptyState("")
+              : yield* Schema.decodeUnknownEffect(AccountState)(raw).pipe(
+                  Effect.orDie,
+                );
             const result = f(state);
             const encoded = yield* Schema.encodeEffect(AccountState)(
               state,
@@ -58,7 +65,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
               return yield* Effect.die("Account storage capacity exceeded");
             yield* storage.put("account:v1", encoded);
             if ((yield* storage.getAlarm()) !== state.nextCredentialCheck)
-              yield* state.nextCredentialCheck === null
+              yield* Predicate.isNull(state.nextCredentialCheck)
                 ? storage.deleteAlarm()
                 : storage.setAlarm(state.nextCredentialCheck);
             return result;
@@ -87,7 +94,7 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
       Effect.catch((error) =>
         Effect.succeed({
           kind: "failure",
-          code: error instanceof AccountError ? error.code : "input",
+          code: error._tag === "AccountError" ? error.code : "input",
         } as const),
       ),
     );
