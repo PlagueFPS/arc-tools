@@ -1,6 +1,6 @@
 # Bootstrap GitHub deployment credentials
 
-Use `stacks/github.ts` to provision one Cloudflare CI token for `PlagueFPS/arc-tools` through Alchemy. The stack uses the single account selected by the `admin` profile for both bootstrap state and CI. This follows the credential bootstrap in [Alchemy tutorial part 5](https://alchemy.run/cloudflare/tutorial/part-5/). The repository pins Alchemy `2.0.0-beta.83`, Effect `4.0.4`, and Bun `1.3.5`.
+Use `stacks/github.ts` to provision one Cloudflare CI token for `PlagueFPS/arc-tools` through Alchemy. The stack uses the single account selected by the `admin` profile for both bootstrap state and CI. This follows the credential bootstrap in [Alchemy tutorial part 5](https://alchemy.run/cloudflare/tutorial/part-5/). The repository pins Alchemy `2.0.0-beta.83`, Effect `4.0.4`, and Bun `1.4.3`.
 
 Run these steps after code review. The stack creates credentials and GitHub configuration. It does not release either bot or change Discord or Twitch portal settings.
 

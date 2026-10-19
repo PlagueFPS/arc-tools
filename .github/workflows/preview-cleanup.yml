@@ -34,7 +34,7 @@ jobs:
           test -f scripts/preview.ts || { echo 'Default branch lacks preview cleanup code during initial rollout. No cleanup was performed. Land the reviewed implementation, then dispatch this workflow for the closed PR or run preview:cleanup locally from the reviewed commit.'; exit 1; }
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.5"
+          bun-version-file: "package.json"
       - run: bun --no-env-file install --frozen-lockfile
       - name: Destroy and verify the PR preview
         env:
