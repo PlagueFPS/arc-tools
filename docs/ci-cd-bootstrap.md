@@ -37,8 +37,10 @@ The profile account owns the bootstrap state for stack `github`, stage `admin`. 
 Export the existing production Discord application ID in your shell. This is the only required public input.
 
 ```bash
-export PROD_DISCORD_APPLICATION_ID='<existing production Discord application ID>'
+export DISCORD_APPLICATION_ID='<existing production Discord application ID>'
 ```
+
+Bootstrap reads `DISCORD_APPLICATION_ID` as named in `.env.prod` and populates both GitHub destinations, so you need no `PROD_DISCORD_APPLICATION_ID` export.
 
 The stack requires a 17-to-20-digit Discord application ID. It reads the account ID from the existing admin profile, so no account ID inputs are needed.
 

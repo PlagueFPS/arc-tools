@@ -20,9 +20,9 @@ export default Alchemy.Stack(
     state: Cloudflare.state(),
   },
   Effect.gen(function* () {
-    const prodApplicationId = yield* Config.schema(
+    const discordApplicationId = yield* Config.schema(
       DiscordApplicationId,
-      "PROD_DISCORD_APPLICATION_ID",
+      "DISCORD_APPLICATION_ID",
     );
     const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
 
@@ -51,7 +51,7 @@ export default Alchemy.Stack(
     yield* GitHub.Variable("prod-discord-application-id", {
       ...repository,
       name: "PROD_DISCORD_APPLICATION_ID",
-      value: prodApplicationId,
+      value: discordApplicationId,
     });
 
     const prod = yield* GitHub.Environment("prod", {
@@ -75,7 +75,7 @@ export default Alchemy.Stack(
       ...repository,
       environment: prod,
       name: "DISCORD_APPLICATION_ID",
-      value: prodApplicationId,
+      value: discordApplicationId,
     });
     yield* GitHub.Variable("prod-arc-environment", {
       ...repository,
