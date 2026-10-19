@@ -1,9 +1,8 @@
-## Tooling
+## Verification
 
-| Tool                       | Purpose                                  |
-| -------------------------- | ---------------------------------------- |
-| **Bun**                    | Package manager, runtime                 |
-| **Turborepo**              | Task orchestration, caching              |
-| **TypeScript**             | Type checking, compilation               |
-| **Oxlint + Oxfmt**         | Linting, formatting (TypeScript configs) |
-| **Bun + alchemy/Test/Bun** | Testing                                  |
+After any code changes, run these commands from the repository root in this order:
+
+1. `bun run typecheck`
+2. `bun run lint`
+3. `bun run fmt`
+4. `bun run test`

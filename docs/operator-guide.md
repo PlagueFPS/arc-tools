@@ -76,7 +76,7 @@ Set both stage fields to `staging`, the personal identity fields, and the stagin
 
 ```bash
 bun run build
-bun run check-types
+bun run typecheck
 bun run lint
 bun run test
 bun run deploy --stage staging --profile default --env-file .env.staging --yes

@@ -17,20 +17,22 @@ ARC Raiders commands for Twitch chat and Discord guild slash commands. One Alche
 
 Discord exposes the same ten commands as `/loot`, `/buy`, and the other registry names. Guild slash successes are public. Errors are private initial responses. There is no unconditional deferral or later interaction-token POST.
 
-Use Bun **1.3.5**. Alchemy **2.0.0-beta.83**, Effect **4.0.4**, and the Cloudflare worker types are pinned in the manifests and lockfile.
+Use Bun **1.4.3**. Alchemy **2.0.0-beta.83**, Effect **4.0.4**, and the Cloudflare worker types are pinned in the manifests and lockfile.
 
 ```bash
 bun --version
 bun install --frozen-lockfile
 bun run build
-bun run check-types
+bun run typecheck
 bun run lint
+bun run fmt
 bun run test
 ```
 
-`bun run lint` checks code with Oxlint and formatting with Oxfmt. Configure them
-in `oxlint.config.ts` and `oxfmt.config.ts`. Run `bun run format-and-lint:fix`
-to apply lint fixes, sort imports, and format files. VS Code and Cursor users can
+`bun run lint` checks code with Oxlint and reports warnings without failing on them.
+`bun run fmt` checks formatting with Oxfmt. Configure them in `oxlint.config.ts`
+and `oxfmt.config.ts`. Run `bun run lint:fix` to apply lint fixes and
+`bun run fmt:fix` to sort imports and format files. VS Code and Cursor users can
 install the recommended Oxc extension for formatting and lint fixes on save.
 
 The default tests include strict cloud-helper, local CLI, preview lifecycle, and workflow guard cases. The separate `bun run test:cloud` suite deploys disposable real Cloudflare resources and verifies teardown. It requires Cloudflare credentials or an authenticated Alchemy profile and never silently skips missing credentials.

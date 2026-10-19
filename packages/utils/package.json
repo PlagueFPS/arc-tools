@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "bun test ./test",
     "dev": "tsc --watch",
-    "check-types": "tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "exports": {
     ".": "./src/index.ts"

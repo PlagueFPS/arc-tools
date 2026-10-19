@@ -128,9 +128,9 @@ Keep bootstrap state intact. Destroying this stack revokes its managed token and
 
 ## Check local changes without deploying
 
-Run these commands from the repository root without invoking Alchemy or providers. The default `check-types` task includes the bootstrap through `stacks/**/*.ts` in the root `tsconfig.json`.
+Run these commands from the repository root without invoking Alchemy or providers. The default `typecheck` task includes the bootstrap through `stacks/**/*.ts` in the root `tsconfig.json`.
 
 ```bash
-bun --no-env-file run check-types
+bun --no-env-file run typecheck
 bun --no-env-file node_modules/@biomejs/biome/bin/biome check stacks/github.ts tsconfig.json
 ```
