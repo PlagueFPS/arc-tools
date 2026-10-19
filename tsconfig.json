@@ -5,5 +5,10 @@
     "allowImportingTsExtensions": true,
     "types": ["bun"]
   },
-  "include": ["alchemy.run.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+  "include": [
+    "alchemy.run.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "stacks/**/*.ts"
+  ]
 }

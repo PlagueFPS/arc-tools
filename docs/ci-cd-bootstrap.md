@@ -22,7 +22,9 @@ bunx --no-install alchemy profile edit --config stacks/github.ts --profile admin
 
 If `admin` already exists, skip creation. To change an existing provider, replace `--add` with `--reconfigure`.
 
-For Cloudflare, select API Token or API Key, not OAuth. The credential must have [Account API Tokens Write](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/create/) on both target accounts. It must also manage Workers and Secrets Store in the profile account for `Cloudflare.state()`. Keep token-management authority on this operator profile. Neither minted CI token receives that authority.
+For Cloudflare, select API Token or API Key, not OAuth. Use an appropriately privileged administrator on each target account. Cloudflare requires either API Token Provisioning capabilities or Super Administrator status to [create account-owned tokens](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/). The creator can grant only permissions they hold on that account.
+
+On each target account, the admin credential needs [Account API Tokens Write](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/create/) and all three minted permission groups, `Workers Scripts Write`, `Secrets Store Read`, and `Secrets Store Write`. This applies to both target accounts when they differ. Separately, the credential needs those three Workers and Secrets Store groups in the profile account for `Cloudflare.state()`. Keep token-management authority on this operator profile. Neither minted CI token receives that authority.
 
 For GitHub, select `gh-cli` with an authenticated GitHub CLI session, or enter a personal access token privately. The GitHub identity needs access to `PlagueFPS/arc-tools` and rights to manage its Actions secrets, variables, environments, and deployment branch policies. A classic token needs `repo` scope. For a fine-grained token, grant repository write permissions for [Administration](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment), [Secrets](https://docs.github.com/en/rest/actions/secrets#create-or-update-a-repository-secret), [Variables](https://docs.github.com/en/rest/actions/variables#create-a-repository-variable), and [Environments](https://docs.github.com/en/rest/actions/secrets#create-or-update-an-environment-secret). Enter credentials in the provider prompts, never in checked-in files or command arguments.
 
@@ -66,7 +68,18 @@ In GitHub, verify these repository names exist under **Settings > Secrets and va
 - Secret `CLOUDFLARE_TEST_API_TOKEN` receives the test token directly.
 - Variable `PROD_DISCORD_APPLICATION_ID` contains the production Discord application ID.
 
-Under **Settings > Environments**, verify environment `prod` has a custom deployment branch policy allowing only `main`, with no required reviewers. Verify its configuration.
+Under **Settings > Environments > prod**, verify the custom deployment branch policy allows only `main`. The bootstrap manages this branch policy. It does not automatically clear existing required reviewers, wait timers, or custom deployment protection rules.
+
+If you choose unattended releases with merging to `main` as the approval, remove the existing approval and wait requirements in the GitHub UI.
+
+1. Open **Settings > Environments > prod**.
+2. Deselect **Required reviewers** and **Wait timer** if enabled.
+3. Disable any custom deployment protection rules that require manual approval or waiting.
+4. Click **Save protection rules**.
+
+Keep these rules if you want their protections. Releases then remain subject to those requirements. GitHub documents these controls in [Managing environments for deployment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+
+Verify the environment's configuration.
 
 - Variable `CLOUDFLARE_ACCOUNT_ID` contains the production account ID.
 - Secret `CLOUDFLARE_API_TOKEN` receives the distinct production token.
@@ -113,9 +126,9 @@ Keep bootstrap state intact. Destroying this stack revokes its managed tokens an
 
 ## Check local changes without deploying
 
-Run these commands to check the bootstrap stack directly without invoking Alchemy or providers. To cover the stack in the root `check-types` task, include `stacks/**/*.ts` in the root `tsconfig.json`.
+Run these commands from the repository root without invoking Alchemy or providers. The default `check-types` task includes the bootstrap through `stacks/**/*.ts` in the root `tsconfig.json`.
 
 ```bash
-bun --no-env-file node_modules/typescript/bin/tsc --noEmit --skipLibCheck --strict --noUncheckedIndexedAccess --target ES2022 --module NodeNext --esModuleInterop --allowImportingTsExtensions --types bun stacks/github.ts
-bun --no-env-file node_modules/@biomejs/biome/bin/biome check stacks/github.ts
+bun --no-env-file run check-types
+bun --no-env-file node_modules/@biomejs/biome/bin/biome check stacks/github.ts tsconfig.json
 ```
