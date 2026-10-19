@@ -7,7 +7,7 @@
 3. Copy `.env.example` to an ignored environment file, such as `.env.local` or `.env.staging`. Replace public placeholders and enter secrets through a private editor or your secret manager. Set file permissions with `chmod 600 .env.local`. Never commit the filled file.
 4. Select your Cloudflare account and Alchemy authentication profile. `bunx --no-install alchemy profile list` and `bunx --no-install alchemy profile current` inspect profiles. If needed, use `alchemy profile create` and `alchemy profile edit` through the same `bunx --no-install` prefix.
 
-An Alchemy profile selects provider authentication. A stage selects the application's resources and identities. They are independent. Pass `--profile default` or another existing profile explicitly. The stack requires `ARC_STAGE`, `APPLICATION_STAGE`, and `--stage` to agree. Its supported application stages are `local-<name>`, `staging`, and `prod`; disposable tests select their own unique `test-...` stage.
+An Alchemy profile selects provider authentication. A stage selects the application's resources and identities. They are independent. Pass `--profile default` or another existing profile explicitly. The stack requires `ARC_STAGE`, `APPLICATION_STAGE`, and `--stage` to agree. Its supported application stages are `local-<name>`, `staging`, and `prod`; disposable tests select their own unique `test-...` stage. Resident PR previews derive a stable `test-tenant-<8hex>-<12hex>` stage from the repository and PR number. Both test paths use synthetic identities.
 
 Keep the Cloudflare state control backend. It stores deployment state separately from each application's resources. Disposable test cleanup destroys the selected application stage and verifies its absence while retaining that backend.
 
@@ -20,7 +20,7 @@ The stack reads these names. The worker captures ordinary configuration and uses
 | `ARC_STAGE`, `APPLICATION_STAGE` | The same explicit stage. |
 | `ARC_ENVIRONMENT` | `personal` for local/staging; `production` for prod. |
 | `ARC_BUILD_REVISION` | The deployed Git revision. Health and registration compare it exactly. Default is `unreleased` for development. |
-| `ARC_PUBLIC_URL` | Required explicit HTTPS tunnel origin for local development. For cloud deployment, omit it or match the actual `Worker.URL` exactly. Set it to the deployed origin for operator commands and release sync. |
+| `ARC_PUBLIC_URL` | Required explicit HTTPS tunnel origin for local development. For staging and production, preserve the exact working HTTPS origin from the deployed `Worker.URL`. The release workflow requires it before deployment. A missing value caused the first production runtime failure until it was configured and redeployed. |
 | `TWITCH_SENDER_KIND` | `personal` for local/staging; `bot` for prod. |
 | `TWITCH_SENDER_LOGIN` | Lowercase sender login. Setup resolves it to an ID. |
 | `TWITCH_CHANNEL_LOGINS` | Comma-separated lowercase manual logins. Local/staging requires exactly the personal sender login. Production supports up to 32 configured channels. |
@@ -82,9 +82,11 @@ bun run test
 bun run deploy --stage staging --profile default --env-file .env.staging --yes
 ```
 
-Alchemy derives the deployed callback origin from `Worker.URL`. If `ARC_PUBLIC_URL` is present, it must match that origin. Read the deployment output and set the operator file's `ARC_PUBLIC_URL` to that exact HTTPS origin. Inspect its `/health` and compare stage, revision, and manifest hash before registration.
+Keep `ARC_PUBLIC_URL` equal to the exact working deployed origin. Do not guess a workers.dev hostname or overwrite the existing production value. Missing `ARC_PUBLIC_URL` caused the first production runtime failure. Setting the exact URL and redeploying repaired it. For a new cloud service, read the actual stack output, configure that exact origin, and redeploy before registration. Inspect `/health` and compare stage, revision, and manifest hash.
 
-The Release workflow accepts only explicit `staging` or `prod` and an application ID. It serializes by Discord application ID, deploys the selected revision, and then registers the global manifest automatically. Registration checks the deployed stage, revision, ready status, and hash before and after operations. It compares all global commands with full localization dictionaries and reads back an overwrite. A partial release leaves the deployment running and reports incomplete registration.
+The Release workflow accepts only explicit `staging` or `prod` and an application ID. Successful CI on a `main` push calls the same workflow with the exact checked SHA and repository variable `PROD_DISCORD_APPLICATION_ID`. Manual production dispatch must select `main`; staging dispatch uses its existing environment. Both paths serialize by application ID and require the environment's `DISCORD_APPLICATION_ID` to match the input. Automatic releases recheck the current main head after acquiring the lock and immediately before deployment. The workflow checks out the exact revision, deploys it, and registers the global manifest. Registration checks the deployed stage, revision, ready status, and hash before and after operations. It compares all global commands with full localization dictionaries and reads back an overwrite. A partial release leaves the deployment running and reports incomplete registration. Repair through the same Release workflow at the intended branch revision.
+
+Follow [the CI/CD bootstrap guide](ci-cd-bootstrap.md) before enabling automatic releases. Populate the existing bot application variables and secrets privately in `prod` and `staging`. Preserve the current portal callbacks and Twitch grants. Remote CI/CD activation remains UNVERIFIED until bootstrap, environment configuration, and real workflow runs succeed. See [the CI/CD verification record](verification/alchemy-cicd.md) for local evidence and rollout limits.
 
 For manual registration or repair, export the actual deployed origin and the exact revision that just deployed. The protected file must agree with them. If you deployed the current checkout:
 
@@ -133,6 +135,26 @@ bun run test:cloud:cleanup test-tenant-WORKTREE-RUN
 ```
 
 Replace the example with the exact printed stage. Recovery requires `.cloud-tests/<stage>/run.json` and the same Cloudflare account/profile. Successful cleanup verifies zero matching Workers, zero matching namespaces, and absent stage state/output. CI preserves JSON recovery artifacts even on failure. CI expects `CLOUDFLARE_TEST_ACCOUNT_ID` as a variable and `CLOUDFLARE_TEST_API_TOKEN` as a secret. Remote GitHub settings and execution remain NOT VERIFIED unless separately inspected and run.
+
+## Recover a resident synthetic PR preview
+
+A trusted PR gets a resident synthetic service after all CI checks, including the random disposable cloud suite, pass. Its seven Workers use the existing tenant test composition. No real Twitch or Discord application is registered or authorized. The marked PR comment records the URL, checked merge SHA, PR head SHA, and stage. Fixture data belongs to that PR and may survive pushes and reopening.
+
+Each preview first deploys to obtain the actual output URL, then redeploys with that exact `ARC_PUBLIC_URL`. Publication requires health at the checked revision. This path does not assume that a blank origin works at runtime. Fork PRs run local checks and explicitly skip cloud acceptance and preview deployment.
+
+Closing the PR runs cleanup independently of CI. Cleanup checks out `main`, reads the current PR state, derives the same stage without old artifacts, and verifies zero Workers, zero namespaces, and absent stage state and output. It keeps the shared state backend. Deploy and cleanup share a repository and PR lock. A queued deploy that observes closure performs cleanup instead. A changed head or merge revision stops URL publication.
+
+After the implementation reaches `main`, retry failed close cleanup through **Remove synthetic preview**, supplying the closed PR number. For local recovery, check out the reviewed implementation. Inject the test account/token and a GitHub token privately. Set `GITHUB_REPOSITORY=PlagueFPS/arc-tools`, then run:
+
+```bash
+bun --no-env-file run preview:cleanup --pr 10
+```
+
+Replace `10` with the closed PR number. The command accepts PR identity only, requires the PR to be closed, and regenerates `.cloud-tests/<stage>/run.json` before cloud mutations. It does not accept arbitrary `prod`, `staging`, or `local-*` targets. It needs `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `GITHUB_TOKEN` in the process environment. The workflow supplies test credentials from `CLOUDFLARE_TEST_ACCOUNT_ID` and `CLOUDFLARE_TEST_API_TOKEN`. Use a GitHub token that can read PRs and update their comments.
+
+During initial rollout, `main` may lack `scripts/preview.ts`. Close cleanup then fails with an explicit message that no cleanup occurred. Run the command above from the reviewed implementation, or land the implementation and dispatch cleanup. A deleted PR branch is not needed. Do not execute downloaded recovery artifacts.
+
+Failed jobs retain `run.json`, resource evidence when available, and `preview-result.json`. Existing `test:cloud:cleanup <exact-stage>` also accepts the regenerated journal when you restore it locally. Use the same test account and profile. That lower-level recovery verifies strict destruction but does not update the PR comment. A failed first deployment may have no output or resource journal; strict cleanup scans the seven exact stage worker names as a fallback. There is no periodic orphan collector. Retain failed workflow artifacts and explicitly retry cleanup.
 
 ## Understand launch bounds
 

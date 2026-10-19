@@ -2,7 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { Schema } from "effect";
-import { CloudSettings, cloudSettings } from "./cloud-settings.js";
+import {
+  CloudSettings,
+  cloudSettings,
+  syntheticEnvironment,
+} from "./cloud-settings.js";
 
 const suite =
   process.argv[2] === "tenant"
@@ -56,34 +60,7 @@ await writeFile(
 if (process.env.GITHUB_OUTPUT && !cleanupOnly) {
   await appendFile(process.env.GITHUB_OUTPUT, `stage=${settings.stage}\n`);
 }
-const inherited = Object.fromEntries(
-  Object.entries(process.env).filter(
-    ([key]) => !/^(TWITCH_|DISCORD_|ARC_|OPERATOR_)/.test(key),
-  ),
-);
-const env = {
-  ...inherited,
-  CI: process.env.CI ?? "false",
-  ALCHEMY_PROFILE: settings.profile,
-  ALCHEMY_TEST_STAGE: settings.stage,
-  ARC_CLOUD_STAGE: settings.stage,
-  ARC_CLOUD_RUN: settings.run,
-  ARC_STAGE: settings.stage,
-  APPLICATION_STAGE: settings.stage,
-  ARC_ENVIRONMENT: "test",
-  TWITCH_SENDER_KIND: "synthetic",
-  TWITCH_SENDER_LOGIN: "fixture_sender",
-  TWITCH_CHANNEL_LOGINS: "fixture_channel",
-  TWITCH_CLIENT_ID: "fixture-twitch",
-  DISCORD_APPLICATION_ID: "fixture-discord",
-  TWITCH_CLIENT_SECRET: "fixture-secret",
-  TWITCH_SIGNING_SECRET: "fixture-signing",
-  DISCORD_BOT_TOKEN: "fixture-token",
-  DISCORD_PUBLIC_KEY:
-    "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
-  OPERATOR_SECRET: "fixture-operator",
-};
-cloudSettings(env);
+const env = syntheticEnvironment(process.env, settings);
 console.info(
   `Cloudflare ${suite} stage ${settings.stage}, profile ${settings.profile}`,
 );

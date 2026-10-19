@@ -1,0 +1,354 @@
+import { describe, expect, test } from "bun:test";
+import { Schema } from "effect";
+
+const expression = (value: string) => `\${{ ${value} }}`;
+
+const Strings = Schema.Record(Schema.String, Schema.String);
+const Step = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  id: Schema.optional(Schema.String),
+  if: Schema.optional(Schema.String),
+  uses: Schema.optional(Schema.String),
+  run: Schema.optional(Schema.String),
+  env: Schema.optional(Strings),
+  with: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+});
+const Job = Schema.Struct({
+  needs: Schema.optional(Schema.String),
+  if: Schema.optional(Schema.String),
+  uses: Schema.optional(Schema.String),
+  environment: Schema.optional(Schema.String),
+  concurrency: Schema.optional(
+    Schema.Struct({
+      group: Schema.String,
+      "cancel-in-progress": Schema.Boolean,
+    }),
+  ),
+  permissions: Schema.optional(Strings),
+  env: Schema.optional(Strings),
+  with: Schema.optional(Strings),
+  steps: Schema.optional(Schema.Array(Step)),
+});
+const Workflow = Schema.Struct({
+  on: Schema.Record(Schema.String, Schema.Unknown),
+  jobs: Schema.Record(Schema.String, Job),
+});
+async function load(name: string) {
+  return Schema.decodeUnknownSync(Workflow)(
+    Bun.YAML.parse(
+      await Bun.file(
+        new URL(`../.github/workflows/${name}.yml`, import.meta.url),
+      ).text(),
+    ),
+  );
+}
+const ci = await load("ci");
+const release = await load("release");
+const cleanup = await load("preview-cleanup");
+function job(workflow: typeof Workflow.Type, name: string) {
+  const value = workflow.jobs[name];
+  if (!value) throw new Error(`Missing job ${name}`);
+  return value;
+}
+function step(workflow: typeof Workflow.Type, jobName: string, name: string) {
+  const value = job(workflow, jobName).steps?.find(
+    (step) => step.name === name,
+  );
+  if (!value) throw new Error(`Missing step ${name}`);
+  return value;
+}
+const trigger = Schema.Struct({
+  branches: Schema.Array(Schema.String),
+  types: Schema.Array(Schema.String),
+});
+function enabled(
+  expression: string | undefined,
+  github: unknown,
+  inputs: unknown = {},
+) {
+  if (!expression) return true;
+  return (
+    new Function("github", "inputs", `return (${expression});`)(
+      github,
+      inputs,
+    ) === true
+  );
+}
+function context(eventName: string, fork = false, action = "synchronize") {
+  return {
+    event_name: eventName,
+    repository: "PlagueFPS/arc-tools",
+    ref: "refs/heads/main",
+    event: {
+      number: 10,
+      action,
+      pull_request: {
+        head: {
+          repo: { full_name: fork ? "fork/arc-tools" : "PlagueFPS/arc-tools" },
+        },
+      },
+    },
+  };
+}
+
+const revision = "a".repeat(40);
+const app = "123456789";
+const guard = step(
+  release,
+  "release",
+  "Guard release origin and identity after acquiring the lock",
+);
+async function runGuard(
+  overrides: Record<string, string> = {},
+  eventName = "push",
+  ref = "refs/heads/main",
+  currentHead = revision,
+) {
+  const script = Schema.decodeUnknownSync(Schema.String)(guard.with?.script);
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  await new AsyncFunction("github", "context", "process", script)(
+    {
+      rest: {
+        git: {
+          getRef: async () => ({ data: { object: { sha: currentHead } } }),
+        },
+      },
+    },
+    {
+      eventName,
+      ref,
+      sha: revision,
+      repo: { owner: "PlagueFPS", repo: "arc-tools" },
+    },
+    {
+      env: {
+        ARC_STAGE: "prod",
+        ARC_BUILD_REVISION: revision,
+        RELEASE_APPLICATION_ID: app,
+        DISCORD_APPLICATION_ID: app,
+        ARC_PUBLIC_URL: "https://existing.invalid",
+        ...overrides,
+      },
+    },
+  );
+}
+
+describe("workflow event and dependency behavior", () => {
+  test("missing trusted cloud settings fail with actionable names without printing credentials", async () => {
+    const command = step(ci, "ci", "Require trusted cloud configuration").run;
+    if (!command) throw new Error("Missing cloud configuration command");
+    for (const [account, token, code, message] of [
+      ["", "CANARY", 1, "CLOUDFLARE_TEST_ACCOUNT_ID"],
+      ["fixture-account", "", 1, "CLOUDFLARE_TEST_API_TOKEN"],
+      ["fixture-account", "CANARY", 0, ""],
+    ] as const) {
+      const child = Bun.spawn(["/bin/bash", "-c", command], {
+        env: { CLOUDFLARE_ACCOUNT_ID: account, CLOUDFLARE_API_TOKEN: token },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [actual, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      expect(actual).toBe(code);
+      expect(stdout + stderr).toContain(message);
+      expect(stdout + stderr).not.toContain("CANARY");
+    }
+  });
+  test("PR check and close events are separate, cleanup never depends on CI, and no PR target executes code", () => {
+    const checks = Schema.decodeUnknownSync(trigger)(ci.on.pull_request);
+    expect(checks).toEqual({
+      branches: ["main"],
+      types: ["opened", "reopened", "synchronize"],
+    });
+    expect(
+      Schema.decodeUnknownSync(trigger)(cleanup.on.pull_request).types,
+    ).toEqual(["closed"]);
+    expect(job(cleanup, "cleanup").needs).toBeUndefined();
+    for (const workflow of [ci, release, cleanup])
+      expect(workflow.on.pull_request_target).toBeUndefined();
+    expect(job(ci, "preview").needs).toBe("ci");
+    expect(job(ci, "release").needs).toBe("ci");
+    expect(job(ci, "release").uses).toBe("./.github/workflows/release.yml");
+  });
+  test("trusted push and PR checks require credentials; forks explicitly skip cloud and preview", () => {
+    const credentialCheck = step(
+      ci,
+      "ci",
+      "Require trusted cloud configuration",
+    );
+    const cloud = step(ci, "ci", "Real Cloudflare integration tests");
+    for (const [
+      eventName,
+      fork,
+      cloudExpected,
+      previewExpected,
+      releaseExpected,
+    ] of [
+      ["push", false, true, false, true],
+      ["pull_request", false, true, true, false],
+      ["pull_request", true, false, false, false],
+    ] as const) {
+      const github = context(eventName, fork);
+      expect(enabled(credentialCheck.if, github)).toBe(cloudExpected);
+      expect(enabled(cloud.if, github)).toBe(cloudExpected);
+      expect(enabled(job(ci, "preview").if, github)).toBe(previewExpected);
+      expect(enabled(job(ci, "release").if, github)).toBe(releaseExpected);
+      expect(enabled(step(ci, "ci", "Explain fork isolation").if, github)).toBe(
+        fork,
+      );
+    }
+    for (const name of [
+      "CLOUDFLARE_TEST_ACCOUNT_ID",
+      "CLOUDFLARE_TEST_API_TOKEN",
+    ])
+      expect(credentialCheck.run).toContain(name);
+    expect(cloud.run).toBe("bun --no-env-file run test:cloud");
+    expect(step(ci, "ci", "Retry disposable Cloudflare cleanup").if).toContain(
+      "always()",
+    );
+    expect(step(ci, "ci", "Preserve cleanup recovery identity").if).toContain(
+      "always()",
+    );
+    for (const result of ["failure", "cancelled", "skipped"]) {
+      for (const downstream of ["preview", "release"]) {
+        const dependency = job(ci, downstream).needs;
+        const outcomes = { ci: result };
+        expect(dependency === "ci" && outcomes.ci === "success").toBeFalse();
+      }
+    }
+  });
+  test("preview deploy and cleanup share repository and PR locks, preserve recovery, and grant comment writes only to their jobs", () => {
+    const deploy = job(ci, "preview");
+    const close = job(cleanup, "cleanup");
+    const expand = (value: string, github: unknown, inputs = {}) =>
+      value.replace(/\$\{\{\s*(.*?)\s*\}\}/g, (_, expression) =>
+        String(
+          new Function("github", "inputs", `return (${expression});`)(
+            github,
+            inputs,
+          ),
+        ),
+      );
+    expect(
+      expand(deploy.concurrency?.group ?? "", context("pull_request")),
+    ).toBe(
+      expand(
+        close.concurrency?.group ?? "",
+        context("pull_request", false, "closed"),
+      ),
+    );
+    const manual = context("workflow_dispatch");
+    const manualContext = {
+      ...manual,
+      event: { ...manual.event, number: undefined },
+    };
+    expect(
+      expand(close.concurrency?.group ?? "", manualContext, { pr: "10" }),
+    ).toBe(expand(deploy.concurrency?.group ?? "", context("pull_request")));
+    for (const value of [deploy, close]) {
+      expect(value.concurrency?.["cancel-in-progress"]).toBeFalse();
+      expect(value.permissions?.["pull-requests"]).toBe("write");
+      expect(
+        value.steps?.find((step) => step.uses === "actions/upload-artifact@v4")
+          ?.if,
+      ).toBe("always()");
+    }
+    expect(job(ci, "ci").permissions?.["pull-requests"]).toBeUndefined();
+    expect(
+      job(release, "release").permissions?.["pull-requests"],
+    ).toBeUndefined();
+    expect(
+      step(cleanup, "cleanup", "Checkout trusted cleanup code").with?.ref,
+    ).toBe("main");
+    expect(
+      step(cleanup, "cleanup", "Require installed cleanup implementation").run,
+    ).toContain("No cleanup was performed");
+    for (const workflow of [ci, cleanup])
+      for (const value of Object.values(workflow.jobs))
+        for (const entry of value.steps ?? []) {
+          expect(entry.run ?? "").not.toContain("${{");
+          expect(entry.env?.DISCORD_BOT_TOKEN).toBeUndefined();
+          expect(entry.env?.TWITCH_CLIENT_SECRET).toBeUndefined();
+        }
+  });
+  test("single release owner pins checkout and build identity, environment, application lock, and partial-failure summary", () => {
+    expect(release.on.workflow_call).toBeDefined();
+    expect(release.on.workflow_dispatch).toBeDefined();
+    expect(release.on.push).toBeUndefined();
+    const owner = job(release, "release");
+    expect(owner.environment).toBe(expression("inputs.stage"));
+    expect(owner.concurrency).toEqual({
+      group: `arc-discord-${expression("inputs.application_id")}`,
+      "cancel-in-progress": false,
+    });
+    expect(owner.env?.ARC_BUILD_REVISION).toBe(
+      expression("inputs.revision || github.sha"),
+    );
+    expect(
+      owner.steps?.find((entry) => entry.uses === "actions/checkout@v4")?.with
+        ?.ref,
+    ).toBe(owner.env?.ARC_BUILD_REVISION);
+    expect(job(ci, "release").with).toEqual({
+      stage: "prod",
+      application_id: expression("vars.PROD_DISCORD_APPLICATION_ID"),
+      revision: expression("github.sha"),
+    });
+    expect(step(release, "release", "Report partial release").if).toContain(
+      "steps.deploy.outcome == 'success'",
+    );
+    expect(
+      step(release, "release", "Synchronize this release's global commands")
+        .run,
+    ).toContain('--revision "$ARC_BUILD_REVISION" --wait');
+    expect(
+      step(release, "release", "Recheck main immediately before deployment").if,
+    ).toBe("github.event_name == 'push'");
+  });
+});
+
+describe("executed release origin and revision guard", () => {
+  test("checked main push and manual main production or manual staging pass", async () => {
+    await runGuard();
+    await runGuard({}, "workflow_dispatch");
+    await runGuard(
+      { ARC_STAGE: "staging" },
+      "workflow_dispatch",
+      "refs/heads/repair",
+    );
+  });
+  test("PR origins, stale automatic commits, arbitrary revisions, wrong application IDs, and missing or invalid origins fail", async () => {
+    for (const event of ["pull_request", "pull_request_target", "workflow_run"])
+      await expect(runGuard({}, event)).rejects.toThrow("PR origins");
+    await expect(runGuard({}, "push", "refs/heads/other")).rejects.toThrow(
+      "exact checked main",
+    );
+    await expect(
+      runGuard({}, "workflow_dispatch", "refs/heads/other"),
+    ).rejects.toThrow("Manual production");
+    await expect(
+      runGuard({}, "push", "refs/heads/main", "b".repeat(40)),
+    ).rejects.toThrow("Stale automatic");
+    await expect(
+      runGuard({ ARC_BUILD_REVISION: "b".repeat(40) }),
+    ).rejects.toThrow("exact checked main");
+    await expect(
+      runGuard({ ARC_BUILD_REVISION: "a".repeat(7) }),
+    ).rejects.toThrow("full SHA");
+    await expect(
+      runGuard({ DISCORD_APPLICATION_ID: "987654321" }),
+    ).rejects.toThrow("application_id");
+    await expect(runGuard({ RELEASE_APPLICATION_ID: "" })).rejects.toThrow(
+      "PROD_DISCORD_APPLICATION_ID",
+    );
+    for (const origin of [
+      "",
+      "https://example.invalid/path",
+      "http://example.invalid",
+      "https://example.invalid/",
+    ])
+      await expect(runGuard({ ARC_PUBLIC_URL: origin })).rejects.toThrow();
+  });
+});

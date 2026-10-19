@@ -28,7 +28,9 @@ bun run lint
 bun run test
 ```
 
-The default tests include the eight strict cloud-helper cases. The separate `bun run test:cloud` suite deploys disposable real Cloudflare resources and verifies teardown. It requires Cloudflare credentials or an authenticated Alchemy profile and never silently skips missing credentials.
+The default tests include strict cloud-helper, local CLI, preview lifecycle, and workflow guard cases. The separate `bun run test:cloud` suite deploys disposable real Cloudflare resources and verifies teardown. It requires Cloudflare credentials or an authenticated Alchemy profile and never silently skips missing credentials.
+
+Successful trusted PR checks publish a resident synthetic service preview. A successful `main` push calls the single Release workflow for production. Fork PRs run local checks without cloud credentials. Configure [CI/CD bootstrap](docs/ci-cd-bootstrap.md) and the existing environment applications before activation. Remote CI/CD remains UNVERIFIED until operator setup and real workflow runs succeed. [The CI/CD record](docs/verification/alchemy-cicd.md) lists the local checks and rollout limits.
 
 For development, deployment, Twitch authorization, health/status, and Discord registration, follow [the operator guide](docs/operator-guide.md). Copy [.env.example](.env.example) for public configuration placeholders and inject secrets privately.
 
