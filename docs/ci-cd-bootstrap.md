@@ -1,10 +1,12 @@
 # Bootstrap GitHub deployment credentials
 
-Use `stacks/github.ts` to provision Cloudflare credentials for `PlagueFPS/arc-tools` through Alchemy. This follows the credential bootstrap in [Alchemy tutorial part 5](https://alchemy.run/cloudflare/tutorial/part-5/). The repository pins Alchemy `2.0.0-beta.83`, Effect `4.0.4`, and Bun `1.3.5`.
+Use `stacks/github.ts` to provision one Cloudflare CI token for `PlagueFPS/arc-tools` through Alchemy. The stack uses the single account selected by the `admin` profile for both bootstrap state and CI. This follows the credential bootstrap in [Alchemy tutorial part 5](https://alchemy.run/cloudflare/tutorial/part-5/). The repository pins Alchemy `2.0.0-beta.83`, Effect `4.0.4`, and Bun `1.3.5`.
 
 Run these steps after code review. The stack creates credentials and GitHub configuration. It does not release either bot or change Discord or Twitch portal settings.
 
 ## Prepare the admin profile
+
+If your `admin` profile already has Cloudflare and GitHub configured, use it immediately. Continue to [Set the required public input](#set-the-required-public-input).
 
 Install the pinned dependencies from the repository root.
 
@@ -22,27 +24,25 @@ bunx --no-install alchemy profile edit --config stacks/github.ts --profile admin
 
 If `admin` already exists, skip creation. To change an existing provider, replace `--add` with `--reconfigure`.
 
-For Cloudflare, select API Token or API Key, not OAuth. Use an appropriately privileged administrator on each target account. Cloudflare requires either API Token Provisioning capabilities or Super Administrator status to [create account-owned tokens](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/). The creator can grant only permissions they hold on that account.
+For Cloudflare, select API Token or API Key, not OAuth. Use an appropriately privileged administrator on the profile account. Cloudflare requires either API Token Provisioning capabilities or Super Administrator status to [create account-owned tokens](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/). The creator can grant only permissions they hold on that account.
 
-On each target account, the admin credential needs [Account API Tokens Write](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/create/) and all three minted permission groups, `Workers Scripts Write`, `Secrets Store Read`, and `Secrets Store Write`. This applies to both target accounts when they differ. Separately, the credential needs those three Workers and Secrets Store groups in the profile account for `Cloudflare.state()`. Keep token-management authority on this operator profile. Neither minted CI token receives that authority.
+On the profile account, the admin credential needs [Account API Tokens Write](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/create/) and all three minted permission groups, `Workers Scripts Write`, `Secrets Store Read`, and `Secrets Store Write`. Those three Workers and Secrets Store groups also support `Cloudflare.state()` on the same account. Keep token-management authority on this operator profile. The CI token does not receive that authority.
 
 For GitHub, select `gh-cli` with an authenticated GitHub CLI session, or enter a personal access token privately. The GitHub identity needs access to `PlagueFPS/arc-tools` and rights to manage its Actions secrets, variables, environments, and deployment branch policies. A classic token needs `repo` scope. For a fine-grained token, grant repository write permissions for [Administration](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment), [Secrets](https://docs.github.com/en/rest/actions/secrets#create-or-update-a-repository-secret), [Variables](https://docs.github.com/en/rest/actions/variables#create-a-repository-variable), and [Environments](https://docs.github.com/en/rest/actions/secrets#create-or-update-an-environment-secret). Enter credentials in the provider prompts, never in checked-in files or command arguments.
 
-The profile account owns the bootstrap state for stack `github`, stage `admin`. The application stack remains `arc-tools`. The two stacks share an account state backend only when their accounts match. Select a profile account outside the test account to keep bootstrap state out of the test account's control.
+The profile account owns the bootstrap state for stack `github`, stage `admin`. The application stack remains `arc-tools`. Both stacks use the same account state backend.
 
-## Set the required public inputs
+## Set the required public input
 
-Export both target account IDs and the existing production Discord application ID in your shell.
+Export the existing production Discord application ID in your shell. This is the only required public input.
 
 ```bash
-export TEST_CLOUDFLARE_ACCOUNT_ID='<32-character lowercase hexadecimal test account ID>'
-export PROD_CLOUDFLARE_ACCOUNT_ID='<32-character lowercase hexadecimal production account ID>'
 export PROD_DISCORD_APPLICATION_ID='<existing production Discord application ID>'
 ```
 
-Both account inputs are required, even when they are equal. The stack validates their format and requires a 17-to-20-digit Discord application ID. The admin credential must have access to both target accounts if they differ. These inputs do not change the profile account used for bootstrap state.
+The stack requires a 17-to-20-digit Discord application ID. It reads the account ID from the existing admin profile, so no account ID inputs are needed.
 
-Two tokens on the same account do not isolate Workers by name. A repository pull request with the test token's Workers Scripts Write permission can edit production Workers and the shared state backend on that account. Separate test and production accounts provide the stronger boundary. Keep the bootstrap profile account outside the test account when using that boundary.
+Stages do not isolate authority within the account. A repository pull request with the CI token's `Workers Scripts Write` permission can edit production Workers and the shared state backend on that account.
 
 ## Provision the credentials
 
@@ -52,7 +52,7 @@ Run this command from the repository root. Use `--config` for the file and `--st
 bunx --no-install alchemy deploy --config stacks/github.ts --profile admin --stage admin --yes
 ```
 
-Expect two distinct account-owned tokens, `arc-tools-test-ci` and `arc-tools-prod-ci`, even when the account IDs match. Each policy grants the following groups on `com.cloudflare.api.account.<its-account-id>: *`.
+Expect one account-owned token, `arc-tools-ci`. Its policy grants the following groups only on `com.cloudflare.api.account.<profile-account-id>: *`.
 
 - `Workers Scripts Write` covers [Worker upload](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/update/) and removal. Cloudflare also accepts it for [account subdomain lookup](https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/get/) and [Durable Object namespace inspection](https://developers.cloudflare.com/api/resources/durable_objects/subresources/namespaces/methods/list/).
 - `Secrets Store Read` permits [inspection of the state backend's Secrets Store](https://developers.cloudflare.com/api/resources/secrets_store/subresources/stores/methods/list/).
@@ -64,8 +64,8 @@ These groups are the proposed minimum for this repository. Local typechecking an
 
 In GitHub, verify these repository names exist under **Settings > Secrets and variables > Actions**.
 
-- Variable `CLOUDFLARE_TEST_ACCOUNT_ID` contains the test account ID.
-- Secret `CLOUDFLARE_TEST_API_TOKEN` receives the test token directly.
+- Variable `CLOUDFLARE_TEST_ACCOUNT_ID` contains the profile account ID.
+- Secret `CLOUDFLARE_TEST_API_TOKEN` receives the `arc-tools-ci` token directly.
 - Variable `PROD_DISCORD_APPLICATION_ID` contains the production Discord application ID.
 
 Under **Settings > Environments > prod**, verify the custom deployment branch policy allows only `main`. The bootstrap manages this branch policy. It does not automatically clear existing required reviewers, wait timers, or custom deployment protection rules.
@@ -81,15 +81,15 @@ Keep these rules if you want their protections. Releases then remain subject to 
 
 Verify the environment's configuration.
 
-- Variable `CLOUDFLARE_ACCOUNT_ID` contains the production account ID.
-- Secret `CLOUDFLARE_API_TOKEN` receives the distinct production token.
+- Variable `CLOUDFLARE_ACCOUNT_ID` contains the same profile account ID.
+- Secret `CLOUDFLARE_API_TOKEN` receives the same `arc-tools-ci` token.
 - Variable `DISCORD_APPLICATION_ID` matches repository variable `PROD_DISCORD_APPLICATION_ID`.
 - Variable `ARC_ENVIRONMENT` is `production`.
 - Variable `TWITCH_SENDER_KIND` is `bot`.
 
-The environment is named `prod`. `production` is the value of `ARC_ENVIRONMENT`. The existing CI expressions for `vars.CLOUDFLARE_TEST_ACCOUNT_ID` and `secrets.CLOUDFLARE_TEST_API_TOKEN` receive their missing credentials after bootstrap. Fork pull requests do not receive repository secrets.
+The environment is named `prod`. `production` is the value of `ARC_ENVIRONMENT`. The two GitHub secret names preserve the existing workflows and receive the same credential. They do not represent separate tokens. Both account variables likewise receive the same account ID. The existing CI expressions for `vars.CLOUDFLARE_TEST_ACCOUNT_ID` and `secrets.CLOUDFLARE_TEST_API_TOKEN` receive their missing credentials after bootstrap. Fork pull requests do not receive repository secrets.
 
-Alchemy passes each redacted token value directly to `GitHub.Secret`. Stack outputs contain only account IDs and token IDs. Alchemy persists the token value in state because Cloudflare reveals it only at creation. Treat access to the state backend and its authentication and encryption secrets as access to the stored tokens.
+Alchemy passes the same redacted token value directly to both `GitHub.Secret` resources. Stack outputs contain only `accountId` and `tokenId`. Alchemy persists the token value in state because Cloudflare reveals it only at creation. Treat access to the state backend and its authentication and encryption secrets as access to the stored token.
 
 ## Enter the existing production application configuration
 
@@ -122,7 +122,7 @@ Keep stack `github`, stage `admin`, the same profile account, and the resource I
 
 A crash after Cloudflare creates a token but before Alchemy persists its state can leave an orphan. Before retrying a failed creation, inspect account-owned tokens through the Cloudflare dashboard. Compare their nonsecret IDs with the recorded stack state, and revoke only the untracked duplicate. Names alone cannot distinguish duplicates. Alchemy cannot recover an orphan's one-time token value.
 
-Keep bootstrap state intact. Destroying this stack revokes its managed tokens and removes its managed GitHub resources. Do not use application test-stage cleanup against the bootstrap or its shared account state backend.
+Keep bootstrap state intact. Destroying this stack revokes its managed token and removes its managed GitHub resources. Do not use application test-stage cleanup against the bootstrap or its shared account state backend.
 
 ## Check local changes without deploying
 
