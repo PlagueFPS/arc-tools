@@ -1,7 +1,7 @@
 import { ArcData } from "@arctools/arc-data";
 import { makeFixture } from "@arctools/arc-data/testing";
 import { Effect, Schema } from "effect";
-import { makeTenant } from "../src/tenant.js";
+
 import { DiscordReceipt, TwitchReceipt } from "../src/tenant-contracts.js";
 import {
   emptyTenant,
@@ -9,6 +9,7 @@ import {
   TenantState,
   TenantStore,
 } from "../src/tenant-state.js";
+import { makeTenant } from "../src/tenant.js";
 import {
   type Account,
   AccountError,

@@ -1,4 +1,5 @@
 import { Effect, Redacted } from "effect";
+
 import { digest } from "./provider-http.js";
 
 export const subscriptionBinding = Effect.fnUntraced(function* (config: {

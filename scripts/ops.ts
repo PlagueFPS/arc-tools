@@ -1,5 +1,7 @@
 import { parseArgs } from "node:util";
+
 import { Effect, Redacted, Schema } from "effect";
+
 import { Stage } from "../apps/bot/src/config.js";
 import { syncCommands } from "../apps/bot/src/discord-sync.js";
 import { decodeBody, request } from "../apps/bot/src/provider-http.js";

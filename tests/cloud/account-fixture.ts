@@ -8,8 +8,8 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
 } from "effect/http-api";
+
 import { EnvironmentConfig, runtimeConfig } from "../../apps/bot/src/config.js";
-import { makeAccountRpc } from "../../apps/bot/src/twitch.js";
 import { subscriptionBinding } from "../../apps/bot/src/twitch-binding.js";
 import {
   Dispatch,
@@ -18,6 +18,7 @@ import {
 } from "../../apps/bot/src/twitch-contracts.js";
 import { makeProvider } from "../../apps/bot/src/twitch-provider.js";
 import { AccountState, policy } from "../../apps/bot/src/twitch-state.js";
+import { makeAccountRpc } from "../../apps/bot/src/twitch.js";
 import {
   CurrentValidationOrigin,
   observeValidations,

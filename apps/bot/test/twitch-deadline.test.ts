@@ -1,9 +1,11 @@
 import { expect } from "bun:test";
+
 import { ArcData } from "@arctools/arc-data";
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
+
 import {
   discordPublicKey,
   signTwitch,
@@ -13,9 +15,9 @@ import { BotApi } from "../src/api.js";
 import { AttemptId, Deadline } from "../src/contracts.js";
 import { ingressHandlers } from "../src/ingress.js";
 import { operatorHandlers } from "../src/operator.js";
-import { makeTenant } from "../src/tenant.js";
 import { Tenants } from "../src/tenant-contracts.js";
 import { TenantStore } from "../src/tenant-state.js";
+import { makeTenant } from "../src/tenant.js";
 import {
   type Account,
   Dispatch,

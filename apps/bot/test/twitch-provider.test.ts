@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Cause, Clock, Effect, Layer, Redacted, Schema } from "effect";
+
 import { Dispatch } from "../src/twitch-contracts.js";
 import { makeProvider } from "../src/twitch-provider.js";
 

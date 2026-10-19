@@ -1,6 +1,8 @@
 import { describe, expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer } from "effect";
+
 import { buyHandler } from "../../src/handlers/buy.js";
 import { runWithMock } from "../utils.js";
 

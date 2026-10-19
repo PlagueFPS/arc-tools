@@ -9,19 +9,20 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
 } from "effect/http-api";
+
 import { runtimeConfig } from "../../apps/bot/src/config.js";
-import { makeTenant, makeTenantStorage } from "../../apps/bot/src/tenant.js";
 import {
   DiscordReceipt,
   TwitchReceipt,
 } from "../../apps/bot/src/tenant-contracts.js";
 import { TenantState, TenantStore } from "../../apps/bot/src/tenant-state.js";
-import type { TwitchAccountDO } from "../../apps/bot/src/twitch.js";
+import { makeTenant, makeTenantStorage } from "../../apps/bot/src/tenant.js";
 import {
   AccountError,
   DispatchOutcome,
   TwitchAccount,
 } from "../../apps/bot/src/twitch-contracts.js";
+import type { TwitchAccountDO } from "../../apps/bot/src/twitch.js";
 import { Bot } from "../../apps/bot/src/worker.js";
 import {
   ArcCacheDO,

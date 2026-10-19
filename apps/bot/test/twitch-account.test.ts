@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Deferred, Effect, Fiber, Layer, Schema } from "effect";
+
 import { EnvironmentConfig } from "../src/config.js";
 import { senderScopes } from "../src/twitch-account.js";
 import { Dispatch } from "../src/twitch-contracts.js";

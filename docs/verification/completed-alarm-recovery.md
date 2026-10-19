@@ -92,7 +92,6 @@ The two removed global acceptance assertions were `early global === baseline glo
 
 One disposable canonical tenant run is authorized after the local proof and source commit. Independent cleanup must verify zero Workers, zero namespaces, absent stage state/output, and retained control infrastructure. No second run is authorized if this run fails. The result and artifact hashes will be appended after that execution.
 
-
 ## Single canonical cloud result
 
 Source commit `387fe9b6a77996e58c0de5fb699cd653768650b3` ran exactly once using `bun run scripts/cloud-test.ts tenant`, `Cloudflare.state()`, and no `dev` flag. Stage `test-tenant-f334a8f9-724279c3748a` passed all 29 cases and 637 assertions. `result.json` records `testResult: 0` and `cleanupResult: 0`. There was no second deployment or whole-case retry.

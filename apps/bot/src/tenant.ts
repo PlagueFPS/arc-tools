@@ -13,6 +13,7 @@ import {
   Result,
   Schema,
 } from "effect";
+
 import { AttemptId, Deadline } from "./contracts.js";
 import {
   DiscordResponse,
@@ -45,8 +46,8 @@ import {
   tenantPolicy,
   type Work,
 } from "./tenant-state.js";
-import { bindAccount } from "./twitch.js";
 import { AccountError, Dispatch, TwitchAccount } from "./twitch-contracts.js";
+import { bindAccount } from "./twitch.js";
 
 type TwitchComputing = Extract<
   Work,

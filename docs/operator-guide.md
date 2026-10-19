@@ -15,20 +15,20 @@ Keep the Cloudflare state control backend. It stores deployment state separately
 
 The stack reads these names. The worker captures ordinary configuration and uses `Config.Redacted` for application secrets.
 
-| Public name | Value |
-| --- | --- |
-| `ARC_STAGE`, `APPLICATION_STAGE` | The same explicit stage. |
-| `ARC_ENVIRONMENT` | `personal` for local/staging; `production` for prod. |
-| `ARC_BUILD_REVISION` | The deployed Git revision. Health and registration compare it exactly. Default is `unreleased` for development. |
-| `ARC_PUBLIC_URL` | Required explicit HTTPS tunnel origin for local development. For staging and production, preserve the exact working HTTPS origin from the deployed `Worker.URL`. The release workflow requires it before deployment. A missing value caused the first production runtime failure until it was configured and redeployed. |
-| `TWITCH_SENDER_KIND` | `personal` for local/staging; `bot` for prod. |
-| `TWITCH_SENDER_LOGIN` | Lowercase sender login. Setup resolves it to an ID. |
-| `TWITCH_CHANNEL_LOGINS` | Comma-separated lowercase manual logins. Local/staging requires exactly the personal sender login. Production supports up to 32 configured channels. |
-| `TWITCH_CLIENT_ID` | This environment's Twitch application. |
-| `DISCORD_APPLICATION_ID` | This environment's Discord application. |
-| `DISCORD_PUBLIC_KEY` | That application's 64-hex-character Ed25519 verification key. |
-| `CLOUDFLARE_ACCOUNT_ID` | Target Cloudflare account. |
-| `ALCHEMY_PROFILE` | Optional authentication-profile selection when no explicit `--profile` is passed. |
+| Public name                      | Value                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ARC_STAGE`, `APPLICATION_STAGE` | The same explicit stage.                                                                                                                                                                                                                                                                                                 |
+| `ARC_ENVIRONMENT`                | `personal` for local/staging; `production` for prod.                                                                                                                                                                                                                                                                     |
+| `ARC_BUILD_REVISION`             | The deployed Git revision. Health and registration compare it exactly. Default is `unreleased` for development.                                                                                                                                                                                                          |
+| `ARC_PUBLIC_URL`                 | Required explicit HTTPS tunnel origin for local development. For staging and production, preserve the exact working HTTPS origin from the deployed `Worker.URL`. The release workflow requires it before deployment. A missing value caused the first production runtime failure until it was configured and redeployed. |
+| `TWITCH_SENDER_KIND`             | `personal` for local/staging; `bot` for prod.                                                                                                                                                                                                                                                                            |
+| `TWITCH_SENDER_LOGIN`            | Lowercase sender login. Setup resolves it to an ID.                                                                                                                                                                                                                                                                      |
+| `TWITCH_CHANNEL_LOGINS`          | Comma-separated lowercase manual logins. Local/staging requires exactly the personal sender login. Production supports up to 32 configured channels.                                                                                                                                                                     |
+| `TWITCH_CLIENT_ID`               | This environment's Twitch application.                                                                                                                                                                                                                                                                                   |
+| `DISCORD_APPLICATION_ID`         | This environment's Discord application.                                                                                                                                                                                                                                                                                  |
+| `DISCORD_PUBLIC_KEY`             | That application's 64-hex-character Ed25519 verification key.                                                                                                                                                                                                                                                            |
+| `CLOUDFLARE_ACCOUNT_ID`          | Target Cloudflare account.                                                                                                                                                                                                                                                                                               |
+| `ALCHEMY_PROFILE`                | Optional authentication-profile selection when no explicit `--profile` is passed.                                                                                                                                                                                                                                        |
 
 Inject `TWITCH_CLIENT_SECRET`, `TWITCH_SIGNING_SECRET`, `DISCORD_BOT_TOKEN`, and `OPERATOR_SECRET` privately. Cloudflare API-token authentication additionally uses `CLOUDFLARE_API_TOKEN`. The Discord bot token remains required for CLI command registration and drift checks even though interaction replies use the incoming HTTP response.
 

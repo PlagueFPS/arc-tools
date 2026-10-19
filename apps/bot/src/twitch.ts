@@ -9,6 +9,7 @@ import {
   Redacted,
   Schema,
 } from "effect";
+
 import { bindOrigin, runtimeConfig } from "./config.js";
 import { digest } from "./provider-http.js";
 import { makeAccount } from "./twitch-account.js";

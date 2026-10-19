@@ -76,7 +76,7 @@ export function createMockHttpClientLayer(mock: MockData) {
 
   const mockClient = HttpClient.make(
     (request: HttpClientRequest.HttpClientRequest) =>
-      Effect.gen(function* () {
+      Effect.sync(() => {
         const url = request.url;
         if (!url.startsWith(baseUrl)) {
           return HttpClientResponse.fromWeb(

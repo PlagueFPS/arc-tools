@@ -1,12 +1,13 @@
 import type { Effect } from "effect";
+
 import { activeHandler } from "./handlers/active.js";
 import { buyHandler } from "./handlers/buy.js";
 import { craftHandler } from "./handlers/craft.js";
 import { eventHandler } from "./handlers/event.js";
 import { findHandler } from "./handlers/find.js";
 import { lootHandler } from "./handlers/loot.js";
-import { recycleHandler } from "./handlers/recycle.js";
 import { recycleToHandler } from "./handlers/recycle-to.js";
+import { recycleHandler } from "./handlers/recycle.js";
 import { sellHandler } from "./handlers/sell.js";
 import { upcomingHandler } from "./handlers/upcoming.js";
 import type { CommandError } from "./lib/command-error.js";

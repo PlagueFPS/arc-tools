@@ -9,23 +9,23 @@ Unit 2 starts from accepted foundation `a1ff8e5` on branch `t3/unit2-data-and-ca
 The application service and existing domain operations come from `@arctools/arc-data`.
 
 ```ts
-import type { Effect } from "effect";
 import {
-	ArcData,
-	DataUnavailable,
-	fetchArc,
-	getEvents,
-	getItem,
-	getTraders,
-	selectEvent,
-	type Arc,
-	type Event,
-	type Item,
-	type TradersAPIResponse,
-	type DataRead,
-	type ItemAPIParams,
-	type ArcsAPIParams,
+  ArcData,
+  DataUnavailable,
+  fetchArc,
+  getEvents,
+  getItem,
+  getTraders,
+  selectEvent,
+  type Arc,
+  type Event,
+  type Item,
+  type TradersAPIResponse,
+  type DataRead,
+  type ItemAPIParams,
+  type ArcsAPIParams,
 } from "@arctools/arc-data";
+import type { Effect } from "effect";
 ```
 
 `ArcData` is a `Context.Service` with these methods. Each Effect requires no additional services after construction.

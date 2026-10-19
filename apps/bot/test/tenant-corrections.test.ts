@@ -1,7 +1,9 @@
 import { expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
+
 import { AttemptId, Deadline } from "../src/contracts.js";
 import { discordResponse, friendlyFailure } from "../src/presentation.js";
 import {

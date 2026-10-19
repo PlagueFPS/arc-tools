@@ -35,14 +35,16 @@ Real setup awaits signed webhook challenge/revocation ingress from unit 3. No pl
 `apps/bot/src/twitch-contracts.ts` exports `TwitchAccount`, `Dispatch`, `DispatchOutcome`, `OAuthCompletion`, `SubscriptionObservation`, `AccountStatus`, `SetupResult`, and `AccountError`. It reuses the foundation's `AttemptId`, `BroadcasterId`, and `Deadline` brands. `ReplyId` distinguishes the reply-parent message. The dispatch deadline is absolute Unix epoch milliseconds. Input text is nonempty and at most 500 characters. Unit 3 owns command-output presentation and stable attempts for any chunks. An ambiguous chunk stops subsequent chunks.
 
 ```ts
-const account = yield* TwitchAccount;
-const outcome = yield* account.dispatch({
-  attemptId,
-  broadcasterId,
-  replyParentId,
-  text,
-  deadline,
-});
+const account = yield * TwitchAccount;
+const outcome =
+  yield *
+  account.dispatch({
+    attemptId,
+    broadcasterId,
+    replyParentId,
+    text,
+    deadline,
+  });
 ```
 
 `sent` carries the provider message ID. `rejected` carries no private reason. `retryable` carries absolute `retryAt`, strictly before the original deadline. `ambiguous` and `expired` carry no message. Unit 3 must retain the same complete input across retries, wait until `retryAt`, and stop on a terminal result. An attempt reused with different content or deadline is rejected while retained. Terminal records last until ten minutes after the original deadline. Reclamation cannot repeat the original input because its absolute deadline has expired. This is bounded replay retention, not an unlimited history of arbitrary reused IDs.
@@ -100,7 +102,6 @@ Model the Domain put send intent, grant generation and credential claims in dura
 No delegates were spawned, no root orchestration playbook was run, and no root audit or accepted review document was edited. Root retains independent review and integration. The user required the approved design, so architecture alternatives, delegated comment review and delegated trail review were not run. Added application code contains no comments or suppressions. The final diff is inspected locally; this does not substitute for root review.
 
 Live Twitch authorization after onboarding-token expiry, real signed EventSub delivery/revocation, real chat receipt/latency, Discord initial-response privacy/timing, live nonproduction registration, CI execution, portal settings and launch cost remain NOT VERIFIED. No production or persistent staging deployment, real Twitch subscription, live Discord command registration, provider account change, push, merge or PR occurred. The full migration remains incomplete until unit 3, unit 5 and the live-provider gates pass.
-
 
 ## Final checks and handoff
 

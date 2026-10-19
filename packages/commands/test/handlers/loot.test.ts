@@ -1,6 +1,8 @@
 import { describe, expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer } from "effect";
+
 import { lootHandler } from "../../src/handlers/loot.js";
 import { arc } from "../fixtures.js";
 import { runWithMock } from "../utils.js";

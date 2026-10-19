@@ -1,5 +1,7 @@
 import { parseArgs } from "node:util";
+
 import { Effect, Redacted, Schema } from "effect";
+
 import { Stage } from "../apps/bot/src/config.js";
 import { manifestHash } from "../apps/bot/src/discord-manifest.js";
 import { ReleaseHealth, syncCommands } from "../apps/bot/src/discord-sync.js";

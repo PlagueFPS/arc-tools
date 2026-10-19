@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { ConfigProvider, Effect, Layer, Schema } from "effect";
+
 import { cloudSettings } from "../../../scripts/cloud-settings.js";
 import { botRequestObservation } from "../../../tests/cloud/bot-composition.js";
 import { EnvironmentConfig, runtimeConfig } from "../src/config.js";

@@ -10,9 +10,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
 import { Schema } from "effect";
+
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
-import { type PreviewOperations, reconcilePreview } from "./preview.js";
 import {
   CheckedPreview,
   PreviewStage,
@@ -21,6 +22,7 @@ import {
   previewDecision,
   previewIdentity,
 } from "./preview-identity.js";
+import { type PreviewOperations, reconcilePreview } from "./preview.js";
 
 const preview = previewIdentity({
   repository: "PlagueFPS/arc-tools",

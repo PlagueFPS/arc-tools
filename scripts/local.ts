@@ -4,7 +4,9 @@ import { constants } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
+
 import { ConfigProvider, Effect, Schema } from "effect";
+
 import { publicOrigin, runtimeConfig } from "../apps/bot/src/config.js";
 
 const LocalAction = Schema.Literals(["dev", "setup", "status", "sync"]);

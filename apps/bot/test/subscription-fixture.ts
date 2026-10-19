@@ -1,4 +1,5 @@
 import { Effect, Redacted, Schema } from "effect";
+
 import { EnvironmentConfig } from "../src/config.js";
 import { type AccountConfig, makeAccount } from "../src/twitch-account.js";
 import { subscriptionBinding } from "../src/twitch-binding.js";

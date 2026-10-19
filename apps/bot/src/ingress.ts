@@ -13,6 +13,7 @@ import {
 import { Hex } from "effect/encoding";
 import { type HttpServerRequest, HttpServerResponse } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
+
 import { BotApi } from "./api.js";
 import type { EnvironmentConfig } from "./config.js";
 import { BroadcasterId, GuildId } from "./contracts.js";

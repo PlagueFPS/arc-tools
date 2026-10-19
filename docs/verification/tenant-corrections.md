@@ -60,7 +60,6 @@ This is a concrete fixture correction before the second authorized deployment. P
 
 After that fixture correction, the complete uncached default suite passes 295 tests and 1,413 assertions. Build passes four tasks, typechecking passes seven tasks plus root TypeScript, and lint checks 144 files. The exact commands are unchanged and use pinned Bun 1.3.5. Logs are `.cloud-tests/corrections-run2-{tests,build,types,lint}.log`. `git diff --check` passes. These checks precede the second and final authorized run.
 
-
 ## Final correction cloud run
 
 Stage `test-tenant-50bfdf94-fc0a32c424fc` deployed `724ec90`. Application code is identical to `3b74ae0`; the intervening commits contain fixture regressions, their correction, and evidence. The pinned command was `bun run scripts/cloud-test.ts tenant`. It passed all 29 cases and 631 assertions in 147.46 seconds, including all 15 inherited canonical cases. Both process exits are zero. The suite used real Cloudflare Workers, SQLite-backed Durable Objects, native alarms, and `Cloudflare.state()`, without local emulation.
@@ -81,83 +80,83 @@ The stage journal records seven Workers and ten namespaces. Normal destruction r
 
 All values are milliseconds. Client remaining is 3,000 minus that sample's client elapsed time. The scopes are defined above. Codes are fixed diagnostic classifications, not raw causes.
 
-| Scenario | Result | Application | Client | Client remaining | Admission delta | Code |
-| --- | --- | ---: | ---: | ---: | ---: | --- |
-| first-http-cold-worker-tenant-cache | public useful | 1229 | 1556.845 | 1443.155 | 363 | success |
-| allocation-positive | public useful | 730 | 762.155 | 2237.845 | 541 | success |
-| allocation-stored-duplicate | public useful | 23 | 64.938 | 2935.062 | -63 | recorded |
-| cold-cache-cold-tenant | public useful | 504 | 543.366 | 2456.634 | 325 | success |
-| warm-cache-warm-tenant | public useful | 73 | 112.474 | 2887.526 | -16 | success |
-| warm-cache-warm-tenant | public useful | 98 | 140.710 | 2859.290 | -16 | success |
-| warm-cache-warm-tenant | public useful | 76 | 119.945 | 2880.055 | -30 | success |
-| command-buy | public useful | 432 | 497.946 | 2502.054 | 271 | success |
-| command-loot | public useful | 146 | 233.282 | 2766.718 | 8 | success |
-| command-craft | public useful | 157 | 190.700 | 2809.300 | 19 | success |
-| command-find | public useful | 72 | 104.021 | 2895.979 | 14 | success |
-| command-sell | public useful | 70 | 102.480 | 2897.520 | 16 | success |
-| command-recycle | public useful | 63 | 95.661 | 2904.339 | 8 | success |
-| command-recycleto | public useful | 69 | 102.850 | 2897.150 | 15 | success |
-| command-event | public useful | 157 | 201.049 | 2798.951 | 23 | success |
-| command-active | public useful | 65 | 101.379 | 2898.621 | 13 | success |
-| command-upcoming | public useful | 69 | 107.214 | 2892.786 | 12 | success |
-| slow | intended private error | 2242 | 2278.789 | 721.211 | 328 | command-error |
-| missing | intended private error | 578 | 613.767 | 2386.233 | 391 | command-error |
-| malformed | intended private error | 464 | 510.275 | 2489.725 | 297 | command-error |
-| concurrent-original | public useful | 1534 | 1563.366 | 1436.634 | 278 | success |
-| concurrent-duplicate | public useful | 1146 | 1464.235 | 1535.765 | 38 | recorded |
+| Scenario                            | Result                 | Application |   Client | Client remaining | Admission delta | Code          |
+| ----------------------------------- | ---------------------- | ----------: | -------: | ---------------: | --------------: | ------------- |
+| first-http-cold-worker-tenant-cache | public useful          |        1229 | 1556.845 |         1443.155 |             363 | success       |
+| allocation-positive                 | public useful          |         730 |  762.155 |         2237.845 |             541 | success       |
+| allocation-stored-duplicate         | public useful          |          23 |   64.938 |         2935.062 |             -63 | recorded      |
+| cold-cache-cold-tenant              | public useful          |         504 |  543.366 |         2456.634 |             325 | success       |
+| warm-cache-warm-tenant              | public useful          |          73 |  112.474 |         2887.526 |             -16 | success       |
+| warm-cache-warm-tenant              | public useful          |          98 |  140.710 |         2859.290 |             -16 | success       |
+| warm-cache-warm-tenant              | public useful          |          76 |  119.945 |         2880.055 |             -30 | success       |
+| command-buy                         | public useful          |         432 |  497.946 |         2502.054 |             271 | success       |
+| command-loot                        | public useful          |         146 |  233.282 |         2766.718 |               8 | success       |
+| command-craft                       | public useful          |         157 |  190.700 |         2809.300 |              19 | success       |
+| command-find                        | public useful          |          72 |  104.021 |         2895.979 |              14 | success       |
+| command-sell                        | public useful          |          70 |  102.480 |         2897.520 |              16 | success       |
+| command-recycle                     | public useful          |          63 |   95.661 |         2904.339 |               8 | success       |
+| command-recycleto                   | public useful          |          69 |  102.850 |         2897.150 |              15 | success       |
+| command-event                       | public useful          |         157 |  201.049 |         2798.951 |              23 | success       |
+| command-active                      | public useful          |          65 |  101.379 |         2898.621 |              13 | success       |
+| command-upcoming                    | public useful          |          69 |  107.214 |         2892.786 |              12 | success       |
+| slow                                | intended private error |        2242 | 2278.789 |          721.211 |             328 | command-error |
+| missing                             | intended private error |         578 |  613.767 |         2386.233 |             391 | command-error |
+| malformed                           | intended private error |         464 |  510.275 |         2489.725 |             297 | command-error |
+| concurrent-original                 | public useful          |        1534 | 1563.366 |         1436.634 |             278 | success       |
+| concurrent-duplicate                | public useful          |        1146 | 1464.235 |         1535.765 |              38 | recorded      |
 
 ### Every successful Twitch command observation
 
 All values are milliseconds. Delivery observation is a client measurement through fixture confirmation, not a provider delivery guarantee.
 
-| Command | Application acknowledgement | Client acknowledgement | Client delivery observation |
-| --- | ---: | ---: | ---: |
-| buy | 347 | 385.649 | 761.111 |
-| loot | 86 | 125.090 | 495.225 |
-| craft | 103 | 138.096 | 500.162 |
-| find | 95 | 133.472 | 819.219 |
-| sell | 90 | 121.218 | 485.892 |
-| recycle | 90 | 125.079 | 808.467 |
-| recycleto | 112 | 147.516 | 518.782 |
-| event | 95 | 126.981 | 496.130 |
-| active | 93 | 129.781 | 490.339 |
-| upcoming | 98 | 143.668 | 828.753 |
+| Command   | Application acknowledgement | Client acknowledgement | Client delivery observation |
+| --------- | --------------------------: | ---------------------: | --------------------------: |
+| buy       |                         347 |                385.649 |                     761.111 |
+| loot      |                          86 |                125.090 |                     495.225 |
+| craft     |                         103 |                138.096 |                     500.162 |
+| find      |                          95 |                133.472 |                     819.219 |
+| sell      |                          90 |                121.218 |                     485.892 |
+| recycle   |                          90 |                125.079 |                     808.467 |
+| recycleto |                         112 |                147.516 |                     518.782 |
+| event     |                          95 |                126.981 |                     496.130 |
+| active    |                          93 |                129.781 |                     490.339 |
+| upcoming  |                          98 |                143.668 |                     828.753 |
 
 ### Every final cloud case
 
 These are whole test-case durations from Bun. They include fixture setup, inspection, reconstruction, intentional waits, and assertions. They are not per-command application latency.
 
-| Case | Result | Whole case ms |
-| --- | --- | ---: |
-| raw HttpApi preserves every byte before JSON decoding | pass | 259.92 |
-| SQLite, KV and alarm changes roll back and survive object reconstruction | pass | 588.49 |
-| persisted alarm retries on Cloudflare after an intentional first failure | pass | 3838.56 |
-| real cache storage round-trips Options, survives native reconstruction and refreshes only at 24 hours | pass | 3772.54 |
-| schema, status and parse failures preserve original data, timestamp and persistent cooldown through the day-seven edge | pass | 6866.77 |
-| real schedule storage expires at 60 seconds and rejects stale fallback after source failure and reconstruction | pass | 1706.64 |
-| same-key cloud refreshes coalesce, independent keys progress and reset fences a late source completion | pass | 2642.97 |
-| real cache keys keep ID, search, response flags and limits separate, including valid empty responses | pass | 3547.53 |
-| account native storage binds OAuth identity/client, expiry, replay and config revision | pass | 7178.60 |
-| paginated setup preserves confirmed IDs and replaces an interrupted unconfirmed create after reconstruction | pass | 3495.73 |
-| real account dispatch separates rejection, ambiguity, deadline equality and interrupted POST | pass | 2197.46 |
-| token refresh contention and clock overrun preserve the absolute send cutoff | pass | 2165.55 |
-| shared global/channel budgets survive requests and revocation blocks further delivery | pass | 7172.07 |
-| native account alarm recovers a reconstructed credential lease without losing its schedule | pass | 11050.94 |
-| Discord cloud fixture reconciles the full registry and detects partial or stale releases | pass | 3750.89 |
-| the first HTTP request to the new Bot completes a useful cold tenant/cache path within the original budget | pass | 74.04 |
-| actual Bot verifies raw signatures, freshness, bounds and Discord context without allocating tenants | pass | 2017.80 |
-| actual Bot cold and warm Discord responses use the shared production cache with measured full-path headroom | pass | 1239.63 |
-| actual Bot account sees its origin, signed challenge stays pending and ordinary personal chat allocates no channel tenant | pass | 1978.52 |
-| all ten commands execute through actual Bot routes, cache and accepted account dispatch on both transports | pass | 11740.61 |
-| slow, missing and malformed data return private initial responses with measured headroom and no late reply | pass | 4229.93 |
-| concurrent signed Discord duplicates retain the original healthy computation beyond 500ms | pass | 1751.75 |
-| native Tenant admission persists a useful alarm before acknowledgement and reconstructs into one delivery | pass | 5942.84 |
-| lost tenant account completion reuses the persisted dispatch without a second external POST | pass | 1299.64 |
-| native recovery joins a live slow account POST and completes its multipart plan | pass | 2809.46 |
-| native Discord interruption commits one private response at the original deadline without a late message | pass | 957.44 |
-| actual account ambiguity stops the remaining Twitch parts and replay starts no second POST | pass | 10985.60 |
-| verified revocation is durable before acknowledgement and blocks the actual account | pass | 311.98 |
-| timing coverage contains every useful command and intended error category | pass | 5.17 |
+| Case                                                                                                                      | Result | Whole case ms |
+| ------------------------------------------------------------------------------------------------------------------------- | ------ | ------------: |
+| raw HttpApi preserves every byte before JSON decoding                                                                     | pass   |        259.92 |
+| SQLite, KV and alarm changes roll back and survive object reconstruction                                                  | pass   |        588.49 |
+| persisted alarm retries on Cloudflare after an intentional first failure                                                  | pass   |       3838.56 |
+| real cache storage round-trips Options, survives native reconstruction and refreshes only at 24 hours                     | pass   |       3772.54 |
+| schema, status and parse failures preserve original data, timestamp and persistent cooldown through the day-seven edge    | pass   |       6866.77 |
+| real schedule storage expires at 60 seconds and rejects stale fallback after source failure and reconstruction            | pass   |       1706.64 |
+| same-key cloud refreshes coalesce, independent keys progress and reset fences a late source completion                    | pass   |       2642.97 |
+| real cache keys keep ID, search, response flags and limits separate, including valid empty responses                      | pass   |       3547.53 |
+| account native storage binds OAuth identity/client, expiry, replay and config revision                                    | pass   |       7178.60 |
+| paginated setup preserves confirmed IDs and replaces an interrupted unconfirmed create after reconstruction               | pass   |       3495.73 |
+| real account dispatch separates rejection, ambiguity, deadline equality and interrupted POST                              | pass   |       2197.46 |
+| token refresh contention and clock overrun preserve the absolute send cutoff                                              | pass   |       2165.55 |
+| shared global/channel budgets survive requests and revocation blocks further delivery                                     | pass   |       7172.07 |
+| native account alarm recovers a reconstructed credential lease without losing its schedule                                | pass   |      11050.94 |
+| Discord cloud fixture reconciles the full registry and detects partial or stale releases                                  | pass   |       3750.89 |
+| the first HTTP request to the new Bot completes a useful cold tenant/cache path within the original budget                | pass   |         74.04 |
+| actual Bot verifies raw signatures, freshness, bounds and Discord context without allocating tenants                      | pass   |       2017.80 |
+| actual Bot cold and warm Discord responses use the shared production cache with measured full-path headroom               | pass   |       1239.63 |
+| actual Bot account sees its origin, signed challenge stays pending and ordinary personal chat allocates no channel tenant | pass   |       1978.52 |
+| all ten commands execute through actual Bot routes, cache and accepted account dispatch on both transports                | pass   |      11740.61 |
+| slow, missing and malformed data return private initial responses with measured headroom and no late reply                | pass   |       4229.93 |
+| concurrent signed Discord duplicates retain the original healthy computation beyond 500ms                                 | pass   |       1751.75 |
+| native Tenant admission persists a useful alarm before acknowledgement and reconstructs into one delivery                 | pass   |       5942.84 |
+| lost tenant account completion reuses the persisted dispatch without a second external POST                               | pass   |       1299.64 |
+| native recovery joins a live slow account POST and completes its multipart plan                                           | pass   |       2809.46 |
+| native Discord interruption commits one private response at the original deadline without a late message                  | pass   |        957.44 |
+| actual account ambiguity stops the remaining Twitch parts and replay starts no second POST                                | pass   |      10985.60 |
+| verified revocation is durable before acknowledgement and blocks the actual account                                       | pass   |        311.98 |
+| timing coverage contains every useful command and intended error category                                                 | pass   |          5.17 |
 
 ## Final handoff and deviations
 

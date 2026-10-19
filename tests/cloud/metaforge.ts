@@ -8,6 +8,7 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
 } from "effect/http-api";
+
 import { identifyFixtureResponse } from "./fixture-response.js";
 
 export const SourceControl = Schema.Struct({
@@ -23,7 +24,7 @@ class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
   "MetaforgeFixtureState",
   Effect.gen(function* () {
     const { storage } = yield* Cloudflare.DurableObjectState;
-    return Effect.gen(function* () {
+    return Effect.sync(() => {
       const gates = new Map<string, Deferred.Deferred<void>>();
       return {
         configure: Effect.fnUntraced(function* (

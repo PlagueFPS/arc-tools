@@ -2,18 +2,18 @@
 
 ARC Raiders commands for Twitch chat and Discord guild slash commands. One Alchemy stack runs a Cloudflare Worker with SQLite-backed Tenant, TwitchAccount, and ArcCache Durable Objects. Command execution uses Effect 4 and a shared command registry.
 
-| Command | Twitch usage | Result |
-| --- | --- | --- |
-| loot | `!loot <arc>` | Items dropped by an ARC. |
-| buy | `!buy <item>` | Trader and purchase price. |
-| craft | `!craft <item>` | Ingredients and workbench. |
-| find | `!find <item>` | Loot areas. |
-| sell | `!sell <item>` | Sale value. |
-| recycle | `!recycle <item>` | Recycling output. |
-| recycleto | `!recycleto <item>` | Items that recycle into the requested item. |
-| event | `!event <event or map>` | Matching event information. |
-| upcoming | `!upcoming` | Events within the next two hours. |
-| active | `!active` | Active events. |
+| Command   | Twitch usage            | Result                                      |
+| --------- | ----------------------- | ------------------------------------------- |
+| loot      | `!loot <arc>`           | Items dropped by an ARC.                    |
+| buy       | `!buy <item>`           | Trader and purchase price.                  |
+| craft     | `!craft <item>`         | Ingredients and workbench.                  |
+| find      | `!find <item>`          | Loot areas.                                 |
+| sell      | `!sell <item>`          | Sale value.                                 |
+| recycle   | `!recycle <item>`       | Recycling output.                           |
+| recycleto | `!recycleto <item>`     | Items that recycle into the requested item. |
+| event     | `!event <event or map>` | Matching event information.                 |
+| upcoming  | `!upcoming`             | Events within the next two hours.           |
+| active    | `!active`               | Active events.                              |
 
 Discord exposes the same ten commands as `/loot`, `/buy`, and the other registry names. Guild slash successes are public. Errors are private initial responses. There is no unconditional deferral or later interaction-token POST.
 
@@ -27,6 +27,11 @@ bun run check-types
 bun run lint
 bun run test
 ```
+
+`bun run lint` checks code with Oxlint and formatting with Oxfmt. Configure them
+in `oxlint.config.ts` and `oxfmt.config.ts`. Run `bun run format-and-lint:fix`
+to apply lint fixes, sort imports, and format files. VS Code and Cursor users can
+install the recommended Oxc extension for formatting and lint fixes on save.
 
 The default tests include strict cloud-helper, local CLI, preview lifecycle, and workflow guard cases. The separate `bun run test:cloud` suite deploys disposable real Cloudflare resources and verifies teardown. It requires Cloudflare credentials or an authenticated Alchemy profile and never silently skips missing credentials.
 

@@ -1,7 +1,7 @@
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Clock, Deferred, Effect, Schema, Semaphore } from "effect";
+
 import { EnvironmentConfig } from "../src/config.js";
-import { type AccountStorage, makeAccountStorage } from "../src/twitch.js";
 import { makeAccount, senderScopes } from "../src/twitch-account.js";
 import {
   type Account,
@@ -16,6 +16,7 @@ import {
   TwitchProvider,
 } from "../src/twitch-provider.js";
 import { AccountState, AccountStore, emptyState } from "../src/twitch-state.js";
+import { type AccountStorage, makeAccountStorage } from "../src/twitch.js";
 
 export const initial = 1_000_000_000_000;
 export const fixtureConfig = Schema.decodeUnknownSync(EnvironmentConfig)({

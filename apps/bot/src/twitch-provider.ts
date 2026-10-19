@@ -1,4 +1,5 @@
 import { Clock, Context, Effect, Redacted, Schema } from "effect";
+
 import { decodeBody, type ProviderError, request } from "./provider-http.js";
 import { subscriptionBinding } from "./twitch-binding.js";
 import { AccountError, bounded, type Dispatch } from "./twitch-contracts.js";

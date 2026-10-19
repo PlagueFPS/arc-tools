@@ -58,14 +58,14 @@ Initial frozen installation and the uncached baseline pass in this checkout. The
 
 Final results on `c3bb49e` are:
 
-| Check | Actual result |
-| --- | --- |
-| Default tests | 295 pass, zero failures, 1,494 assertions, 31 files. Four workspace tasks execute with zero cached tasks; all eight root strict-helper tests execute afterward. |
-| Build | Four successful tasks, zero cached. |
-| Typechecking | Five successful workspace tasks, zero cached, followed by root `tsc --noEmit` exit zero. |
-| Lint | One uncached root task; Biome checks 124 files with no changes or errors. |
-| Frozen install | Pass after ordinary lockfile regeneration; no subsequent tracked changes. |
-| Whitespace | `git diff --check` passes. |
+| Check          | Actual result                                                                                                                                                   |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default tests  | 295 pass, zero failures, 1,494 assertions, 31 files. Four workspace tasks execute with zero cached tasks; all eight root strict-helper tests execute afterward. |
+| Build          | Four successful tasks, zero cached.                                                                                                                             |
+| Typechecking   | Five successful workspace tasks, zero cached, followed by root `tsc --noEmit` exit zero.                                                                        |
+| Lint           | One uncached root task; Biome checks 124 files with no changes or errors.                                                                                       |
+| Frozen install | Pass after ordinary lockfile regeneration; no subsequent tracked changes.                                                                                       |
+| Whitespace     | `git diff --check` passes.                                                                                                                                      |
 
 The exact test arithmetic is `311 - 12 - 5 + 1 = 295`. Removed Discord adapter tests account for 73 assertions and removed Twitch auth-adapter tests for 11. The new health test contributes six, giving `1572 - 73 - 11 + 6 = 1494`. All 294 remaining inherited tests survive. Workspace totals are bot 155/1,146, arc-data 34/117, commands 71/119, and utils 27/39. Root strict helpers contribute 8/73. The 16 full signed clock tests remain included.
 
@@ -77,11 +77,11 @@ The command was the real `bun run dev --stage local-unit-five-c4c91958 --profile
 
 Alchemy reported one local Worker at `http://localhost:1337` with the existing ArcCache, Tenant, TwitchAccount, and URL bindings. Requests crossed that actual workerd HTTP listener:
 
-| Request | Observed response |
-| --- | --- |
-| `GET /health` | HTTP 200, `status: ready`, stage `local-unit-five-c4c91958`, revision `unit5-local-proof`, manifest hash `6d2c0e4daaf5ed8fd23ff2cbeae1d3daad1bba923f65c4c057f6e37851da4895`. The probe independently computed and compared the hash. |
-| Signed `POST /interactions/discord` PING | HTTP 200 and exact `{"type":1}`. Raw fixture whitespace is signed. |
-| Same PING with all-zero invalid signature | HTTP 401 and empty body. |
+| Request                                   | Observed response                                                                                                                                                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /health`                             | HTTP 200, `status: ready`, stage `local-unit-five-c4c91958`, revision `unit5-local-proof`, manifest hash `6d2c0e4daaf5ed8fd23ff2cbeae1d3daad1bba923f65c4c057f6e37851da4895`. The probe independently computed and compared the hash. |
+| Signed `POST /interactions/discord` PING  | HTTP 200 and exact `{"type":1}`. Raw fixture whitespace is signed.                                                                                                                                                                   |
+| Same PING with all-zero invalid signature | HTTP 401 and empty body.                                                                                                                                                                                                             |
 
 No setup, OAuth completion, command, subscription creation, dispatch, or real provider mutation ran. The placeholder HTTPS origin is sufficient for these probes, not live callbacks. Local workerd is complementary development evidence, not cloud integration acceptance.
 
@@ -113,47 +113,47 @@ These are one run of controlled HTTPS providers and synthetic data, not a benchm
 
 Worker duration spans receipt stamping through response construction. Client duration starts after fixture signing and includes the HTTP request plus response decoding. Values below are milliseconds; client values are rounded to three decimals. They exclude Discord network/client display after this HTTP response. Source counters prove the first cold request fetched `initial-cold` once; the later cold `sensors` read adds exactly one fetch, and its three warm requests add zero. Each slow/missing/malformed case adds exactly one attempted source read. Each of the ten Twitch commands reuses the source state captured after its Discord counterpart, with no additional source fetch; signed replay leaves one observed provider message per original parent. Generated personal-account echo leaves the total at ten. Concurrency duplicates fetch their controlled source once.
 
-| Discord scenario | Worker ms | Client ms | Visibility |
-| --- | ---: | ---: | --- |
-| first-http-cold-worker-tenant-cache | 1223 | 1658.080 | public |
-| allocation-positive | 381 | 414.292 | public |
-| allocation-stored-duplicate | 17 | 54.063 | public |
-| cold-cache-cold-tenant | 430 | 462.451 | public |
-| warm-cache-warm-tenant | 83 | 127.986 | public |
-| warm-cache-warm-tenant | 78 | 119.617 | public |
-| warm-cache-warm-tenant | 84 | 124.208 | public |
-| command-buy | 710 | 749.432 | public |
-| command-loot | 140 | 178.522 | public |
-| command-craft | 147 | 186.839 | public |
-| command-find | 77 | 121.505 | public |
-| command-sell | 60 | 100.485 | public |
-| command-recycle | 62 | 97.286 | public |
-| command-recycleto | 63 | 98.020 | public |
-| command-event | 158 | 205.753 | public |
-| command-active | 62 | 118.559 | public |
-| command-upcoming | 63 | 101.224 | public |
-| slow | 2209 | 2242.972 | private error |
-| missing | 502 | 538.430 | private error |
-| malformed | 386 | 421.115 | private error |
-| concurrent-original | 1725 | 1791.063 | public |
-| concurrent-duplicate | 1458 | 1687.592 | public |
+| Discord scenario                    | Worker ms | Client ms | Visibility    |
+| ----------------------------------- | --------: | --------: | ------------- |
+| first-http-cold-worker-tenant-cache |      1223 |  1658.080 | public        |
+| allocation-positive                 |       381 |   414.292 | public        |
+| allocation-stored-duplicate         |        17 |    54.063 | public        |
+| cold-cache-cold-tenant              |       430 |   462.451 | public        |
+| warm-cache-warm-tenant              |        83 |   127.986 | public        |
+| warm-cache-warm-tenant              |        78 |   119.617 | public        |
+| warm-cache-warm-tenant              |        84 |   124.208 | public        |
+| command-buy                         |       710 |   749.432 | public        |
+| command-loot                        |       140 |   178.522 | public        |
+| command-craft                       |       147 |   186.839 | public        |
+| command-find                        |        77 |   121.505 | public        |
+| command-sell                        |        60 |   100.485 | public        |
+| command-recycle                     |        62 |    97.286 | public        |
+| command-recycleto                   |        63 |    98.020 | public        |
+| command-event                       |       158 |   205.753 | public        |
+| command-active                      |        62 |   118.559 | public        |
+| command-upcoming                    |        63 |   101.224 | public        |
+| slow                                |      2209 |  2242.972 | private error |
+| missing                             |       502 |   538.430 | private error |
+| malformed                           |       386 |   421.115 | private error |
+| concurrent-original                 |      1725 |  1791.063 | public        |
+| concurrent-duplicate                |      1458 |  1687.592 | public        |
 
 Across all 22 samples, maximum Worker time is 2209 ms and maximum client time is 2242.972 ms, both from the intended slow private failure. The corresponding observed headroom below 3,000 ms is 791 and 757.028 ms. Among the 19 useful public responses, maxima are 1725 and 1791.063 ms; their observed headroom is 1275 and 1208.937 ms. These maxima describe this sample set only. The controlled slow case deliberately waits on data; no causal performance improvement or general latency guarantee is inferred.
 
 Twitch acknowledgement includes durable admission before 204. Delivery observation ends when the client sees the controlled provider's recorded message through fixture polling; it includes that polling delay. It is neither an actual Twitch delivery time nor a provider arrival guarantee.
 
 | Twitch command | Worker ack ms | Client ack ms | Client delivery observation ms |
-| --- | ---: | ---: | ---: |
-| buy | 369 | 406.793 | 743.363 |
-| loot | 84 | 118.476 | 468.000 |
-| craft | 83 | 121.732 | 751.709 |
-| find | 87 | 169.357 | 501.714 |
-| sell | 83 | 126.664 | 751.188 |
-| recycle | 79 | 118.695 | 738.994 |
-| recycleto | 80 | 114.557 | 454.107 |
-| event | 74 | 111.967 | 732.524 |
-| active | 90 | 130.794 | 458.632 |
-| upcoming | 91 | 132.827 | 764.493 |
+| -------------- | ------------: | ------------: | -----------------------------: |
+| buy            |           369 |       406.793 |                        743.363 |
+| loot           |            84 |       118.476 |                        468.000 |
+| craft          |            83 |       121.732 |                        751.709 |
+| find           |            87 |       169.357 |                        501.714 |
+| sell           |            83 |       126.664 |                        751.188 |
+| recycle        |            79 |       118.695 |                        738.994 |
+| recycleto      |            80 |       114.557 |                        454.107 |
+| event          |            74 |       111.967 |                        732.524 |
+| active         |            90 |       130.794 |                        458.632 |
+| upcoming       |            91 |       132.827 |                        764.493 |
 
 Observed maxima are 369 ms for Worker acknowledgement, 406.793 ms for client acknowledgement, and 764.493 ms for fixture delivery observation. The controlled suite also asserts each send occurs before its original ten-second cutoff. No profiler, repeated performance comparison, or live-provider run was performed, so no bottleneck, speedup, p95, or throughput claim is made.
 

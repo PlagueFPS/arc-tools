@@ -16,14 +16,14 @@ The intent is an environment-bound account owner with recoverable credentials, i
 
 GPT-6.1-Sol reproduced six blocking defects. Root inspected the supporting paths. The account correction delegate owns all six and the repeated-setup case independently identified by Gemini.
 
-| Area | Finding | Required correction |
-| --- | --- | --- |
-| Credential recovery | A reconstructed object with a session and an active token lease can finish its alarm without scheduling another native alarm. | Preserve the next credential action across a consumed alarm and lease contention. Verify the actual alarm handler. |
-| Credential generation | A late validation response can restore a token invalidated by a concurrent send's 401. | Fence validation against invalidation of its source session. |
-| Setup repair | A 401 from `/users` leaves the rejected session cached as valid. | Apply generation-aware invalidation throughout setup. |
-| Subscription binding | A remote create that succeeds before an interrupted response can be adopted under a later signing-secret binding. | Persist enough binding intent before mutation to prevent false adoption after repeated rotation. |
-| Registration drift | Global command GET omits full localization dictionaries, so localization drift can be invisible. | Request complete localizations for both comparison and readback, with provider-faithful tests. |
-| OAuth capacity | A distinct sender and 32 broadcasters require more states than the current bound permits. Repeated setup also accumulates states until capacity is exhausted. | Allocate bounded states by current authorization subjects and make repeated setup usable. |
+| Area                  | Finding                                                                                                                                                       | Required correction                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Credential recovery   | A reconstructed object with a session and an active token lease can finish its alarm without scheduling another native alarm.                                 | Preserve the next credential action across a consumed alarm and lease contention. Verify the actual alarm handler. |
+| Credential generation | A late validation response can restore a token invalidated by a concurrent send's 401.                                                                        | Fence validation against invalidation of its source session.                                                       |
+| Setup repair          | A 401 from `/users` leaves the rejected session cached as valid.                                                                                              | Apply generation-aware invalidation throughout setup.                                                              |
+| Subscription binding  | A remote create that succeeds before an interrupted response can be adopted under a later signing-secret binding.                                             | Persist enough binding intent before mutation to prevent false adoption after repeated rotation.                   |
+| Registration drift    | Global command GET omits full localization dictionaries, so localization drift can be invisible.                                                              | Request complete localizations for both comparison and readback, with provider-faithful tests.                     |
+| OAuth capacity        | A distinct sender and 32 broadcasters require more states than the current bound permits. Repeated setup also accumulates states until capacity is exhausted. | Allocate bounded states by current authorization subjects and make repeated setup usable.                          |
 
 Discord documents `with_localizations` as false by default. [Get global application commands](https://docs.discord.com/developers/interactions/application-commands#get-global-application-commands). Cloudflare documents that a running alarm has no next scheduled alarm unless the handler schedules one, and warns that constructor scheduling can interfere with an existing alarm. [Durable Object alarms](https://developers.cloudflare.com/durable-objects/api/alarms/).
 
