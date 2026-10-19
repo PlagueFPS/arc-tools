@@ -4,6 +4,7 @@ Root accepted and integrated all five implementation units. The final integrated
 
 | Record | Current reading |
 | --- | --- |
+| [Alchemy CI/CD](alchemy-cicd.md) | Accepted bootstrap, guarded automatic releases, synthetic resident previews, and trusted close cleanup. Hosted activation remains unverified. |
 | [Effect review comments](effect-review-comments.md) | Resolution of all 62 inline comments, API exceptions, and the corrected HTTP transport proof. |
 | [Foundation root review](foundation-root-review.md) | Accepted foundation, raw HttpApi, native storage, reconstruction, and alarms. |
 | [Cache root review](cache-root-review.md) | Accepted cache and absolute command-deadline correction. |

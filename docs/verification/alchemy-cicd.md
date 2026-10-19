@@ -62,3 +62,18 @@ Use [the bootstrap guide](../ci-cd-bootstrap.md) to provision the resource contr
 The target cleanup workflow must first exist on the trusted default branch. Before it lands, GitHub may deliver no close cleanup run. If cleanup starts while `main` lacks the new controller, it fails explicitly and does not claim cleanup success. Recover from a checkout containing the reviewed implementation, or land the implementation and dispatch **Remove synthetic preview** with the closed PR number. Follow [the operator recovery procedure](../operator-guide.md#recover-a-resident-synthetic-pr-preview). Branch deletion does not prevent recovery, and downloaded artifacts are never executable inputs.
 
 GitHub concurrency does not guarantee queue ordering or delivery of every trigger. Current PR reads prevent a late queued deployment from recreating a closed preview. A stale job can leave an unpublished partial update until a newer checked run reconciles it. PR reads and comment updates are separate API operations, so the system cannot make a change of PR state atomic with publication. Missed or failed cleanup needs explicit retry. There is no scheduler. Resident fixture state may survive pushes and reopening, and it consumes Cloudflare resources until cleanup succeeds.
+
+## Integrated root acceptance
+
+Root integrated the accepted bootstrap in `ee71681` and `4863e40`, and the pipeline in `b015214` and `a48f2d8`. Fresh independent reviews accepted the corrected release-secret flow and trusted close-cleanup boundary. The unchanged preview controller passed its separate review. Both comment audit rounds reported zero deletions, suppressions, and reshape flags.
+
+The combined checkout passed these checks with Bun 1.3.5 and `--no-env-file`:
+
+- `TURBO_FORCE=true bun run test` passed 380 tests with 2,307 assertions, including 63 root helper tests. Workspace test caching was bypassed.
+- `TURBO_FORCE=true bun run check-types` passed five workspace checks and root TypeScript compilation, including `stacks/github.ts`.
+- `TURBO_FORCE=true bun run build` passed four build tasks.
+- `bun run format-and-lint` checked 135 files without changes.
+- Actionlint 1.7.7 passed all three workflows with ShellCheck disabled.
+- `git diff --check` passed.
+
+Root logs use `/tmp/arc-cicd-final-root-` with suffixes `tests.log`, `types.log`, `build.log`, and `lint.log`. Local implementation acceptance does not establish hosted secret delivery, trigger delivery, token permissions, or actual preview deployment and cleanup. Those activation checks remain open. The [bootstrap guide](../ci-cd-bootstrap.md) supplies the one-time operator steps.
