@@ -1,5 +1,6 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { eventHandler } from "../../src/handlers/event.js";
 import { event } from "../fixtures.js";
@@ -7,50 +8,55 @@ import { runWithMock } from "../utils.js";
 
 const run = runWithMock(eventHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("eventHandler", () => {
-  it.effect("returns hint for empty input", () =>
+  test(
+    "returns hint for empty input",
     Effect.gen(function* () {
       const result = yield* run({})("");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "Please provide an event or map name (e.g. '!event Prospecting Probes')",
       );
-    }),
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("returns no match when no events", () =>
+  test(
+    "returns no match when no events",
     Effect.gen(function* () {
       const result = yield* run({})("doesnotexist");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "[Warn] No event or map found matching: doesnotexist",
       );
-    }),
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("active event shows ends in", () =>
+  test(
+    "active event shows ends in",
     Effect.gen(function* () {
       yield* TestClock.setTime(1500);
       const result = yield* run({
         events: [event({ startTime: 1000, endTime: 2000 })],
       })("prospecting");
-      assert.include(result, "is active now");
-      assert.include(result, "ends in");
-    }),
+      expect(result).toContain("is active now");
+      expect(result).toContain("ends in");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("upcoming event shows starts in", () =>
+  test(
+    "upcoming event shows starts in",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
       const result = yield* run({
         events: [event({ startTime: 60_000, endTime: 120_000 })],
       })("prospecting");
-      assert.include(result, "starts in");
-      assert.include(result, "1m");
-    }),
+      expect(result).toContain("starts in");
+      expect(result).toContain("1m");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("queen alias rewrites to harvester", () =>
+  test(
+    "queen alias rewrites to harvester",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
       const result = yield* run({
@@ -63,19 +69,17 @@ describe("eventHandler", () => {
           }),
         ],
       })("queen");
-      assert.include(result, "Harvester");
-    }),
+      expect(result).toContain("Harvester");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("no match reports normalized search", () =>
+  test(
+    "no match reports normalized search",
     Effect.gen(function* () {
       const result = yield* run({
         events: [event()],
       })("nonexistent");
-      assert.strictEqual(
-        result,
-        "[Warn] No event or map found matching: nonexistent",
-      );
-    }),
+      expect(result).toBe("[Warn] No event or map found matching: nonexistent");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 });

@@ -1,6 +1,7 @@
+import { describe, expect } from "bun:test";
 import { createMockHttpClientLayer } from "@arctools/testing";
-import { assert, describe, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer, Option } from "effect";
 import { resolveItem } from "../../src/handlers/utils.js";
 import { item } from "../fixtures.js";
 
@@ -14,35 +15,41 @@ const runWithMock =
       Effect.provide(createMockHttpClientLayer(mock)),
     );
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("resolveItem", () => {
-  it.effect("slug lookup succeeds without fallback", () =>
+  test(
+    "slug lookup succeeds without fallback",
     Effect.gen(function* () {
       const result = yield* runWithMock({
         items: [item({ id: "power-cell", name: "Power Cell" })],
       })("power-cell", { minimal: true });
       const resolved = Option.getOrThrow(result);
-      assert.strictEqual(resolved.id, "power-cell");
+      expect(resolved.id).toBe("power-cell");
     }),
   );
 
-  it.effect("slug miss and normalized search fallback succeeds", () =>
+  test(
+    "slug miss and normalized search fallback succeeds",
     Effect.gen(function* () {
       const result = yield* runWithMock({
         items: [item({ id: "power-cell", name: "Power Cell" })],
       })("cell", { minimal: true });
       const resolved = Option.getOrThrow(result);
-      assert.strictEqual(resolved.name, "Power Cell");
+      expect(resolved.name).toBe("Power Cell");
     }),
   );
 
-  it.effect("both lookups miss returns none", () =>
+  test(
+    "both lookups miss returns none",
     Effect.gen(function* () {
       const result = yield* runWithMock({})("nonexistent", { minimal: true });
-      assert.isTrue(Option.isNone(result));
+      expect(Option.isNone(result)).toBeTrue();
     }),
   );
 
-  it.effect("forwards includeComponents param", () =>
+  test(
+    "forwards includeComponents param",
     Effect.gen(function* () {
       const result = yield* runWithMock({
         items: [
@@ -54,7 +61,7 @@ describe("resolveItem", () => {
         ],
       })("x", { includeComponents: true });
       const resolved = Option.getOrThrow(result);
-      assert.isTrue(Option.isSome(resolved.components));
+      expect(Option.isSome(resolved.components)).toBeTrue();
     }),
   );
 });

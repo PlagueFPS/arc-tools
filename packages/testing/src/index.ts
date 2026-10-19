@@ -1,10 +1,11 @@
+import { layerUncached } from "@arctools/arc-data";
 import { BASE_API_URL } from "@arctools/utils";
 import { Effect, Layer } from "effect";
 import {
   HttpClient,
   type HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 
 export interface MockTraders {
   Apollo: Array<{ id: string; name: string; trader_price: number }>;
@@ -162,5 +163,7 @@ export function createMockHttpClientLayer(mock: MockData) {
       }),
   );
 
-  return Layer.succeed(HttpClient.HttpClient, mockClient);
+  return layerUncached.pipe(
+    Layer.provideMerge(Layer.succeed(HttpClient.HttpClient, mockClient)),
+  );
 }

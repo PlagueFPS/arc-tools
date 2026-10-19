@@ -1,39 +1,43 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { findHandler } from "../../src/handlers/find.js";
 import { item } from "../fixtures.js";
 import { runWithMock } from "../utils.js";
 
 const run = runWithMock(findHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("findHandler", () => {
-  it.effect("returns hint for empty input", () =>
+  test(
+    "returns hint for empty input",
     Effect.gen(function* () {
       const result = yield* run({})("");
-      assert.strictEqual(
-        result,
-        "Please provide an item (e.g. '!find sensors')",
-      );
+      expect(result).toBe("Please provide an item (e.g. '!find sensors')");
     }),
   );
 
-  it.effect("returns no such item when unresolved", () =>
+  test(
+    "returns no such item when unresolved",
     Effect.gen(function* () {
       const result = yield* run({})("missing");
-      assert.strictEqual(result, "[Warn] No such item: missing");
+      expect(result).toBe("[Warn] No such item: missing");
     }),
   );
 
-  it.effect("only loot_area present", () =>
+  test(
+    "only loot_area present",
     Effect.gen(function* () {
       const result = yield* run({
         items: [item({ loot_area: "Cargo Bay" })],
       })("item");
-      assert.strictEqual(result, "Item can be found in Cargo Bay areas.");
+      expect(result).toBe("Item can be found in Cargo Bay areas.");
     }),
   );
 
-  it.effect("only dropped_by present", () =>
+  test(
+    "only dropped_by present",
     Effect.gen(function* () {
       const result = yield* run({
         items: [
@@ -45,11 +49,12 @@ describe("findHandler", () => {
           }),
         ],
       })("item");
-      assert.strictEqual(result, "Item can be dropped by Arc One, Arc Two.");
+      expect(result).toBe("Item can be dropped by Arc One, Arc Two.");
     }),
   );
 
-  it.effect("both loot_area and dropped_by", () =>
+  test(
+    "both loot_area and dropped_by",
     Effect.gen(function* () {
       const result = yield* run({
         items: [
@@ -59,32 +64,31 @@ describe("findHandler", () => {
           }),
         ],
       })("item");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "Item can be found in Cargo areas and can be dropped by Bastion.",
       );
     }),
   );
 
-  it.effect("neither present returns warn", () =>
+  test(
+    "neither present returns warn",
     Effect.gen(function* () {
       const result = yield* run({
         items: [item({ loot_area: null, dropped_by: null })],
       })("item");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "[Warn] loot area or dropped by data not found for Item",
       );
     }),
   );
 
-  it.effect("empty dropped_by array treated as neither", () =>
+  test(
+    "empty dropped_by array treated as neither",
     Effect.gen(function* () {
       const result = yield* run({
         items: [item({ loot_area: null, dropped_by: [] })],
       })("item");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "[Warn] loot area or dropped by data not found for Item",
       );
     }),

@@ -1,48 +1,53 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { recycleHandler } from "../../src/handlers/recycle.js";
 import { item } from "../fixtures.js";
 import { runWithMock } from "../utils.js";
 
 const run = runWithMock(recycleHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("recycleHandler", () => {
-  it.effect("returns hint for empty input", () =>
+  test(
+    "returns hint for empty input",
     Effect.gen(function* () {
       const result = yield* run({})("");
-      assert.strictEqual(
-        result,
-        "Please provide an item (e.g. '!recycle sensors')",
-      );
+      expect(result).toBe("Please provide an item (e.g. '!recycle sensors')");
     }),
   );
 
-  it.effect("returns no such item when unresolved", () =>
+  test(
+    "returns no such item when unresolved",
     Effect.gen(function* () {
       const result = yield* run({})("missing");
-      assert.strictEqual(result, "[Warn] No such item: missing");
+      expect(result).toBe("[Warn] No such item: missing");
     }),
   );
 
-  it.effect("returns recycle data not found when missing", () =>
+  test(
+    "returns recycle data not found when missing",
     Effect.gen(function* () {
       const result = yield* run({
         items: [item({ recycle_components: null })],
       })("item");
-      assert.strictEqual(result, "[Warn] recycle data not found for Item");
+      expect(result).toBe("[Warn] recycle data not found for Item");
     }),
   );
 
-  it.effect("returns no items granted when empty", () =>
+  test(
+    "returns no items granted when empty",
     Effect.gen(function* () {
       const result = yield* run({
         items: [item({ recycle_components: [] })],
       })("item");
-      assert.strictEqual(result, "No items granted for recycling Item");
+      expect(result).toBe("No items granted for recycling Item");
     }),
   );
 
-  it.effect("formats recycle components sorted by quantity desc", () =>
+  test(
+    "formats recycle components sorted by quantity desc",
     Effect.gen(function* () {
       const result = yield* run({
         items: [
@@ -55,8 +60,7 @@ describe("recycleHandler", () => {
           }),
         ],
       })("item");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "These items are granted for recycling Item: B (x3), C (x2), A (x1)",
       );
     }),

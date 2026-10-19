@@ -1,0 +1,14 @@
+{
+  "extends": "./packages/typescript-config/base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["bun"]
+  },
+  "include": [
+    "alchemy.run.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "stacks/**/*.ts"
+  ]
+}

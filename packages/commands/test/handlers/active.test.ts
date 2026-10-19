@@ -1,5 +1,6 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { activeHandler } from "../../src/handlers/active.js";
 import { event } from "../fixtures.js";
@@ -7,18 +8,22 @@ import { runWithMock } from "../utils.js";
 
 const run = runWithMock(activeHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("activeHandler", () => {
-  it.effect("returns no active events when none", () =>
+  test(
+    "returns no active events when none",
     Effect.gen(function* () {
       yield* TestClock.setTime(2000);
       const result = yield* run({
         events: [event({ startTime: 0, endTime: 1000 })],
       })("");
-      assert.strictEqual(result, "No active events");
-    }),
+      expect(result).toBe("No active events");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("returns single active event", () =>
+  test(
+    "returns single active event",
     Effect.gen(function* () {
       yield* TestClock.setTime(500);
       const result = yield* run({
@@ -26,12 +31,13 @@ describe("activeHandler", () => {
           event({ name: "Event", map: "Map", startTime: 0, endTime: 1000 }),
         ],
       })("");
-      assert.include(result, "Event on Map");
-      assert.include(result, "ends in");
-    }),
+      expect(result).toContain("Event on Map");
+      expect(result).toContain("ends in");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("returns multiple active events", () =>
+  test(
+    "returns multiple active events",
     Effect.gen(function* () {
       yield* TestClock.setTime(500);
       const result = yield* run({
@@ -40,12 +46,13 @@ describe("activeHandler", () => {
           event({ name: "B", map: "M2", startTime: 0, endTime: 1000 }),
         ],
       })("");
-      assert.include(result, "A on M1");
-      assert.include(result, "B on M2");
-    }),
+      expect(result).toContain("A on M1");
+      expect(result).toContain("B on M2");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("inclusive end boundary - event at exact endTime is active", () =>
+  test(
+    "inclusive end boundary - event at exact endTime is active",
     Effect.gen(function* () {
       yield* TestClock.setTime(1000);
       const result = yield* run({
@@ -53,7 +60,7 @@ describe("activeHandler", () => {
           event({ name: "Event", map: "Map", startTime: 0, endTime: 1000 }),
         ],
       })("");
-      assert.include(result, "Event on Map");
-    }),
+      expect(result).toContain("Event on Map");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 });

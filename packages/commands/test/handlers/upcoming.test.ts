@@ -1,5 +1,6 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { upcomingHandler } from "../../src/handlers/upcoming.js";
 import { event } from "../fixtures.js";
@@ -7,27 +8,32 @@ import { runWithMock } from "../utils.js";
 
 const run = runWithMock(upcomingHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("upcomingHandler", () => {
-  it.effect("returns no upcoming when none", () =>
+  test(
+    "returns no upcoming when none",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
       const result = yield* run({ events: [] })("");
-      assert.strictEqual(result, "No upcoming events");
-    }),
+      expect(result).toBe("No upcoming events");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("returns single upcoming event", () =>
+  test(
+    "returns single upcoming event",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
       const result = yield* run({
         events: [event({ name: "Event", map: "Map", startTime: 60_000 })],
       })("");
-      assert.include(result, "Event on Map");
-      assert.include(result, "starts in");
-    }),
+      expect(result).toContain("Event on Map");
+      expect(result).toContain("starts in");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("sorts multiple upcoming by startTime", () =>
+  test(
+    "sorts multiple upcoming by startTime",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
       const result = yield* run({
@@ -48,16 +54,14 @@ describe("upcomingHandler", () => {
       })("");
       const idxEarlier = result.indexOf("Earlier");
       const idxLater = result.indexOf("Later");
-      assert.isTrue(
-        idxEarlier >= 0,
-        "Earlier should be present in the response",
-      );
-      assert.isTrue(idxLater >= 0, "Later should be present in the response");
-      assert.isTrue(idxEarlier < idxLater);
-    }),
+      expect(idxEarlier >= 0).toBeTrue();
+      expect(idxLater >= 0).toBeTrue();
+      expect(idxEarlier < idxLater).toBeTrue();
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("excludes events starting at or before now", () =>
+  test(
+    "excludes events starting at or before now",
     Effect.gen(function* () {
       yield* TestClock.setTime(60_000);
       const result = yield* run({
@@ -66,11 +70,12 @@ describe("upcomingHandler", () => {
           event({ startTime: 59_999, endTime: 120_000 }),
         ],
       })("");
-      assert.strictEqual(result, "No upcoming events");
-    }),
+      expect(result).toBe("No upcoming events");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("excludes events beyond 2h window", () =>
+  test(
+    "excludes events beyond 2h window",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
       const result = yield* run({
@@ -81,11 +86,12 @@ describe("upcomingHandler", () => {
           }),
         ],
       })("");
-      assert.strictEqual(result, "No upcoming events");
-    }),
+      expect(result).toBe("No upcoming events");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("includes events exactly 2h away", () =>
+  test(
+    "includes events exactly 2h away",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
       const result = yield* run({
@@ -98,8 +104,8 @@ describe("upcomingHandler", () => {
           }),
         ],
       })("");
-      assert.include(result, "Harvester on Dam");
-      assert.include(result, "starts in 2h");
-    }),
+      expect(result).toContain("Harvester on Dam");
+      expect(result).toContain("starts in 2h");
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 });

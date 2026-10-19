@@ -1,29 +1,32 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { sellHandler } from "../../src/handlers/sell.js";
 import { runWithMock } from "../utils.js";
 
 const run = runWithMock(sellHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("sellHandler", () => {
-  it.effect("returns hint for empty input", () =>
+  test(
+    "returns hint for empty input",
     Effect.gen(function* () {
       const result = yield* run({})("");
-      assert.strictEqual(
-        result,
-        "Please provide an item (e.g. '!sell sensors')",
-      );
+      expect(result).toBe("Please provide an item (e.g. '!sell sensors')");
     }),
   );
 
-  it.effect("returns no such item when unresolved", () =>
+  test(
+    "returns no such item when unresolved",
     Effect.gen(function* () {
       const result = yield* run({})("nonexistent");
-      assert.strictEqual(result, "[Warn] No such item: nonexistent");
+      expect(result).toBe("[Warn] No such item: nonexistent");
     }),
   );
 
-  it.effect("returns sell value on success", () =>
+  test(
+    "returns sell value on success",
     Effect.gen(function* () {
       const result = yield* run({
         items: [
@@ -40,7 +43,7 @@ describe("sellHandler", () => {
           },
         ],
       })("sensors");
-      assert.strictEqual(result, "Sensors can be sold for 25 coins each");
+      expect(result).toBe("Sensors can be sold for 25 coins each");
     }),
   );
 });

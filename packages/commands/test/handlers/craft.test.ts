@@ -1,48 +1,53 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { craftHandler } from "../../src/handlers/craft.js";
 import { item } from "../fixtures.js";
 import { runWithMock } from "../utils.js";
 
 const run = runWithMock(craftHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("craftHandler", () => {
-  it.effect("returns hint for empty input", () =>
+  test(
+    "returns hint for empty input",
     Effect.gen(function* () {
       const result = yield* run({})("");
-      assert.strictEqual(
-        result,
-        "Please provide an item (e.g. '!craft sensors')",
-      );
+      expect(result).toBe("Please provide an item (e.g. '!craft sensors')");
     }),
   );
 
-  it.effect("returns no such item when unresolved", () =>
+  test(
+    "returns no such item when unresolved",
     Effect.gen(function* () {
       const result = yield* run({})("missing");
-      assert.strictEqual(result, "[Warn] No such item: missing");
+      expect(result).toBe("[Warn] No such item: missing");
     }),
   );
 
-  it.effect("returns cannot be crafted when workbench missing", () =>
+  test(
+    "returns cannot be crafted when workbench missing",
     Effect.gen(function* () {
       const result = yield* run({
         items: [item({ workbench: null })],
       })("item");
-      assert.strictEqual(result, "Item cannot be crafted.");
+      expect(result).toBe("Item cannot be crafted.");
     }),
   );
 
-  it.effect("returns cannot be crafted when components missing", () =>
+  test(
+    "returns cannot be crafted when components missing",
     Effect.gen(function* () {
       const result = yield* run({
         items: [item({ workbench: "Basic", components: null })],
       })("item");
-      assert.strictEqual(result, "Item cannot be crafted.");
+      expect(result).toBe("Item cannot be crafted.");
     }),
   );
 
-  it.effect("formats components on success", () =>
+  test(
+    "formats components on success",
     Effect.gen(function* () {
       const result = yield* run({
         items: [
@@ -61,9 +66,9 @@ describe("craftHandler", () => {
           }),
         ],
       })("item");
-      assert.include(result, "Refiner");
-      assert.include(result, "Component X (x2)");
-      assert.include(result, "Component Y (x1)");
+      expect(result).toContain("Refiner");
+      expect(result).toContain("Component X (x2)");
+      expect(result).toContain("Component Y (x1)");
     }),
   );
 });

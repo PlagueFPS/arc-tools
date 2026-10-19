@@ -1,29 +1,32 @@
-import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer } from "effect";
 import { buyHandler } from "../../src/handlers/buy.js";
 import { runWithMock } from "../utils.js";
 
 const run = runWithMock(buyHandler);
 
+const { test } = Test.make({ providers: Layer.empty });
+
 describe("buyHandler", () => {
-  it.effect("returns hint for empty query", () =>
+  test(
+    "returns hint for empty query",
     Effect.gen(function* () {
       const result = yield* run({})("");
-      assert.strictEqual(
-        result,
-        "Please provide an item (e.g. '!buy sensors')",
-      );
+      expect(result).toBe("Please provide an item (e.g. '!buy sensors')");
     }),
   );
 
-  it.effect("returns no matches when traders empty", () =>
+  test(
+    "returns no matches when traders empty",
     Effect.gen(function* () {
       const result = yield* run({})("sensors");
-      assert.strictEqual(result, "[Warn] No trader sells: sensors");
+      expect(result).toBe("[Warn] No trader sells: sensors");
     }),
   );
 
-  it.effect("returns match for exact id", () =>
+  test(
+    "returns match for exact id",
     Effect.gen(function* () {
       const result = yield* run({
         traders: {
@@ -34,14 +37,14 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("power-cell");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "Power Cell can be purchased from Lance for 50 coins",
       );
     }),
   );
 
-  it.effect("returns match for substring/name", () =>
+  test(
+    "returns match for substring/name",
     Effect.gen(function* () {
       const result = yield* run({
         traders: {
@@ -58,14 +61,14 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("sensors");
-      assert.strictEqual(
-        result,
+      expect(result).toBe(
         "Advanced Sensors can be purchased from Shani for 100 cred.",
       );
     }),
   );
 
-  it.effect("Shani uses cred currency", () =>
+  test(
+    "Shani uses cred currency",
     Effect.gen(function* () {
       const result = yield* run({
         traders: {
@@ -76,11 +79,12 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("x");
-      assert.match(result, /cred\./);
+      expect(result).toMatch(/cred\./);
     }),
   );
 
-  it.effect("Celeste uses seeds currency", () =>
+  test(
+    "Celeste uses seeds currency",
     Effect.gen(function* () {
       const result = yield* run({
         traders: {
@@ -91,11 +95,12 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("y");
-      assert.match(result, /seeds/);
+      expect(result).toMatch(/seeds/);
     }),
   );
 
-  it.effect("default traders use coins", () =>
+  test(
+    "default traders use coins",
     Effect.gen(function* () {
       const result = yield* run({
         traders: {
@@ -106,11 +111,12 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("z");
-      assert.match(result, /coins/);
+      expect(result).toMatch(/coins/);
     }),
   );
 
-  it.effect("formats multiple matches", () =>
+  test(
+    "formats multiple matches",
     Effect.gen(function* () {
       const result = yield* run({
         traders: {
@@ -121,9 +127,9 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("item");
-      assert.include(result, "Apollo");
-      assert.include(result, "Lance");
-      assert.include(result, "coins");
+      expect(result).toContain("Apollo");
+      expect(result).toContain("Lance");
+      expect(result).toContain("coins");
     }),
   );
 });

@@ -1,22 +1,41 @@
 # ARCToolsBot
-Monorepo containing the Twitch and Discord chat bots providing ARC Raiders information.
 
-## Commands
+ARC Raiders commands for Twitch chat and Discord guild slash commands. One Alchemy stack runs a Cloudflare Worker with SQLite-backed Tenant, TwitchAccount, and ArcCache Durable Objects. Command execution uses Effect 4 and a shared command registry.
 
-| Command | Description | Usage |
-|---------|-------------|-------|
-| **loot** | Get the items dropped by an arc | `!loot <arc>` |
-| **buy** | Get the trader that sells an item and its price | `!buy <item>` |
-| **craft** | Get the required items and workbench to craft an item | `!craft <item>` |
-| **find** | Get the loot areas where an item can be found | `!find <item>` |
-| **sell** | Get the sell value of an item | `!sell <item>` |
-| **recycle** | Get the items granted for recycling an item | `!recycle <item>` |
-| **recycleto** | Get all items that recycle into a specific item | `!recycleto <item>` |
-| **event** | Get currently active or upcoming events by event or map name | `!event <event or map>` |
-| **upcoming** | Get all upcoming events within the next 2 hours | `!upcoming` |
-| **active** | Get all currently active events | `!active` |
+| Command | Twitch usage | Result |
+| --- | --- | --- |
+| loot | `!loot <arc>` | Items dropped by an ARC. |
+| buy | `!buy <item>` | Trader and purchase price. |
+| craft | `!craft <item>` | Ingredients and workbench. |
+| find | `!find <item>` | Loot areas. |
+| sell | `!sell <item>` | Sale value. |
+| recycle | `!recycle <item>` | Recycling output. |
+| recycleto | `!recycleto <item>` | Items that recycle into the requested item. |
+| event | `!event <event or map>` | Matching event information. |
+| upcoming | `!upcoming` | Events within the next two hours. |
+| active | `!active` | Active events. |
 
-> **Note:** all commands are also available as slash commands on Discord.
+Discord exposes the same ten commands as `/loot`, `/buy`, and the other registry names. Guild slash successes are public. Errors are private initial responses. There is no unconditional deferral or later interaction-token POST.
 
-## Attribution
-Special thanks to [Metaforge](http://metaforge.app/arc-raiders) for providing the data/APIs used to provide this information.
+Use Bun **1.3.5**. Alchemy **2.0.0-beta.83**, Effect **4.0.4**, and the Cloudflare worker types are pinned in the manifests and lockfile.
+
+```bash
+bun --version
+bun install --frozen-lockfile
+bun run build
+bun run check-types
+bun run lint
+bun run test
+```
+
+The default tests include strict cloud-helper, local CLI, preview lifecycle, and workflow guard cases. The separate `bun run test:cloud` suite deploys disposable real Cloudflare resources and verifies teardown. It requires Cloudflare credentials or an authenticated Alchemy profile and never silently skips missing credentials.
+
+Successful trusted PR checks publish a resident synthetic service preview. A successful `main` push calls the single Release workflow for production. Fork PRs run local checks without cloud credentials. Configure [CI/CD bootstrap](docs/ci-cd-bootstrap.md) and the existing environment applications before activation. Remote CI/CD remains UNVERIFIED until operator setup and real workflow runs succeed. [The CI/CD record](docs/verification/alchemy-cicd.md) lists the local checks and rollout limits.
+
+For development, deployment, Twitch authorization, health/status, and Discord registration, follow [the operator guide](docs/operator-guide.md). Copy [.env.example](.env.example) for public configuration placeholders and inject secrets privately.
+
+For a new local tunnel session, edit `ARC_PUBLIC_URL` in `.env.local`, run `bun run dev:local` in one terminal, and run `bun run setup:local` in another. Update the portal endpoints manually if the tunnel host changed. Keep setup's OAuth output private.
+
+[Verification records](docs/verification/README.md) distinguish accepted implementation units from unperformed live-provider, privacy, token-expiry, CI, and cost gates. The intended launch is a few quiet channels and guilds. It carries no free-tier cost guarantee.
+
+Data comes from [Metaforge's ARC Raiders API](https://metaforge.app/arc-raiders). Existing command fixture behavior, including event selection boundaries, is preserved.

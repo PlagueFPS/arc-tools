@@ -1,9 +1,16 @@
-import { createMockHttpClientLayer } from "@arctools/testing";
-import { assert, describe, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
-import { fetchArc, getEvents, getItem, getTraders } from "../src/index.js";
+import { describe, expect } from "bun:test";
+import * as Test from "alchemy/Test/Bun";
+import { Effect, Layer, Option } from "effect";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import {
+  fetchArc,
+  getEvents,
+  getItem,
+  getTraders,
+  layerUncached,
+} from "../src/index.js";
 
-const mockLayer = createMockHttpClientLayer({
+const fixture = {
   traders: {
     Apollo: [{ id: "a", name: "A", trader_price: 1 }],
     Celeste: [],
@@ -27,54 +34,96 @@ const mockLayer = createMockHttpClientLayer({
       endTime: 2000,
     },
   ],
-});
+};
+const mockLayer = layerUncached.pipe(
+  Layer.provide(
+    Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) => {
+        const resource = new URL(request.url).pathname.split("/").at(-1);
+        const data =
+          resource === "items"
+            ? fixture.items
+            : resource === "arcs"
+              ? fixture.arcs
+              : resource === "traders"
+                ? fixture.traders
+                : fixture.events;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, Response.json({ data })),
+        );
+      }),
+    ),
+  ),
+);
+
+const { test } = Test.make({ providers: Layer.empty });
 
 describe("fetch contract", () => {
-  it.effect("getTraders decodes and returns data", () =>
+  test(
+    "getTraders decodes and returns data",
     Effect.gen(function* () {
       const result = yield* getTraders().pipe(Effect.provide(mockLayer));
       const first = result.Apollo[0];
-      assert.isDefined(first);
-      assert.strictEqual(first?.name, "A");
+      expect(first).toBeDefined();
+      expect(first?.name).toBe("A");
     }),
   );
 
-  it.effect("getItem decodes and returns head", () =>
+  test(
+    "getItem decodes and returns head",
     Effect.gen(function* () {
       const result = yield* getItem({ id: "item" }).pipe(
         Effect.provide(mockLayer),
       );
       const item = Option.getOrThrow(result);
-      assert.strictEqual(item.name, "Item");
+      expect(item.name).toBe("Item");
     }),
   );
 
-  it.effect("getItem returns none for empty response", () =>
+  test(
+    "getItem returns none for empty response",
     Effect.gen(function* () {
-      const emptyLayer = createMockHttpClientLayer({});
+      const emptyLayer = layerUncached.pipe(
+        Layer.provide(
+          Layer.succeed(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  Response.json({ data: [] }),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
       const result = yield* getItem({ id: "missing" }).pipe(
         Effect.provide(emptyLayer),
       );
-      assert.isTrue(Option.isNone(result));
+      expect(Option.isNone(result)).toBeTrue();
     }),
   );
 
-  it.effect("fetchArc decodes and returns head", () =>
+  test(
+    "fetchArc decodes and returns head",
     Effect.gen(function* () {
       const result = yield* fetchArc({ id: "bastion" }).pipe(
         Effect.provide(mockLayer),
       );
       const arc = Option.getOrThrow(result);
-      assert.strictEqual(arc.name, "Bastion");
+      expect(arc.name).toBe("Bastion");
     }),
   );
 
-  it.effect("getEvents decodes and returns data", () =>
+  test(
+    "getEvents decodes and returns data",
     Effect.gen(function* () {
       const result = yield* getEvents().pipe(Effect.provide(mockLayer));
       const first = result[0];
-      assert.isDefined(first);
-      assert.strictEqual(first?.name, "Event");
+      expect(first).toBeDefined();
+      expect(first?.name).toBe("Event");
     }),
   );
 });
