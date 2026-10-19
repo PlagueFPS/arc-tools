@@ -1,4 +1,5 @@
 import { Context, type Effect, Schema } from "effect";
+
 import type { Arc, Event, Item, TradersAPIResponse } from "./schema.js";
 
 const QueryText = Schema.String.check(Schema.isMaxLength(256));

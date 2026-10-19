@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Fiber, Layer } from "effect";
+
 import { fixture, observation, responseGate } from "./subscription-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });

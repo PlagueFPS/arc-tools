@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Fiber, Layer, Redacted, Schema } from "effect";
+
 import { EnvironmentConfig } from "../src/config.js";
 import type { AccountConfig } from "../src/twitch-account.js";
 import { subscriptionBinding } from "../src/twitch-binding.js";

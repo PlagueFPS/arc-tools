@@ -9,16 +9,17 @@ import {
   HttpServerResponse,
 } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
+
 import { BotApi } from "./api.js";
 import { bindOrigin, buildRevision, runtimeConfig } from "./config.js";
 import { manifestHash } from "./discord-manifest.js";
 import { ingressHandlers } from "./ingress.js";
 import { operatorHandlers } from "./operator.js";
-import { bindTenants } from "./tenant.js";
 import { Tenants } from "./tenant-contracts.js";
 import { TenantBoundaryObserver } from "./tenant-diagnostics.js";
-import { bindAccount } from "./twitch.js";
+import { bindTenants } from "./tenant.js";
 import { TwitchAccount } from "./twitch-contracts.js";
+import { bindAccount } from "./twitch.js";
 
 export class Bot extends Cloudflare.Worker<Bot>()(
   "Bot",

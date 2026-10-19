@@ -2,6 +2,7 @@ import { Effect, Redacted, Schema, Stream } from "effect";
 import type { HttpServerRequest } from "effect/http";
 import { HttpServerResponse } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
+
 import { BotApi } from "./api.js";
 import { Stage } from "./config.js";
 import { digest } from "./provider-http.js";

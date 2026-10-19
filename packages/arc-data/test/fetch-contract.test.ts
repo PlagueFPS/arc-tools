@@ -1,7 +1,9 @@
 import { describe, expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/http";
+
 import {
   fetchArc,
   getEvents,

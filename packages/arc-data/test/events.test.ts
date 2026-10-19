@@ -1,7 +1,9 @@
 import { describe, expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
+
 import { selectEvent } from "../src/events.js";
 import type { Event } from "../src/schema.js";
 

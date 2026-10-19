@@ -1,8 +1,10 @@
 import { describe, expect } from "bun:test";
+
 import { makeFixture } from "@arctools/arc-data/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Deferred, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
+
 import { executeCommand } from "../src/execute.js";
 
 const { test: effectTest } = Test.make({ providers: Layer.empty });

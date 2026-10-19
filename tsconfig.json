@@ -6,6 +6,8 @@
     "types": ["bun"]
   },
   "include": [
+    "oxlint.config.ts",
+    "oxfmt.config.ts",
     "alchemy.run.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts",

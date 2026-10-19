@@ -96,18 +96,18 @@ Independent cleanup reported `CLEANUP VERIFIED` with zero Workers and zero DO na
 
 The retained ten HTTP samples include five useful public replies, three expected private source errors, and two unexpected private failures. Each row below has one observation except concurrent replies, which have two. These are raw observations, not percentiles or a forecast of live Discord behavior. Before the run the client host had 16 cores and a load average of 1.80. The controlled slow source was configured for 2500ms and its exact production query counter incremented once. Source-call assertions and complete response/visibility assertions distinguish real work from fast errors.
 
-| Scenario | Application ingress ms | Client elapsed ms | Client budget remaining ms | Result |
-| --- | ---: | ---: | ---: | --- |
-| First HTTP, cold Worker/tenant/cache | 1245 | 1618.64 | 1381.36 | Correct public reply |
-| Cold tenant/cache, initialized Worker | 434 | 465.16 | 2534.84 | Correct public reply |
-| Warm tenant/cache attempt | 19 | 69.87 | 2930.13 | Unexpected private failure |
-| Command buy | 463 | 493.32 | 2506.68 | Correct public reply |
-| Command loot | 13 | 46.63 | 2953.37 | Unexpected private failure |
-| Controlled slow source | 2183 | 2245.12 | 754.88 | Expected private source failure |
-| Missing source | 592 | 631.69 | 2368.31 | Expected private source failure |
-| Malformed source | 419 | 458.03 | 2541.97 | Expected private source failure |
-| Concurrent original | 1490 | 1525.90 | 1474.10 | Correct public reply |
-| Concurrent duplicate | 1166 | 1429.63 | 1570.37 | Same correct public reply |
+| Scenario                              | Application ingress ms | Client elapsed ms | Client budget remaining ms | Result                          |
+| ------------------------------------- | ---------------------: | ----------------: | -------------------------: | ------------------------------- |
+| First HTTP, cold Worker/tenant/cache  |                   1245 |           1618.64 |                    1381.36 | Correct public reply            |
+| Cold tenant/cache, initialized Worker |                    434 |            465.16 |                    2534.84 | Correct public reply            |
+| Warm tenant/cache attempt             |                     19 |             69.87 |                    2930.13 | Unexpected private failure      |
+| Command buy                           |                    463 |            493.32 |                    2506.68 | Correct public reply            |
+| Command loot                          |                     13 |             46.63 |                    2953.37 | Unexpected private failure      |
+| Controlled slow source                |                   2183 |           2245.12 |                     754.88 | Expected private source failure |
+| Missing source                        |                    592 |            631.69 |                    2368.31 | Expected private source failure |
+| Malformed source                      |                    419 |            458.03 |                    2541.97 | Expected private source failure |
+| Concurrent original                   |                   1490 |           1525.90 |                    1474.10 | Correct public reply            |
+| Concurrent duplicate                  |                   1166 |           1429.63 |                    1570.37 | Same correct public reply       |
 
 The maximum across all ten samples was 2183ms application ingress and 2245.12ms client elapsed, leaving 817ms and 754.88ms of the original three-second budget respectively. Across the five useful public replies, the maxima were 1490ms application ingress and 1618.64ms client elapsed. Those leave 1510ms and 1381.36ms respectively. The maxima came from different requests. No useful warm-reply observation was obtained. The compute2350/RPC2700 margins have not passed the complete cloud acceptance gate. No profiler established a dominant limiter, so these samples support only their observed deadline checks. They establish neither a performance comparison nor live-provider timing, privacy or cost.
 

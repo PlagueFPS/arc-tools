@@ -1,6 +1,8 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+
 import { Schema } from "effect";
+
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
 import {
   CheckedPreview,
@@ -155,6 +157,8 @@ async function main() {
           "X-GitHub-Api-Version": "2022-11-28",
           "Content-Type": "application/json",
         },
+        // The caller supplies the method; GET calls leave the body undefined.
+        // oxlint-disable-next-line unicorn/no-invalid-fetch-options
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(30_000),
       },

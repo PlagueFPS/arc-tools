@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
+
 import { Effect, Fiber, Schedule, Schema } from "effect";
+
 import { discordResponse } from "../../apps/bot/src/presentation.js";
 import {
   AccountStatus,

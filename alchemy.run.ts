@@ -3,6 +3,7 @@ import { AlchemyContext } from "alchemy/AlchemyContext";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Stage } from "alchemy/Stage";
 import { Config, Effect, Schema } from "effect";
+
 import { Stage as StageSchema, TestStage } from "./apps/bot/src/config.js";
 import { Bot } from "./apps/bot/src/worker.js";
 

@@ -2,23 +2,23 @@
 
 All 62 submitted comments received an implementation or an API-specific disposition. The accepted source changes end at `6832a5f`.
 
-| Comment IDs | Resolution |
-| --- | --- |
-| 1, 3, 6, 42–47, 49, 62 | Tagged error discrimination replaces class identity checks. Unknown ingress errors use schema guards. |
-| 2 | Discord retry seconds decode into a finite positive `Duration`, with upward millisecond rounding and the existing attempt and deadline limits. |
-| 4, 10 | Ingress imports are consolidated and configuration has a named readonly interface. |
-| 5, 19, 24–31, 33–36, 41, 50–57, 59–61, 63, 65 | Effect predicates replace the requested presence and property checks. |
-| 7 | Authentication header schemas preserve signed timestamp text and return 401 for invalid authentication headers. |
-| 8 | `Hex.decode` replaces manual hex parsing. Native WebCrypto retains HMAC and Ed25519 verification because Effect 4.0.4 Crypto lacks those operations. |
-| 9 | Fatal UTF-8 decoding remains. `Hex.decodeString` accepts hex text and does not preserve strict decoding of raw HTTP bytes. |
-| 11, 18, 21–23, 32, 37, 38, 40 | `Match` handles the requested delivery and state variants. |
-| 12, 20 | `Result.isFailure` replaces manual Result tag checks. |
-| 13 | Slash options trim before empty values become empty arrays. This permits removal of `filter(Boolean)` while preserving whitespace normalization. |
-| 15 | Generated Twitch replies omit ARC branding, including fallback and multipart replies. Multipart position labels remain. |
-| 16 | A scoped Effect HTTP client preserves received statuses, bounded response reads, cancellation, manual redirects, and single attempts. |
-| 17 | Effect Crypto and Hex produce the existing lowercase SHA-256 fingerprints through a local WebCrypto binding. |
-| 48 | The unused configuration copy is removed. |
-| 64 | Bot contracts reuse the commands package's authoritative command-name schema. |
+| Comment IDs                                   | Resolution                                                                                                                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1, 3, 6, 42–47, 49, 62                        | Tagged error discrimination replaces class identity checks. Unknown ingress errors use schema guards.                                                |
+| 2                                             | Discord retry seconds decode into a finite positive `Duration`, with upward millisecond rounding and the existing attempt and deadline limits.       |
+| 4, 10                                         | Ingress imports are consolidated and configuration has a named readonly interface.                                                                   |
+| 5, 19, 24–31, 33–36, 41, 50–57, 59–61, 63, 65 | Effect predicates replace the requested presence and property checks.                                                                                |
+| 7                                             | Authentication header schemas preserve signed timestamp text and return 401 for invalid authentication headers.                                      |
+| 8                                             | `Hex.decode` replaces manual hex parsing. Native WebCrypto retains HMAC and Ed25519 verification because Effect 4.0.4 Crypto lacks those operations. |
+| 9                                             | Fatal UTF-8 decoding remains. `Hex.decodeString` accepts hex text and does not preserve strict decoding of raw HTTP bytes.                           |
+| 11, 18, 21–23, 32, 37, 38, 40                 | `Match` handles the requested delivery and state variants.                                                                                           |
+| 12, 20                                        | `Result.isFailure` replaces manual Result tag checks.                                                                                                |
+| 13                                            | Slash options trim before empty values become empty arrays. This permits removal of `filter(Boolean)` while preserving whitespace normalization.     |
+| 15                                            | Generated Twitch replies omit ARC branding, including fallback and multipart replies. Multipart position labels remain.                              |
+| 16                                            | A scoped Effect HTTP client preserves received statuses, bounded response reads, cancellation, manual redirects, and single attempts.                |
+| 17                                            | Effect Crypto and Hex produce the existing lowercase SHA-256 fingerprints through a local WebCrypto binding.                                         |
+| 48                                            | The unused configuration copy is removed.                                                                                                            |
+| 64                                            | Bot contracts reuse the commands package's authoritative command-name schema.                                                                        |
 
 The supplied comment IDs omit 14, 39, and 58.
 

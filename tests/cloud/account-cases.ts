@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
 import { appendFile } from "node:fs/promises";
+
 import { Effect, Fiber, Redacted, Schedule, Schema } from "effect";
+
 import { commandManifest } from "../../apps/bot/src/discord-manifest.js";
 import {
   ReleaseHealth,

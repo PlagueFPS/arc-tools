@@ -15,8 +15,8 @@
     "status:local": "bun run scripts/local.ts status",
     "sync:discord:local": "bun run scripts/local.ts sync",
     "lint": "turbo run format-and-lint",
-    "format-and-lint": "biome check .",
-    "format-and-lint:fix": "biome check . --write",
+    "format-and-lint": "oxlint --deny-warnings . && oxfmt --check .",
+    "format-and-lint:fix": "oxlint --fix . && oxfmt --write .",
     "check-types": "turbo run check-types && tsc --noEmit",
     "test:cloud": "bun run scripts/cloud-test.ts",
     "test:cloud:cleanup": "bun run scripts/cloud-test.ts cleanup",
@@ -27,7 +27,6 @@
     "preview:cleanup": "bun --no-env-file run scripts/preview.ts cleanup"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.15",
     "@effect/language-service": "^0.77.0",
     "turbo": "^2.8.15",
     "typescript": "5.9.3",
@@ -37,7 +36,9 @@
     "@cloudflare/workers-types": "5.20261015.1",
     "@effect/platform-bun": "4.0.4",
     "@effect/platform-node": "4.0.4",
-    "@distilled.cloud/cloudflare": "1.0.0-rc.15"
+    "@distilled.cloud/cloudflare": "1.0.0-rc.15",
+    "oxlint": "1.88.0",
+    "oxfmt": "0.73.0"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.4",

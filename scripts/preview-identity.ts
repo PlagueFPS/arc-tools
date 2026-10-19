@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+
 import { Schema } from "effect";
 
 export const Repository = Schema.Literal("PlagueFPS/arc-tools");

@@ -1,7 +1,9 @@
 import { expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Fiber, Layer, Schema } from "effect";
 import { FetchHttpClient } from "effect/http";
+
 import { digest, request } from "../src/provider-http.js";
 import { Dispatch } from "../src/twitch-contracts.js";
 import { fixture } from "./subscription-fixture.js";

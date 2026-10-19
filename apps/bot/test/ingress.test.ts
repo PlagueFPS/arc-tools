@@ -1,9 +1,11 @@
 import { describe, expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { TestClock } from "effect/testing";
+
 import {
   discordCommand,
   discordPublicKey,

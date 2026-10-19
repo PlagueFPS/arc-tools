@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Test from "alchemy/Test/Bun";
 import {
@@ -12,7 +13,7 @@ import {
   Schema,
   Semaphore,
 } from "effect";
-import { makeAccountStorage } from "../../apps/bot/src/twitch.js";
+
 import { makeAccount } from "../../apps/bot/src/twitch-account.js";
 import { AccountError } from "../../apps/bot/src/twitch-contracts.js";
 import {
@@ -24,6 +25,7 @@ import {
   AccountStore,
   policy,
 } from "../../apps/bot/src/twitch-state.js";
+import { makeAccountStorage } from "../../apps/bot/src/twitch.js";
 import {
   fixtureConfig,
   initial,

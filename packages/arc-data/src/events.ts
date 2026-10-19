@@ -1,5 +1,6 @@
 import { normalize } from "@arctools/utils";
 import { Array as Arr, Clock, Effect, Option } from "effect";
+
 import { ArcData } from "./data-service.js";
 import type { Event } from "./schema.js";
 

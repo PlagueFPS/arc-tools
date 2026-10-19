@@ -1,6 +1,7 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Cause, Effect, Exit } from "effect";
 import { HttpServerResponse } from "effect/http";
+
 import { fixtureHeader } from "./fixture-http.js";
 
 export const identifyFixtureResponse = HttpServerResponse.setHeader(

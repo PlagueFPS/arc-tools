@@ -1,8 +1,10 @@
 import { describe, expect } from "bun:test";
+
 import { makeFixture } from "@arctools/arc-data/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
+
 import { AttemptId, Deadline, WorkId } from "../src/contracts.js";
 import {
   discordResponse,

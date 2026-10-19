@@ -1,6 +1,7 @@
 import { getEvents, selectEvent } from "@arctools/arc-data";
 import { formatMinutes, normalize } from "@arctools/utils";
 import { Clock, Effect, Option } from "effect";
+
 import { CommandError } from "../lib/command-error.js";
 
 export const eventHandler = Effect.fn("Command.eventHandler")(

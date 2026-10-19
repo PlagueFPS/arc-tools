@@ -6,12 +6,12 @@ The five requested changes are integrated on branch `t3/unit4-account-integratio
 
 The following commits apply in this order after `7578292`. Every import records its original commit with `cherry-pick -x`.
 
-| Original commit | Integration commit | Change |
-| --- | --- | --- |
-| `4988f00b5d3ffe53abff89f6331ff1bb8f82b6dd` | `9eafa00ffe758e61c6948c95f4de071fdff553b2` | Original unit 4 implementation. |
-| `f4e57261807087d231ab4a41a6f981245f709fee` | `d53eb81f5fed74ffaf32e5592e739164062ad416` | Reviewed HTTP and reconstruction harness. |
+| Original commit                            | Integration commit                         | Change                                        |
+| ------------------------------------------ | ------------------------------------------ | --------------------------------------------- |
+| `4988f00b5d3ffe53abff89f6331ff1bb8f82b6dd` | `9eafa00ffe758e61c6948c95f4de071fdff553b2` | Original unit 4 implementation.               |
+| `f4e57261807087d231ab4a41a6f981245f709fee` | `d53eb81f5fed74ffaf32e5592e739164062ad416` | Reviewed HTTP and reconstruction harness.     |
 | `29c42db35a1eaf9f3701639df6f09184e46fde5b` | `d61e66ffa59fca99c4db41fb3858305f7e1768b9` | Default discovery of eight pure helper tests. |
-| `165a0d679f3dda540614e7cf7cbc051aad1a8274` | `212e9cd67b3ff575ccf1be94bc4290c4365763f7` | Failing account and release regressions. |
+| `165a0d679f3dda540614e7cf7cbc051aad1a8274` | `212e9cd67b3ff575ccf1be94bc4290c4365763f7` | Failing account and release regressions.      |
 | `90231bd5710cd7e76c0ebc82b44011921f6902a4` | `6f1a3dda8c28672da86025132383132e5b9851d4` | Account corrections and native alarm fixture. |
 
 Two additional test-only commits follow the imports.
@@ -86,12 +86,12 @@ The six review-A corrections remain imported without policy changes. Local tests
 
 The first command was exactly `bunx bun@1.3.5 run scripts/cloud-test.ts account`. It used real Cloudflare providers and `Cloudflare.state()`, a stage containing this worktree's hash and a unique run suffix, and no `dev: true`. The runner filtered live application credentials and supplied only controlled synthetic Twitch and Discord identities. No production, persistent staging, or live-provider mutation occurred.
 
-| Stage | Execution | Result | Cleanup |
-| --- | --- | --- | --- |
-| `test-account-c0549d51-d74a3fc4f388` | Canonical combined runner at `fce87a0`. | 0 pass, 1 setup failure. First probe snapshot returned HTTP 500 HTML. Account cases were not reached. | Exit 0. Zero Workers, zero namespaces, state and output absent. |
-| `test-account-c0549d51-f017c4cad438` | Focused probe diagnostic and the exact imported native account test. | 1 pass, 1 fail, 6 account cases filtered. Probe succeeded after one recognized pre-route 404. Native preparation returned HTTP 500. | Exit 0. Zero Workers, zero namespaces, state and output absent. |
-| `test-account-c0549d51-48c6108f9867` | Diagnostic with newly added failure logging. | 0 pass, 2 fail, 6 filtered. Probe RPC failed. My instrumentation also used unavailable `Effect.tapErrorCause` and introduced a separate TypeError. This stage is invalid as evidence about the original native failure. | Exit 0. Zero Workers, zero namespaces, state and output absent. |
-| `test-account-c0549d51-397232086976` | Changed diagnostic after correcting logging to `Effect.tapCause` and passing TypeScript and formatting checks. Same code as `6e125d8`. | 0 pass, 2 fail, 6 filtered. Probe RPC and controlled provider RPC failed. Native preparation stopped before reconstruction or alarm execution. | Exit 0. Zero Workers, zero namespaces, state and output absent. |
+| Stage                                | Execution                                                                                                                              | Result                                                                                                                                                                                                                  | Cleanup                                                         |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `test-account-c0549d51-d74a3fc4f388` | Canonical combined runner at `fce87a0`.                                                                                                | 0 pass, 1 setup failure. First probe snapshot returned HTTP 500 HTML. Account cases were not reached.                                                                                                                   | Exit 0. Zero Workers, zero namespaces, state and output absent. |
+| `test-account-c0549d51-f017c4cad438` | Focused probe diagnostic and the exact imported native account test.                                                                   | 1 pass, 1 fail, 6 account cases filtered. Probe succeeded after one recognized pre-route 404. Native preparation returned HTTP 500.                                                                                     | Exit 0. Zero Workers, zero namespaces, state and output absent. |
+| `test-account-c0549d51-48c6108f9867` | Diagnostic with newly added failure logging.                                                                                           | 0 pass, 2 fail, 6 filtered. Probe RPC failed. My instrumentation also used unavailable `Effect.tapErrorCause` and introduced a separate TypeError. This stage is invalid as evidence about the original native failure. | Exit 0. Zero Workers, zero namespaces, state and output absent. |
+| `test-account-c0549d51-397232086976` | Changed diagnostic after correcting logging to `Effect.tapCause` and passing TypeScript and formatting checks. Same code as `6e125d8`. | 0 pass, 2 fail, 6 filtered. Probe RPC and controlled provider RPC failed. Native preparation stopped before reconstruction or alarm execution.                                                                          | Exit 0. Zero Workers, zero namespaces, state and output absent. |
 
 Every stage has `run.json`, `result.json`, and a copied `console.log` under `.cloud-tests/<stage>/`. The three diagnostic stages also have `resources.json` listing six Workers and six namespaces. The canonical run failed before its resource-journal hook wrote that file. Its deployment console records all six resources, and the independent cleanup checks the exact stage Worker names and associated namespaces through Cloudflare APIs as well as the backend state/output. No missing journal was fabricated. Every `result.json` records `testResult: 1` and `cleanupResult: 0`. There is no passing cloud run from this integration owner.
 

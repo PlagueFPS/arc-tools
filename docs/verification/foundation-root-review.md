@@ -6,12 +6,12 @@ Accepted implementation is `89db64f`, with the worker's evidence recorded in `b5
 
 Root ran these commands in the implementation worktree `/home/angel/.t3/worktrees/arc-tools/t3-f333e23c`.
 
-| Command | Observed result |
-| --- | --- |
-| `bunx bun@1.3.5 test ./packages/utils/test ./packages/arc-data/test ./packages/commands/test ./apps/discord-bot/test ./apps/twitch-bot/test ./apps/bot/test` | 128 passing tests, zero failures, 239 assertions. |
-| `bunx turbo run build check-types --force && bunx tsc --noEmit` | Eleven successful tasks, zero cached tasks; root typecheck exits zero. |
-| `bun run lint` | Biome checks 92 files and exits zero. |
-| `bunx bun@1.3.5 run scripts/cloud-test.ts` | Three passing real-cloud tests and cleanup exit zero. |
+| Command                                                                                                                                                      | Observed result                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `bunx bun@1.3.5 test ./packages/utils/test ./packages/arc-data/test ./packages/commands/test ./apps/discord-bot/test ./apps/twitch-bot/test ./apps/bot/test` | 128 passing tests, zero failures, 239 assertions.                      |
+| `bunx turbo run build check-types --force && bunx tsc --noEmit`                                                                                              | Eleven successful tasks, zero cached tasks; root typecheck exits zero. |
+| `bun run lint`                                                                                                                                               | Biome checks 92 files and exits zero.                                  |
+| `bunx bun@1.3.5 run scripts/cloud-test.ts`                                                                                                                   | Three passing real-cloud tests and cleanup exit zero.                  |
 
 The root cloud stage was `test-foundation-9726feb5-16c08c387deb`. The actual tests exercised raw-byte HttpApi handling, SQL/KV/alarm transaction rollback and object reconstruction, and persisted native alarm retry. Cleanup API readback reported zero matching Workers, zero matching Durable Object namespaces, and no test-stage state or output. The cloud state control backend was retained. The run journal is `.cloud-tests/test-foundation-9726feb5-16c08c387deb/result.json` in the implementation worktree.
 

@@ -1,7 +1,9 @@
 import { describe, expect } from "bun:test";
+
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
+
 import { eventHandler } from "../../src/handlers/event.js";
 import { event } from "../fixtures.js";
 import { runWithMock } from "../utils.js";

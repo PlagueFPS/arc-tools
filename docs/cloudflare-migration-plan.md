@@ -20,17 +20,17 @@ One root `alchemy.run.ts` declares the Cloudflare providers, deployment-state ba
 
 Keep Bun, Turborepo, Biome, and TypeScript. Migrate tests to Alchemy's Effect-aware Bun API. The user's explicit testing preference supersedes the current Vitest tooling choice. The intended module map is:
 
-| Location | Owns |
-| --- | --- |
-| `alchemy.run.ts` | One stack and its resource wiring. |
-| `apps/bot/src/config.ts` | Schema-validated environment configuration, Twitch sender and channel logins, and application identities. No source-coded broadcaster IDs or guild allowlist. |
-| `apps/bot/src/worker.ts` and `api.ts` | HttpApi routes, raw signature verification, routing, and HTTP responses. |
-| `apps/bot/src/tenant.ts` | Tenant Durable Object admission, command execution, delivery state, and recovery. |
-| `apps/bot/src/twitch.ts` | Twitch account Durable Object, app credentials, grants, subscriptions, shared send limits, and send-attempt ledger. |
-| `apps/bot/src/discord.ts` | Discord protocol adapter, command registration, and response operations. |
-| `apps/bot/src/operator.ts`, `scripts/ops.ts`, and `scripts/sync-discord-commands.ts` | Authenticated Twitch setup/status and the deployment-time Discord registration client. |
-| `packages/commands` | One command registry, existing handlers, and domain execution. |
-| `packages/arc-data` | Upstream schemas, typed data service, and private ArcCache Durable Object adapter. |
+| Location                                                                             | Owns                                                                                                                                                          |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `alchemy.run.ts`                                                                     | One stack and its resource wiring.                                                                                                                            |
+| `apps/bot/src/config.ts`                                                             | Schema-validated environment configuration, Twitch sender and channel logins, and application identities. No source-coded broadcaster IDs or guild allowlist. |
+| `apps/bot/src/worker.ts` and `api.ts`                                                | HttpApi routes, raw signature verification, routing, and HTTP responses.                                                                                      |
+| `apps/bot/src/tenant.ts`                                                             | Tenant Durable Object admission, command execution, delivery state, and recovery.                                                                             |
+| `apps/bot/src/twitch.ts`                                                             | Twitch account Durable Object, app credentials, grants, subscriptions, shared send limits, and send-attempt ledger.                                           |
+| `apps/bot/src/discord.ts`                                                            | Discord protocol adapter, command registration, and response operations.                                                                                      |
+| `apps/bot/src/operator.ts`, `scripts/ops.ts`, and `scripts/sync-discord-commands.ts` | Authenticated Twitch setup/status and the deployment-time Discord registration client.                                                                        |
+| `packages/commands`                                                                  | One command registry, existing handlers, and domain execution.                                                                                                |
+| `packages/arc-data`                                                                  | Upstream schemas, typed data service, and private ArcCache Durable Object adapter.                                                                            |
 
 These are proposed boundaries, not files already implemented. Keep utilities and testing packages where they remain useful. Domain packages do not import Discord.js, Twurple, Worker request objects, provider tokens, or storage rows.
 
@@ -40,12 +40,12 @@ Start verification with exact published versions `alchemy@2.0.0-beta.83` and `ef
 
 Alchemy stage selects the stack instance and its resource/state namespace. A profile selects cloud-provider deployment credentials, not the Twitch identity. Runtime Effect Config bindings select the sender, channels, application credentials, and signing secrets. Resolve bindings during construction so Alchemy discovers them, then use them at runtime. CI uses provider environment credentials rather than local profiles. [Stages](https://alchemy.run/environments/stages/), [profiles](https://alchemy.run/environments/profiles/), [config binding](https://alchemy.run/environments/secrets/).
 
-| Environment | Placement | Twitch sender | Subscribed channels |
-| --- | --- | --- | --- |
+| Environment                                                 | Placement                                                                                  | Twitch sender                                              | Subscribed channels                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | Automated integration-test stage unique to its worktree/run | Real Cloudflare resources and `Cloudflare.state()`. Destroy the test stack after each run. | Synthetic identity and controlled API services by default. | Synthetic fixtures; separately selected live-provider checks use the personal channel. |
-| Local interactive development stage | Local workerd. Live webhooks require an HTTPS tunnel. | Personal Twitch account. | Personal channel only. |
-| `staging` | Separate cloud stack. | Personal Twitch account. | Personal channel only. |
-| `prod` | Production cloud stack. | Dedicated bot Twitch account. | Environment-configured manual channel set. |
+| Local interactive development stage                         | Local workerd. Live webhooks require an HTTPS tunnel.                                      | Personal Twitch account.                                   | Personal channel only.                                                                 |
+| `staging`                                                   | Separate cloud stack.                                                                      | Personal Twitch account.                                   | Personal channel only.                                                                 |
+| `prod`                                                      | Production cloud stack.                                                                    | Dedicated bot Twitch account.                              | Environment-configured manual channel set.                                             |
 
 Declare environment values such as `TWITCH_SENDER_LOGIN`, `TWITCH_CHANNEL_LOGINS`, `TWITCH_CLIENT_ID`, and redacted client/signing secrets. Twitch setup resolves logins to stable user IDs and stores them in that stage's account state. EventSub still requires IDs internally, but operators do not hardcode them in source. Validate OAuth-returned identities against the resolved expected account. Production and personal identities never share grant or token state. Missing or inconsistent configuration fails rather than falling back to production values.
 
@@ -75,11 +75,11 @@ Cloudflare integration tests exercise real Workers, bindings, SQLite-backed Dura
 
 Use three Durable Object classes, with no additional application database:
 
-| Object | Identity | Durable responsibility |
-| --- | --- | --- |
-| Tenant | `twitch:<resolved-broadcaster-id>` or `discord:<interaction-guild-id>`, within its stage | Command admission, deduplication, deadline, execution state, and direct Discord response. |
-| TwitchAccount | One configured Twitch application and sender, within its stage | App-token session, resolved identities, OAuth setup state, subscription status, shared rate reservations, and Twitch send attempts. |
-| ArcCache | One cache per stage | Canonical request keys, validated source values, refresh ownership, freshness, and diagnostic status. |
+| Object        | Identity                                                                                 | Durable responsibility                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Tenant        | `twitch:<resolved-broadcaster-id>` or `discord:<interaction-guild-id>`, within its stage | Command admission, deduplication, deadline, execution state, and direct Discord response.                                           |
+| TwitchAccount | One configured Twitch application and sender, within its stage                           | App-token session, resolved identities, OAuth setup state, subscription status, shared rate reservations, and Twitch send attempts. |
+| ArcCache      | One cache per stage                                                                      | Canonical request keys, validated source values, refresh ownership, freshness, and diagnostic status.                               |
 
 The tenant does not refresh shared credentials. The account does not own command computation. The cache does not own command delivery. Discord registration uses static secrets and needs no separate account object.
 
@@ -89,13 +89,13 @@ Environment-based Twitch channel configuration is authoritative. Objects store r
 
 Effect Schemas define and infer boundary types. Brand broadcaster IDs, guild IDs, work IDs, attempt IDs, and deadlines. Do not make these interchangeable strings.
 
-| Contract | Input and result |
-| --- | --- |
-| Tenant admission | A validated Twitch or Discord receipt with matching environment and tenant. Twitch returns its admission disposition; Discord computes and returns the initial response within its shorter budget. |
-| Command execution | Registry-derived command name, normalized input, and deadline. Returns reply text with any stale-data indication, or a domain error. |
-| Data reads | A schema-derived resource query. Returns validated data and fresh or fallback provenance. No unconstrained generic `get<T>` API. |
-| Twitch dispatch | Stable attempt ID, channel, reply text, and deadline. Returns sent, explicitly rejected, retryable, ambiguous, or expired. |
-| Operator operations | Configured environment and Twitch identity, or a status request. Returns Twitch setup progress, command drift information, or redacted status. No guild enrollment operation. |
+| Contract            | Input and result                                                                                                                                                                                   |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tenant admission    | A validated Twitch or Discord receipt with matching environment and tenant. Twitch returns its admission disposition; Discord computes and returns the initial response within its shorter budget. |
+| Command execution   | Registry-derived command name, normalized input, and deadline. Returns reply text with any stale-data indication, or a domain error.                                                               |
+| Data reads          | A schema-derived resource query. Returns validated data and fresh or fallback provenance. No unconstrained generic `get<T>` API.                                                                   |
+| Twitch dispatch     | Stable attempt ID, channel, reply text, and deadline. Returns sent, explicitly rejected, retryable, ambiguous, or expired.                                                                         |
+| Operator operations | Configured environment and Twitch identity, or a status request. Returns Twitch setup progress, command drift information, or redacted status. No guild enrollment operation.                      |
 
 Private work state is a tagged union with accepted, computing, ready, and terminal variants. Twitch additionally has delivering states for remote message creation, with sent, failed, ambiguous, and expired outcomes. Discord stores deduplication and a bounded response result; interaction tokens are not required in durable storage for direct replies. A terminal transition means every required operation has completed or stopped. Do not carry deferred-followup states into the direct-response baseline.
 
@@ -147,13 +147,13 @@ Setup, configuration changes, and operator repair reconcile subscriptions. Revoc
 
 The user has confirmed this brief. Each worker receives this document, its owned paths, dependencies, and required evidence. Root remains the orchestrator and reviewer. Separate workers use separate checkouts or isolated file ownership. Shared manifests and lockfile have one writer. Execution follows the five units below under the figure-it-out workflow, with decisions recorded in `.audit/cloudflare-migration.tsv` and unit evidence under `docs/verification/`.
 
-| Unit | Owner and scope | Exit gate |
-| --- | --- | --- |
-| 1. Foundation | One owner for stack, stage/config binding, versions, workspace exports, contracts, Bun test migration, CI, and lockfile. | Alchemy Bun tests with `Cloudflare.state()` and no local mode prove raw HttpApi, SQLite transaction rollback, persisted alarms, and object reconstruction on real Cloudflare infrastructure. Ported command fixtures pass. Test state and credentials cannot select production. Teardown and leftover detection pass. |
-| 2. Data and cache | One owner for `packages/arc-data` and affected command injection. | Concurrent refresh, additive and breaking schema updates, round-trip serialization, original timestamps, 24-hour/seven-day/60-second boundaries, and current-clock output pass. |
-| 3. Tenant and ingress | One owner for verified ingress, tenant admission, transport-specific deadlines, and direct Discord responses. May run alongside unit 2 after contracts settle. | No tenant allocation on invalid signatures or ordinary Twitch chat. Installed Discord guilds need no enrollment. Duplicates, network interleaving, direct public/private response payloads, cold/missing/expired caches, and deadline behavior pass on real Cloudflare Workers and Durable Objects. |
-| 4. Twitch and release sync | One owner for account, authorization, subscriptions, operator client, shared limits, and Discord manifest synchronization. | Personal sender/channel in nonproduction and dedicated sender in production; resolved identities, setup repetition, interrupted creation, validation, revocation, ambiguous sends, secret redaction, and command add/update/delete/readback pass. |
-| 5. Integration and deletion | One integrator owns final wiring, manifests, docs, and removal. | Both protocols execute all ten commands. Remove old apps and unused dependencies. Build, typecheck, lint, tests, local Worker execution, and live protocol checks pass. |
+| Unit                        | Owner and scope                                                                                                                                                | Exit gate                                                                                                                                                                                                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Foundation               | One owner for stack, stage/config binding, versions, workspace exports, contracts, Bun test migration, CI, and lockfile.                                       | Alchemy Bun tests with `Cloudflare.state()` and no local mode prove raw HttpApi, SQLite transaction rollback, persisted alarms, and object reconstruction on real Cloudflare infrastructure. Ported command fixtures pass. Test state and credentials cannot select production. Teardown and leftover detection pass. |
+| 2. Data and cache           | One owner for `packages/arc-data` and affected command injection.                                                                                              | Concurrent refresh, additive and breaking schema updates, round-trip serialization, original timestamps, 24-hour/seven-day/60-second boundaries, and current-clock output pass.                                                                                                                                       |
+| 3. Tenant and ingress       | One owner for verified ingress, tenant admission, transport-specific deadlines, and direct Discord responses. May run alongside unit 2 after contracts settle. | No tenant allocation on invalid signatures or ordinary Twitch chat. Installed Discord guilds need no enrollment. Duplicates, network interleaving, direct public/private response payloads, cold/missing/expired caches, and deadline behavior pass on real Cloudflare Workers and Durable Objects.                   |
+| 4. Twitch and release sync  | One owner for account, authorization, subscriptions, operator client, shared limits, and Discord manifest synchronization.                                     | Personal sender/channel in nonproduction and dedicated sender in production; resolved identities, setup repetition, interrupted creation, validation, revocation, ambiguous sends, secret redaction, and command add/update/delete/readback pass.                                                                     |
+| 5. Integration and deletion | One integrator owns final wiring, manifests, docs, and removal.                                                                                                | Both protocols execute all ten commands. Remove old apps and unused dependencies. Build, typecheck, lint, tests, local Worker execution, and live protocol checks pass.                                                                                                                                               |
 
 Remove the old Twitch and Discord apps, Twurple, Discord.js, libSQL, Turso configuration, obsolete Drizzle schema and migrations, bot process entrypoints, unused platform-bun dependencies, and the exported singleton CommandRuntime. Migrate all existing tests to the Alchemy Effect-aware Bun API, then remove Vitest configuration, Vitest, and `@effect/vitest`. Keep only dependencies consumed by the new application and development tools. Removal can happen in the replacement wave because there is no production compatibility requirement.
 
