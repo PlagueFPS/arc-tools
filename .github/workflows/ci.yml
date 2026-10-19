@@ -116,3 +116,9 @@ jobs:
       stage: prod
       application_id: ${{ vars.PROD_DISCORD_APPLICATION_ID }}
       revision: ${{ github.sha }}
+    secrets:
+      TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+      TWITCH_SIGNING_SECRET: ${{ secrets.TWITCH_SIGNING_SECRET }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      OPERATOR_SECRET: ${{ secrets.OPERATOR_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

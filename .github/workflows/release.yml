@@ -25,6 +25,17 @@ on:
         description: Exact full SHA that passed the caller checks
         required: true
         type: string
+    secrets:
+      TWITCH_CLIENT_SECRET:
+        required: true
+      TWITCH_SIGNING_SECRET:
+        required: true
+      DISCORD_BOT_TOKEN:
+        required: true
+      OPERATOR_SECRET:
+        required: true
+      CLOUDFLARE_API_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -64,6 +75,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           script: |
+            const missing = ['TWITCH_CLIENT_SECRET', 'TWITCH_SIGNING_SECRET', 'DISCORD_BOT_TOKEN', 'OPERATOR_SECRET', 'CLOUDFLARE_API_TOKEN'].filter(name => !process.env[name]?.trim());
+            if (missing.length) throw new Error(`Configure nonempty environment secrets: ${missing.join(', ')}`);
             const { ARC_STAGE: stage, ARC_BUILD_REVISION: revision, RELEASE_APPLICATION_ID: app, DISCORD_APPLICATION_ID: actual, ARC_PUBLIC_URL: origin } = process.env;
             if (!['prod', 'staging'].includes(stage)) throw new Error('Release stage must be prod or staging');
             if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('Release revision must be a full SHA');

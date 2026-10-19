@@ -27,6 +27,7 @@ const Job = Schema.Struct({
   permissions: Schema.optional(Strings),
   env: Schema.optional(Strings),
   with: Schema.optional(Strings),
+  secrets: Schema.optional(Strings),
   steps: Schema.optional(Schema.Array(Step)),
 });
 const Workflow = Schema.Struct({
@@ -93,6 +94,28 @@ function context(eventName: string, fork = false, action = "synchronize") {
 
 const revision = "a".repeat(40);
 const app = "123456789";
+const releaseSecretNames = [
+  "TWITCH_CLIENT_SECRET",
+  "TWITCH_SIGNING_SECRET",
+  "DISCORD_BOT_TOKEN",
+  "OPERATOR_SECRET",
+  "CLOUDFLARE_API_TOKEN",
+] as const;
+const fixtureSecrets = Object.fromEntries(
+  releaseSecretNames.map((name) => [name, `fixture-${name}-credential`]),
+);
+const callableRelease = Schema.Struct({
+  secrets: Schema.Record(
+    Schema.String,
+    Schema.Struct({ required: Schema.Boolean }),
+  ),
+});
+function checkSecretForwarding(caller: typeof Job.Type) {
+  for (const name of releaseSecretNames) {
+    if (caller.secrets?.[name] !== expression(`secrets.${name}`))
+      throw new Error(`Release caller must forward ${name} by name`);
+  }
+}
 const guard = step(
   release,
   "release",
@@ -103,14 +126,18 @@ async function runGuard(
   eventName = "push",
   ref = "refs/heads/main",
   currentHead = revision,
+  observed: { apiCalls: number; logs: string[] } = { apiCalls: 0, logs: [] },
 ) {
   const script = Schema.decodeUnknownSync(Schema.String)(guard.with?.script);
   const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
-  await new AsyncFunction("github", "context", "process", script)(
+  await new AsyncFunction("github", "context", "process", "console", script)(
     {
       rest: {
         git: {
-          getRef: async () => ({ data: { object: { sha: currentHead } } }),
+          getRef: async () => {
+            observed.apiCalls++;
+            return { data: { object: { sha: currentHead } } };
+          },
         },
       },
     },
@@ -122,6 +149,7 @@ async function runGuard(
     },
     {
       env: {
+        ...fixtureSecrets,
         ARC_STAGE: "prod",
         ARC_BUILD_REVISION: revision,
         RELEASE_APPLICATION_ID: app,
@@ -130,6 +158,12 @@ async function runGuard(
         ...overrides,
       },
     },
+    Object.fromEntries(
+      ["log", "info", "warn", "error", "debug"].map((name) => [
+        name,
+        (...values: unknown[]) => observed.logs.push(values.join(" ")),
+      ]),
+    ),
   );
 }
 
@@ -157,21 +191,52 @@ describe("workflow event and dependency behavior", () => {
       expect(stdout + stderr).not.toContain("CANARY");
     }
   });
-  test("PR check and close events are separate, cleanup never depends on CI, and no PR target executes code", () => {
+  test("PR checks and trusted target close events are separate and cleanup never depends on CI", () => {
     const checks = Schema.decodeUnknownSync(trigger)(ci.on.pull_request);
     expect(checks).toEqual({
       branches: ["main"],
       types: ["opened", "reopened", "synchronize"],
     });
     expect(
-      Schema.decodeUnknownSync(trigger)(cleanup.on.pull_request).types,
-    ).toEqual(["closed"]);
+      Schema.decodeUnknownSync(trigger)(cleanup.on.pull_request_target),
+    ).toEqual({ branches: ["main"], types: ["closed"] });
+    expect(cleanup.on.pull_request).toBeUndefined();
     expect(job(cleanup, "cleanup").needs).toBeUndefined();
-    for (const workflow of [ci, release, cleanup])
+    for (const workflow of [ci, release])
       expect(workflow.on.pull_request_target).toBeUndefined();
     expect(job(ci, "preview").needs).toBe("ci");
     expect(job(ci, "release").needs).toBe("ci");
     expect(job(ci, "release").uses).toBe("./.github/workflows/release.yml");
+  });
+  test("automatic release explicitly forwards every required environment secret", () => {
+    const caller = job(ci, "release");
+    expect(() => checkSecretForwarding(caller)).not.toThrow();
+    expect(Object.keys(caller.secrets ?? {}).sort()).toEqual(
+      [...releaseSecretNames].sort(),
+    );
+    const called = Schema.decodeUnknownSync(callableRelease)(
+      release.on.workflow_call,
+    );
+    expect(Object.keys(called.secrets).sort()).toEqual(
+      [...releaseSecretNames].sort(),
+    );
+    for (const name of releaseSecretNames) {
+      expect(called.secrets[name]?.required).toBeTrue();
+      expect(job(release, "release").env?.[name]).toBe(
+        expression(`secrets.${name}`),
+      );
+      const missing = { ...caller.secrets };
+      delete missing[name];
+      expect(() =>
+        checkSecretForwarding({ ...caller, secrets: missing }),
+      ).toThrow(name);
+      expect(() =>
+        checkSecretForwarding({
+          ...caller,
+          secrets: { ...caller.secrets, [name]: expression("secrets.OTHER") },
+        }),
+      ).toThrow(name);
+    }
   });
   test("trusted push and PR checks require credentials; forks explicitly skip cloud and preview", () => {
     const credentialCheck = step(
@@ -220,6 +285,70 @@ describe("workflow event and dependency behavior", () => {
       }
     }
   });
+  test("close cleanup accepts conflicted or deleted same-repository heads and skips forks without checking out PR code", () => {
+    const close = job(cleanup, "cleanup");
+    const target = Schema.decodeUnknownSync(trigger)(
+      cleanup.on.pull_request_target,
+    );
+    for (const [event, action, fork, merged, expected] of [
+      ["pull_request_target", "closed", false, false, true],
+      ["pull_request_target", "closed", false, true, true],
+      ["pull_request_target", "closed", true, false, false],
+      ["pull_request_target", "opened", false, false, false],
+      ["pull_request_target", "synchronize", false, false, false],
+      ["pull_request", "closed", false, false, false],
+      ["push", "closed", false, false, false],
+    ] as const) {
+      const github = context(event, fork, action);
+      const conflictedOrDeleted = {
+        ...github,
+        event: {
+          ...github.event,
+          pull_request: {
+            ...github.event.pull_request,
+            merged,
+            mergeable: false,
+            head: { ...github.event.pull_request.head, ref: undefined },
+          },
+        },
+      };
+      expect(
+        event === "pull_request_target" &&
+          target.types.includes(action) &&
+          enabled(close.if, conflictedOrDeleted),
+      ).toBe(expected);
+    }
+    expect(enabled(close.if, context("workflow_dispatch"))).toBeTrue();
+    expect(Object.keys(cleanup.on).sort()).toEqual([
+      "pull_request_target",
+      "workflow_dispatch",
+    ]);
+    const checkouts = close.steps?.filter(
+      (entry) => entry.uses === "actions/checkout@v4",
+    );
+    expect(checkouts?.length).toBe(1);
+    expect(checkouts?.[0]?.with).toEqual({ ref: "main" });
+    expect(close.env).toBeUndefined();
+    for (const entry of close.steps ?? []) {
+      if (entry.uses)
+        expect([
+          "actions/checkout@v4",
+          "oven-sh/setup-bun@v2",
+          "actions/upload-artifact@v4",
+        ]).toContain(entry.uses);
+      expect(entry.run ?? "").not.toContain("${{");
+      for (const value of Object.values(entry.env ?? {}))
+        if (value.includes("secrets."))
+          expect([
+            expression("secrets.GITHUB_TOKEN"),
+            expression("secrets.CLOUDFLARE_TEST_API_TOKEN"),
+          ]).toContain(value);
+    }
+    expect(close.permissions).toEqual({
+      contents: "read",
+      "pull-requests": "write",
+    });
+  });
   test("preview deploy and cleanup share repository and PR locks, preserve recovery, and grant comment writes only to their jobs", () => {
     const deploy = job(ci, "preview");
     const close = job(cleanup, "cleanup");
@@ -237,7 +366,7 @@ describe("workflow event and dependency behavior", () => {
     ).toBe(
       expand(
         close.concurrency?.group ?? "",
-        context("pull_request", false, "closed"),
+        context("pull_request_target", false, "closed"),
       ),
     );
     const manual = context("workflow_dispatch");
@@ -310,9 +439,34 @@ describe("workflow event and dependency behavior", () => {
 });
 
 describe("executed release origin and revision guard", () => {
+  test("each empty release secret fails before API calls or dependency operations and never logs credentials", async () => {
+    expect(job(release, "release").steps?.[0]).toEqual(guard);
+    for (const event of ["push", "workflow_dispatch"]) {
+      for (const name of releaseSecretNames) {
+        for (const empty of ["", " \t"]) {
+          const observed = { apiCalls: 0, logs: [] };
+          await expect(
+            runGuard(
+              { [name]: empty },
+              event,
+              "refs/heads/main",
+              revision,
+              observed,
+            ),
+          ).rejects.toThrow(name);
+          expect(observed.apiCalls).toBe(0);
+          expect(observed.logs.length).toBe(0);
+        }
+      }
+    }
+  });
   test("checked main push and manual main production or manual staging pass", async () => {
-    await runGuard();
-    await runGuard({}, "workflow_dispatch");
+    for (const event of ["push", "workflow_dispatch"]) {
+      const observed = { apiCalls: 0, logs: [] };
+      await runGuard({}, event, "refs/heads/main", revision, observed);
+      expect(observed.apiCalls).toBe(event === "push" ? 1 : 0);
+      expect(observed.logs.length).toBe(0);
+    }
     await runGuard(
       { ARC_STAGE: "staging" },
       "workflow_dispatch",

@@ -88,6 +88,8 @@ The Release workflow accepts only explicit `staging` or `prod` and an applicatio
 
 Follow [the CI/CD bootstrap guide](ci-cd-bootstrap.md) before enabling automatic releases. Populate the existing bot application variables and secrets privately in `prod` and `staging`. Preserve the current portal callbacks and Twitch grants. Remote CI/CD activation remains UNVERIFIED until bootstrap, environment configuration, and real workflow runs succeed. See [the CI/CD verification record](verification/alchemy-cicd.md) for local evidence and rollout limits.
 
+Keep `TWITCH_CLIENT_SECRET`, `TWITCH_SIGNING_SECRET`, `DISCORD_BOT_TOKEN`, `OPERATOR_SECRET`, and `CLOUDFLARE_API_TOKEN` in their selected GitHub environment. CI forwards these five secret names to Release explicitly. Release declares each name required and rejects empty values before dependency installation or API calls. A missing-value failure reports secret names only. Manual dispatch resolves the same environment secrets directly.
+
 For manual registration or repair, export the actual deployed origin and the exact revision that just deployed. The protected file must agree with them. If you deployed the current checkout:
 
 ```bash
@@ -142,7 +144,7 @@ A trusted PR gets a resident synthetic service after all CI checks, including th
 
 Each preview first deploys to obtain the actual output URL, then redeploys with that exact `ARC_PUBLIC_URL`. Publication requires health at the checked revision. This path does not assume that a blank origin works at runtime. Fork PRs run local checks and explicitly skip cloud acceptance and preview deployment.
 
-Closing the PR runs cleanup independently of CI. Cleanup checks out `main`, reads the current PR state, derives the same stage without old artifacts, and verifies zero Workers, zero namespaces, and absent stage state and output. It keeps the shared state backend. Deploy and cleanup share a repository and PR lock. A queued deploy that observes closure performs cleanup instead. A changed head or merge revision stops URL publication.
+Closing a same-repository PR requests cleanup independently of CI through `pull_request_target: closed`. This trigger supports conflicted PRs. Cleanup checks out trusted `main` code and never checks out the PR head or merge revision. Fork PRs skip the cleanup job. Cleanup reads the current PR state, derives the same stage without old artifacts, and verifies zero Workers, zero namespaces, and absent stage state and output. It keeps the shared state backend. Deploy and cleanup share a repository and PR lock. A queued deploy that observes closure performs cleanup instead. A changed head or merge revision stops URL publication.
 
 After the implementation reaches `main`, retry failed close cleanup through **Remove synthetic preview**, supplying the closed PR number. For local recovery, check out the reviewed implementation. Inject the test account/token and a GitHub token privately. Set `GITHUB_REPOSITORY=PlagueFPS/arc-tools`, then run:
 
@@ -152,7 +154,7 @@ bun --no-env-file run preview:cleanup --pr 10
 
 Replace `10` with the closed PR number. The command accepts PR identity only, requires the PR to be closed, and regenerates `.cloud-tests/<stage>/run.json` before cloud mutations. It does not accept arbitrary `prod`, `staging`, or `local-*` targets. It needs `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `GITHUB_TOKEN` in the process environment. The workflow supplies test credentials from `CLOUDFLARE_TEST_ACCOUNT_ID` and `CLOUDFLARE_TEST_API_TOKEN`. Use a GitHub token that can read PRs and update their comments.
 
-During initial rollout, `main` may lack `scripts/preview.ts`. Close cleanup then fails with an explicit message that no cleanup occurred. Run the command above from the reviewed implementation, or land the implementation and dispatch cleanup. A deleted PR branch is not needed. Do not execute downloaded recovery artifacts.
+During initial rollout, `main` may lack the target workflow, so closing a PR may start no cleanup run. If a run starts but `main` lacks `scripts/preview.ts`, cleanup fails with an explicit message that no cleanup occurred. Run the command above from the reviewed implementation, or land the implementation and dispatch cleanup. A deleted PR branch is not needed. Do not execute downloaded recovery artifacts.
 
 Failed jobs retain `run.json`, resource evidence when available, and `preview-result.json`. Existing `test:cloud:cleanup <exact-stage>` also accepts the regenerated journal when you restore it locally. Use the same test account and profile. That lower-level recovery verifies strict destruction but does not update the PR comment. A failed first deployment may have no output or resource journal; strict cleanup scans the seven exact stage worker names as a fallback. There is no periodic orphan collector. Retain failed workflow artifacts and explicitly retry cleanup.
 
