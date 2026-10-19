@@ -10,7 +10,7 @@
       "cache": false,
       "persistent": true
     },
-    "check-types": {
+    "typecheck": {
       "dependsOn": [],
       "outputs": []
     },
@@ -18,8 +18,12 @@
       "dependsOn": [],
       "outputs": []
     },
-    "//#format-and-lint": {},
-    "//#format-and-lint:fix": {
+    "//#lint": {},
+    "//#lint:fix": {
+      "cache": false
+    },
+    "//#fmt": {},
+    "//#fmt:fix": {
       "cache": false
     }
   }

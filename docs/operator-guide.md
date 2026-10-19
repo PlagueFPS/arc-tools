@@ -2,7 +2,7 @@
 
 ## Prepare an environment
 
-1. Install Bun 1.3.5 and run `bun install --frozen-lockfile` at the repository root.
+1. Install Bun 1.4.3 and run `bun install --frozen-lockfile` at the repository root.
 2. Create a separate Twitch developer application and Discord application for each independently active environment. Local development and staging each use the personal Twitch account and only its own channel. Production uses a dedicated sender and an explicit channel-login list.
 3. Copy `.env.example` to an ignored environment file, such as `.env.local` or `.env.staging`. Replace public placeholders and enter secrets through a private editor or your secret manager. Set file permissions with `chmod 600 .env.local`. Never commit the filled file.
 4. Select your Cloudflare account and Alchemy authentication profile. `bunx --no-install alchemy profile list` and `bunx --no-install alchemy profile current` inspect profiles. If needed, use `alchemy profile create` and `alchemy profile edit` through the same `bunx --no-install` prefix.
@@ -76,8 +76,9 @@ Set both stage fields to `staging`, the personal identity fields, and the stagin
 
 ```bash
 bun run build
-bun run check-types
+bun run typecheck
 bun run lint
+bun run fmt
 bun run test
 bun run deploy --stage staging --profile default --env-file .env.staging --yes
 ```

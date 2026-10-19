@@ -1,6 +1,6 @@
 # Bootstrap GitHub deployment credentials
 
-Use `stacks/github.ts` to provision one Cloudflare CI token for `PlagueFPS/arc-tools` through Alchemy. The stack uses the single account selected by the `admin` profile for both bootstrap state and CI. This follows the credential bootstrap in [Alchemy tutorial part 5](https://alchemy.run/cloudflare/tutorial/part-5/). The repository pins Alchemy `2.0.0-beta.83`, Effect `4.0.4`, and Bun `1.3.5`.
+Use `stacks/github.ts` to provision one Cloudflare CI token for `PlagueFPS/arc-tools` through Alchemy. The stack uses the single account selected by the `admin` profile for both bootstrap state and CI. This follows the credential bootstrap in [Alchemy tutorial part 5](https://alchemy.run/cloudflare/tutorial/part-5/). The repository pins Alchemy `2.0.0-beta.83`, Effect `4.0.4`, and Bun `1.4.3`.
 
 Run these steps after code review. The stack creates credentials and GitHub configuration. It does not release either bot or change Discord or Twitch portal settings.
 
@@ -128,9 +128,9 @@ Keep bootstrap state intact. Destroying this stack revokes its managed token and
 
 ## Check local changes without deploying
 
-Run these commands from the repository root without invoking Alchemy or providers. The default `check-types` task includes the bootstrap through `stacks/**/*.ts` in the root `tsconfig.json`.
+Run these commands from the repository root without invoking Alchemy or providers. The default `typecheck` task includes the bootstrap through `stacks/**/*.ts` in the root `tsconfig.json`.
 
 ```bash
-bun --no-env-file run check-types
+bun --no-env-file run typecheck
 bun --no-env-file node_modules/@biomejs/biome/bin/biome check stacks/github.ts tsconfig.json
 ```

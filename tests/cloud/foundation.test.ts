@@ -202,9 +202,11 @@ test(
     expect(armed.completed).toBeFalse();
     expect(armed.alarm).toBeNumber();
     expect((yield* post(`${url}/reset`)).status).toBe(204);
-    expect(
-      (yield* reconstructedSnapshot(snapshot(url), armed.instance)).instance,
-    ).not.toBe(armed.instance);
+    const reconstructed = yield* reconstructedSnapshot(
+      snapshot(url),
+      armed.instance,
+    );
+    expect(reconstructed.instance).not.toBe(armed.instance);
     const completed = yield* snapshot(url).pipe(
       Effect.repeat({
         until: (value) => value.completed,
@@ -212,6 +214,12 @@ test(
         schedule: Schedule.spaced("1 second"),
       }),
     );
+    yield* Effect.logInfo("alarm-retry-observation", {
+      observedAt: Date.now(),
+      armed,
+      reconstructed,
+      final: completed,
+    });
     expect(completed.completed).toBeTrue();
     expect(completed.attempts).toBe(2);
     expect(completed.retryCount).toBe(1);

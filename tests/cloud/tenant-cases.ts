@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
 
-import { Effect, Fiber, Schedule, Schema } from "effect";
+import { Effect, Exit, Fiber, Schedule, Schema } from "effect";
 
 import { discordResponse } from "../../apps/bot/src/presentation.js";
 import {
@@ -1004,7 +1004,37 @@ export function registerTenantTests({
       const original = yield* post(`${u.tenant}/discord`, {
         key,
         receipt: input,
-      }).pipe(Effect.result, Effect.forkChild);
+      }).pipe(
+        Effect.result,
+        Effect.onExit((exit) => {
+          if (Exit.isFailure(exit))
+            return Effect.logInfo("discord-interruption-request", {
+              kind: "fiber-failure",
+              reasons: exit.cause.reasons.map((reason) => reason._tag),
+            });
+          const result = exit.value;
+          return Effect.logInfo("discord-interruption-request", {
+            observedAt: Date.now(),
+            elapsedMs: Date.now() - input.receivedAt,
+            result:
+              result._tag === "Success"
+                ? { kind: "response", status: result.success.status }
+                : result.failure instanceof FixtureHttpError
+                  ? {
+                      kind: "http-failure",
+                      diagnostic: result.failure.diagnostic,
+                    }
+                  : {
+                      kind: "request-failure",
+                      errorType:
+                        result.failure instanceof Error
+                          ? result.failure.name
+                          : typeof result.failure,
+                    },
+          });
+        }),
+        Effect.forkChild,
+      );
       const admitted = yield* snapshot(u.tenant, key).pipe(
         Effect.repeat({
           until: (value) => value.state?.works.interrupt?.kind === "computing",
@@ -1012,6 +1042,28 @@ export function registerTenantTests({
           schedule: Schedule.spaced(25),
         }),
       );
+      yield* Effect.logInfo("discord-interruption-admission", {
+        observedAt: Date.now(),
+        elapsedMs: Date.now() - input.receivedAt,
+        requestState: original.pollUnsafe()?._tag ?? "pending",
+        instance: admitted.instance,
+        alarm: admitted.alarm,
+        alarmRuns: admitted.alarmRuns,
+        state:
+          admitted.state === null
+            ? null
+            : {
+                generation: admitted.state.generation,
+                works: Object.values(admitted.state.works).map((work) => ({
+                  id: work.id,
+                  kind: work.kind,
+                  transport: work.transport,
+                  receivedAt: work.receivedAt,
+                  deadline: work.deadline,
+                  claim: "claim" in work ? work.claim : null,
+                })),
+              },
+      });
       expect(admitted.state?.works.interrupt?.kind).toBe("computing");
       expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
         204,

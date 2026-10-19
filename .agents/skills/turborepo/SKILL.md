@@ -690,11 +690,11 @@ packages/
 ### Accessing Files Across Package Boundaries
 
 ```typescript
-// WRONG: Reaching into another package's internals
-import { Button } from "../../packages/ui/src/button";
-
 // CORRECT: Install and import properly
 import { Button } from "@repo/ui/button";
+
+// WRONG: Reaching into another package's internals
+import { Button } from "../../packages/ui/src/button";
 ```
 
 ### Too Many Root Dependencies
