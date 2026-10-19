@@ -4,6 +4,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "target": "ES2022",
+    "types": ["bun"],
     "allowJs": true,
     "resolveJsonModule": true,
     "moduleDetection": "force",
