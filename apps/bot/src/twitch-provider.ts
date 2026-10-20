@@ -7,6 +7,7 @@ import {
   Redacted,
   Schema,
 } from "effect";
+import { HttpClientRequest } from "effect/http";
 
 import { decodeBody, type ProviderError, request } from "./provider-http.js";
 import { subscriptionBinding } from "./twitch-binding.js";
@@ -152,18 +153,18 @@ export const makeProvider = (
   const headers = (token: string) => ({
     "Client-Id": config.clientId,
     Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
   });
 
   const checked = Effect.fnUntraced(function* (
-    path: string,
+    outgoing: HttpClientRequest.HttpClientRequest,
     token: string,
-    init: RequestInit = {},
   ) {
-    const result = yield* request(`${endpoints.api}${path}`, {
-      ...init,
-      headers: headers(token),
-    });
+    const result = yield* request(
+      outgoing.pipe(
+        HttpClientRequest.prependUrl(endpoints.api),
+        HttpClientRequest.setHeaders(headers(token)),
+      ),
+    );
 
     if (result.status === 401)
       return yield* new AccountError({ code: "client" });
@@ -176,15 +177,15 @@ export const makeProvider = (
 
   const token = Effect.fnUntraced(
     function* (params: Record<string, string>) {
-      const result = yield* request(`${endpoints.oauth}/token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          ...params,
-          client_id: config.clientId,
-          client_secret: Redacted.value(config.clientSecret),
-        }),
-      });
+      const result = yield* request(
+        HttpClientRequest.post(`${endpoints.oauth}/token`).pipe(
+          HttpClientRequest.bodyUrlParams({
+            ...params,
+            client_id: config.clientId,
+            client_secret: Redacted.value(config.clientSecret),
+          }),
+        ),
+      );
 
       if (result.status !== 200)
         return yield* new AccountError({ code: "provider" });
@@ -211,9 +212,11 @@ export const makeProvider = (
       }),
     validate: Effect.fnUntraced(
       function* (token: string) {
-        const result = yield* request(`${endpoints.oauth}/validate`, {
-          headers: { Authorization: `OAuth ${token}` },
-        });
+        const result = yield* request(
+          HttpClientRequest.get(`${endpoints.oauth}/validate`, {
+            headers: { Authorization: `OAuth ${token}` },
+          }),
+        );
 
         if (result.status === 401)
           return yield* new AccountError({ code: "client" });
@@ -234,12 +237,13 @@ export const makeProvider = (
     ),
     users: Effect.fnUntraced(
       function* (token: string, logins: readonly string[]) {
-        const params = new URLSearchParams(
-          logins.map((login) => ["login", login]),
-        );
-
         return (yield* decodeBody(Users)(
-          (yield* checked(`/users?${params}`, token)).body,
+          (yield* checked(
+            HttpClientRequest.get("/users", {
+              urlParams: { login: logins },
+            }),
+            token,
+          )).body,
         )).data;
       },
       (effect) =>
@@ -260,7 +264,9 @@ export const makeProvider = (
         do {
           const page = yield* decodeBody(Page)(
             (yield* checked(
-              `/eventsub/subscriptions${cursor ? `?after=${encodeURIComponent(cursor)}` : ""}`,
+              HttpClientRequest.get("/eventsub/subscriptions", {
+                urlParams: cursor ? { after: cursor } : {},
+              }),
               token,
             )).body,
           );
@@ -292,11 +298,10 @@ export const makeProvider = (
     create: Effect.fnUntraced(
       function* (token: string, channel: string, sender: string) {
         const result = yield* request(
-          `${endpoints.api}/eventsub/subscriptions`,
-          {
-            method: "POST",
+          HttpClientRequest.post(`${endpoints.api}/eventsub/subscriptions`, {
             headers: headers(token),
-            body: JSON.stringify({
+          }).pipe(
+            HttpClientRequest.bodyJsonUnsafe({
               type: "channel.chat.message",
               version: "1",
               condition: { broadcaster_user_id: channel, user_id: sender },
@@ -306,7 +311,7 @@ export const makeProvider = (
                 secret: Redacted.value(config.signingSecret),
               },
             }),
-          },
+          ),
         );
 
         if (result.status === 401)
@@ -363,8 +368,10 @@ export const makeProvider = (
     remove: Effect.fnUntraced(
       function* (token: string, id: string) {
         const result = yield* request(
-          `${endpoints.api}/eventsub/subscriptions?id=${encodeURIComponent(id)}`,
-          { method: "DELETE", headers: headers(token) },
+          HttpClientRequest.delete(`${endpoints.api}/eventsub/subscriptions`, {
+            headers: headers(token),
+            urlParams: { id },
+          }),
         );
 
         if (result.status !== 204 && result.status !== 404)
@@ -392,24 +399,23 @@ export const makeProvider = (
         if (now >= input.deadline) return { kind: "expired" };
 
         const result = yield* request(
-          `${endpoints.api}/chat/messages`,
-          {
-            method: "POST",
+          HttpClientRequest.post(`${endpoints.api}/chat/messages`, {
             headers: headers(token),
-            body: JSON.stringify({
+          }).pipe(
+            HttpClientRequest.bodyJsonUnsafe({
               broadcaster_id: input.broadcasterId,
               sender_id: sender,
               message: input.text,
               reply_parent_message_id: input.replyParentId,
               for_source_only: true,
             }),
-          },
+          ),
           Math.min(4_000, input.deadline - now),
         );
 
         const blockedUntil =
-          result.headers.get("Ratelimit-Remaining") === "0"
-            ? Number(result.headers.get("Ratelimit-Reset")) * 1000
+          result.headers["ratelimit-remaining"] === "0"
+            ? Number(result.headers["ratelimit-reset"]) * 1000
             : 0;
 
         const budget =
@@ -421,7 +427,7 @@ export const makeProvider = (
 
         if (result.status === 429) {
           const now = yield* Clock.currentTimeMillis;
-          const reset = Number(result.headers.get("Ratelimit-Reset")) * 1000;
+          const reset = Number(result.headers["ratelimit-reset"]) * 1000;
 
           return {
             kind: "limited",

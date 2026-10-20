@@ -7,6 +7,7 @@ import {
   Schema,
   SchemaTransformation,
 } from "effect";
+import { HttpClientRequest } from "effect/http";
 
 import {
   canonicalManifest,
@@ -74,8 +75,7 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
   const fence = Effect.fnUntraced(
     function* (phase: "before" | "overwrite" | "after") {
       const result = yield* request(
-        `${release.endpoint.replace(/\/$/, "")}/health`,
-        {},
+        HttpClientRequest.get(`${release.endpoint.replace(/\/$/, "")}/health`),
       );
 
       const health = yield* decodeBody(ReleaseHealth)(result.body);
@@ -106,15 +106,18 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
         yield* fence(phase);
 
         const response = yield* request(
-          `${options.api ?? "https://discord.com/api/v10"}/applications/${encodeURIComponent(release.applicationId)}/commands${method === "GET" ? "?with_localizations=true" : ""}`,
-          {
-            method,
-            headers: {
-              Authorization: `Bot ${Redacted.value(release.token)}`,
-              "Content-Type": "application/json",
+          HttpClientRequest.make(method)(
+            `${options.api ?? "https://discord.com/api/v10"}/applications/${encodeURIComponent(release.applicationId)}/commands`,
+            {
+              headers: {
+                Authorization: `Bot ${Redacted.value(release.token)}`,
+              },
             },
-            body: method === "PUT" ? JSON.stringify(desired) : undefined,
-          },
+          ).pipe(
+            method === "PUT"
+              ? HttpClientRequest.bodyJsonUnsafe(desired)
+              : HttpClientRequest.setUrlParam("with_localizations", "true"),
+          ),
         );
 
         if (response.status === 429) {
