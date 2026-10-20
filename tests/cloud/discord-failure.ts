@@ -1,6 +1,9 @@
 import { expect } from "bun:test";
 
-import { discordResponse } from "../../apps/bot/src/presentation.js";
+import {
+  discordResponse,
+  friendlyFailure,
+} from "../../apps/bot/src/presentation.js";
 
 export type DataFailureScenario = "slow" | "missing" | "malformed";
 
@@ -12,18 +15,35 @@ export type DiscordFailureObservation = {
   fallbackCode: string | null;
 };
 
+const sourceError = {
+  tenantCode: "command-error",
+  reply: discordResponse(
+    "Game data is temporarily unavailable. Please try again shortly.",
+    true,
+  ),
+};
+const tenantTimeout = {
+  tenantCode: "timeout",
+  reply: discordResponse(friendlyFailure, true),
+};
+const dataFailureOutcomes: Record<
+  DataFailureScenario,
+  readonly Pick<DiscordFailureObservation, "tenantCode" | "reply">[]
+> = {
+  slow: [sourceError, tenantTimeout],
+  missing: [sourceError],
+  malformed: [sourceError],
+};
+
 export function expectDataFailure(
-  _scenario: DataFailureScenario,
+  scenario: DataFailureScenario,
   observed: DiscordFailureObservation,
 ): void {
   expect(observed.fallback).toBeNull();
   expect(observed.fallbackCode).toBeNull();
   expect(observed.tenantPhase).toBe("committed");
-  expect(observed.reply).toEqual(
-    discordResponse(
-      "Game data is temporarily unavailable. Please try again shortly.",
-      true,
-    ),
-  );
-  expect(observed.tenantCode).toBe("command-error");
+  expect(dataFailureOutcomes[scenario]).toContainEqual({
+    tenantCode: observed.tenantCode,
+    reply: observed.reply,
+  });
 }

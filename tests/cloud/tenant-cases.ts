@@ -201,6 +201,19 @@ export function registerTenantTests({
         activation: response.headers.get("x-arc-tenant-activation"),
       };
       samples.push(sample);
+      console.info(
+        JSON.stringify({
+          discordTiming: scenario,
+          workerMs,
+          clientMs: elapsed,
+          tenantPhase: sample.tenantPhase,
+          tenantCode: sample.tenantCode,
+          admissionDeltaMs: sample.admissionDeltaMs,
+          cutoff: sample.cutoff,
+          fallback: sample.fallback,
+          fallbackCode: sample.fallbackCode,
+        }),
+      );
       yield* recordSamples();
       if (enforceBudget) {
         expect(workerMs).toBeGreaterThanOrEqual(0);
@@ -695,17 +708,19 @@ export function registerTenantTests({
           (message) =>
             message.body.reply_parent_message_id === `all-${command}`,
         );
-        expect(sent?.body.message).toBe(text);
-        expect(sent?.at).toBeLessThan(receivedAt + 10000);
         const timing = pendingTwitchSamples.get(`notification-${command}`);
         if (!timing) return yield* Effect.die("Missing Twitch timing");
-        twitchSamples.push({
+        const sample = {
           scenario: command,
           workerAckMs: timing.workerAckMs,
           clientAckMs: timing.clientAckMs,
           observedDeliveryClientMs: performance.now() - timing.start,
-        });
+        };
+        twitchSamples.push(sample);
+        console.info(JSON.stringify({ twitchTiming: sample }));
         yield* recordSamples();
+        expect(sent?.body.message).toBe(text);
+        expect(sent?.at).toBeLessThan(receivedAt + 10000);
         expect(yield* get(`${u.source}/observations`, Observations)).toEqual(
           afterDiscord,
         );
