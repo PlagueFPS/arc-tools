@@ -15,8 +15,10 @@ import { RetryAfter, syncCommands } from "../src/discord-sync.js";
 import { digest } from "../src/provider-http.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
 const fixture = Effect.fnUntraced(function* () {
   const hash = yield* manifestHash;
+
   const control = {
     remote: Schema.decodeUnknownSync(RemoteCommands)(commandManifest),
     status: "ready",
@@ -33,13 +35,16 @@ const fixture = Effect.fnUntraced(function* () {
     localizedReadback: false,
     fullReads: 0,
   };
+
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
       const path = url.pathname;
+
       if (path === "/health") {
         control.healthReads++;
+
         return Response.json({
           status: control.status,
           stage: "staging",
@@ -47,57 +52,72 @@ const fixture = Effect.fnUntraced(function* () {
           manifestHash: control.hash,
         });
       }
+
       if (path !== "/applications/fixture-discord/commands")
         return new Response(null, { status: 404 });
       control.commandAttempts++;
+
       if (control.rateLimits > 0) {
         control.rateLimits--;
+
         return new Response(control.rateLimitBody, { status: 429 });
       }
+
       if (request.method === "PUT") {
         control.writes++;
         const raw = await request.json();
         control.remote = Schema.decodeUnknownSync(RemoteCommands)(raw);
+
         if (control.localizedReadback)
           control.remote = control.remote.map((command) => ({
             ...command,
             name_localizations: { de: "falsch" },
           }));
+
         if (control.changeAfterWrite) control.revision = "commit-newer";
+
         return Response.json(control.remote);
       }
+
       control.reads++;
       const full = url.searchParams.get("with_localizations") === "true";
+
       if (full) control.fullReads++;
+
       return Response.json(
         control.badReadback
           ? []
-          : control.remote.map((command) => ({
-              ...command,
-              ...(!full
-                ? {
+          : control.remote.map((command) => {
+              const result = {
+                ...command,
+                id: "server-id",
+                application_id: "fixture-discord",
+                version: "server-version",
+              };
+
+              if (!full) {
+                result.name_localizations = undefined;
+                result.description_localizations = undefined;
+                result.options = command.options?.map((option) => ({
+                  ...option,
+                  name_localizations: undefined,
+                  description_localizations: undefined,
+                  choices: option.choices?.map((choice) => ({
+                    ...choice,
                     name_localizations: undefined,
-                    description_localizations: undefined,
-                    options: command.options?.map((option) => ({
-                      ...option,
-                      name_localizations: undefined,
-                      description_localizations: undefined,
-                      choices: option.choices?.map((choice) => ({
-                        ...choice,
-                        name_localizations: undefined,
-                      })),
-                    })),
-                  }
-                : {}),
-              id: "server-id",
-              application_id: "fixture-discord",
-              version: "server-version",
-            })),
+                  })),
+                }));
+              }
+
+              return result;
+            }),
       );
     },
   });
+
   yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
   const endpoint = `http://127.0.0.1:${server.port}`;
+
   return {
     control,
     release: {
@@ -115,6 +135,7 @@ test(
   "full localization reads detect and remove drift on commands, options and choices",
   Effect.gen(function* () {
     const f = yield* fixture();
+
     const desired = Schema.decodeUnknownSync(RemoteCommands)([
       {
         ...commandManifest[0],
@@ -129,8 +150,10 @@ test(
         ],
       },
     ]);
+
     f.control.hash = yield* digest(canonicalManifest(desired));
     const options = { ...f.options, desired };
+
     for (const location of [
       "name",
       "description",
@@ -138,36 +161,46 @@ test(
       "option-description",
       "choice",
     ]) {
-      f.control.remote = desired.map((command) => ({
-        ...command,
-        ...(location === "name"
-          ? { name_localizations: { de: "kaufen" } }
-          : {}),
-        ...(location === "description"
-          ? { description_localizations: { de: "Kaufen" } }
-          : {}),
-        options: command.options?.map((option) => ({
-          ...option,
-          ...(location === "option-name"
-            ? { name_localizations: { de: "objekt" } }
-            : {}),
-          ...(location === "option-description"
-            ? { description_localizations: { de: "Objekt" } }
-            : {}),
-          choices: option.choices?.map((choice) => ({
-            ...choice,
-            ...(location === "choice"
-              ? { name_localizations: { de: "Sensoren" } }
-              : {}),
-          })),
-        })),
-      }));
+      f.control.remote = desired.map((command) => {
+        const result = {
+          ...command,
+          options: command.options?.map((option) => {
+            const localized = {
+              ...option,
+              choices: option.choices?.map((choice) => {
+                const localizedChoice = { ...choice };
+
+                if (location === "choice")
+                  localizedChoice.name_localizations = { de: "Sensoren" };
+
+                return localizedChoice;
+              }),
+            };
+
+            if (location === "option-name")
+              localized.name_localizations = { de: "objekt" };
+
+            if (location === "option-description")
+              localized.description_localizations = { de: "Objekt" };
+
+            return localized;
+          }),
+        };
+
+        if (location === "name") result.name_localizations = { de: "kaufen" };
+
+        if (location === "description")
+          result.description_localizations = { de: "Kaufen" };
+
+        return result;
+      });
       expect(
         (yield* syncCommands(f.release, { ...options, checkOnly: true })).drift,
       ).toBeTrue();
       expect((yield* syncCommands(f.release, options)).changed).toBeTrue();
       expect((yield* syncCommands(f.release, options)).changed).toBeFalse();
     }
+
     expect(f.control.writes).toBe(5);
     expect(f.control.fullReads).toBe(f.control.reads);
     f.control.remote = [];
@@ -299,10 +332,12 @@ test(
       [Number.MIN_VALUE, 1],
       [1.25, 1250],
     ];
+
     for (const [seconds, milliseconds] of delays) {
       const delay = yield* Schema.decodeUnknownEffect(RetryAfter)(seconds);
       expect(Duration.toMillis(delay)).toBe(milliseconds);
     }
+
     for (const value of [
       0,
       -1,
@@ -333,6 +368,7 @@ const invalidRetryBodies: ReadonlyArray<
   ['{"retry_after":null}', "provider"],
   ["{}", "provider"],
 ];
+
 for (const [body, code] of invalidRetryBodies)
   test(
     `429 delay ${body} stays ${code} and never retries or overwrites`,

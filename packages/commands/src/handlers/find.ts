@@ -12,11 +12,13 @@ export const findHandler = Effect.fn("Command.findHandler")(
     }
 
     const item = yield* resolveItem(search, { includeComponents: true });
+
     if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }
 
     const parts: string[] = [];
+
     if (Option.isSome(item.value.loot_area)) {
       parts.push(`can be found in ${item.value.loot_area.value} areas`);
     }
@@ -28,6 +30,7 @@ export const findHandler = Effect.fn("Command.findHandler")(
       const droppedBy = item.value.dropped_by.value
         .map((e) => e.arc.name)
         .join(", ");
+
       parts.push(`can be dropped by ${droppedBy}`);
     }
 

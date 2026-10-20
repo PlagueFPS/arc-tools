@@ -16,7 +16,11 @@ import {
   TwitchReceipt,
 } from "../../apps/bot/src/tenant-contracts.js";
 import { TenantState, TenantStore } from "../../apps/bot/src/tenant-state.js";
-import { makeTenant, makeTenantStorage } from "../../apps/bot/src/tenant.js";
+import {
+  tenantStorageLayer,
+  TenantService,
+  tenantServiceLayer,
+} from "../../apps/bot/src/tenant.js";
 import {
   AccountError,
   DispatchOutcome,
@@ -44,41 +48,53 @@ export const TenantSnapshot = Schema.Struct({
   alarmRuns: Schema.Int,
   lostAccountResponseAt: Schema.NullOr(Schema.Number),
 });
+
 const AccountReference = Cloudflare.DurableObject<
   TwitchAccountDO,
   TwitchAccountDO
 >()("TwitchAccount");
+
 const Control = Schema.Struct({
   immediate: Schema.optional(Schema.Boolean),
   loseAccountResponse: Schema.optional(Schema.Boolean),
 });
+
 class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>()(
   "TenantFixture",
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
     const source = yield* Cloudflare.Worker(MetaforgeWorker.LogicalId, {});
     const sourceUrl = yield* source.url;
+
     const dataClient = yield* bindData.pipe(
       Effect.provideService(CacheSource, {
         options: Effect.gen(function* () {
           const baseUrl = yield* sourceUrl;
-          if (typeof baseUrl !== "string")
+
+          if (!Schema.is(Schema.String)(baseUrl))
             return yield* Effect.die("No fixture source URL");
+
           return { baseUrl };
         }),
       }),
     );
+
     const { stage } = yield* Stack;
     const accounts = yield* AccountReference.from(`arc-tools-bot-${stage}`);
+
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
       const runtime = yield* RuntimeContext;
+
       const provide = <A, E>(effect: Effect.Effect<A, E, RuntimeContext>) =>
         effect.pipe(Effect.provideService(RuntimeContext, runtime));
+
       const data = yield* dataClient;
-      const store = yield* makeTenantStorage().pipe(
-        Effect.provideService(Cloudflare.DurableObjectState, state),
-      );
+
+      const store = yield* TenantStore.pipe(
+        Effect.provide(tenantStorageLayer),
+      ).pipe(Effect.provideService(Cloudflare.DurableObjectState, state));
+
       const account = TwitchAccount.of({
         dispatch: Effect.fnUntraced(
           function* (input) {
@@ -87,6 +103,7 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
             ).pipe(
               Effect.mapError(() => new AccountError({ code: "provider" })),
             );
+
             const reply = yield* Schema.decodeUnknownEffect(
               Schema.Union([
                 Schema.Struct({
@@ -101,20 +118,25 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
             )(raw).pipe(
               Effect.mapError(() => new AccountError({ code: "provider" })),
             );
+
             if (reply.kind === "failure")
               return yield* new AccountError({ code: reply.code });
+
             const control =
               (yield* state.storage.get<typeof Control.Type>(
                 "fixtureControl",
               )) ?? {};
+
             if (control.loseAccountResponse && reply.value.kind === "sent") {
               yield* state.storage.put("fixtureLostAt", Date.now());
               yield* state.storage.put("fixtureControl", {
                 ...control,
                 loseAccountResponse: false,
               });
+
               return yield* new AccountError({ code: "provider" });
             }
+
             return reply.value;
           },
           (effect) => provide(effect),
@@ -124,22 +146,31 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
         completeOAuth: () => new AccountError({ code: "configuration" }),
         observeSubscription: () => Effect.void,
       });
-      const tenant = yield* makeTenant({
-        activation: instance,
-        launch: Effect.fnUntraced(
-          function* (effect) {
-            const control =
-              yield* state.storage.get<typeof Control.Type>("fixtureControl");
-            if (control?.immediate) yield* state.waitUntil(effect);
-          },
-          (effect) => provide(effect),
+
+      const tenant = yield* TenantService.pipe(
+        Effect.provide(
+          tenantServiceLayer({
+            activation: instance,
+            launch: Effect.fnUntraced(
+              function* (effect) {
+                const control =
+                  yield* state.storage.get<typeof Control.Type>(
+                    "fixtureControl",
+                  );
+
+                if (control?.immediate) yield* state.waitUntil(effect);
+              },
+              (effect) => provide(effect),
+            ),
+          }),
         ),
-      }).pipe(
+      ).pipe(
         Effect.provideService(TenantStore, store),
         Effect.provideService(ArcData, data),
         Effect.provideService(TwitchAccount, account),
         Effect.provideService(RuntimeContext, runtime),
       );
+
       return {
         accept: (input: TwitchReceipt) =>
           tenant.acceptTwitch(input).pipe(Effect.orDie),
@@ -173,6 +204,7 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
     });
   }),
 ) {}
+
 class TenantFixtureApi extends HttpApi.make("tenant-fixture").add(
   HttpApiGroup.make("tenant").add(
     HttpApiEndpoint.post("accept", "/accept"),
@@ -183,10 +215,12 @@ class TenantFixtureApi extends HttpApi.make("tenant-fixture").add(
     HttpApiEndpoint.get("snapshot", "/snapshot"),
   ),
 ) {}
+
 export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>()(
   "TenantFixtureWorker",
   Effect.gen(function* () {
     const { stage } = yield* Stack;
+
     return {
       name: `arc-tools-tenant-${stage}`,
       env: {
@@ -204,6 +238,7 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
     );
     const objects = yield* TenantFixtureObject;
     const object = (name: string) => objects.getByName(name);
+
     const input = Effect.fnUntraced(function* <A, I>(
       request: import("effect/http/HttpServerRequest").HttpServerRequest,
       schema: Schema.Codec<A, I>,
@@ -213,6 +248,7 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
         Effect.orDie,
       );
     });
+
     const handlers = HttpApiBuilder.group(
       TenantFixtureApi,
       "tenant",
@@ -223,6 +259,7 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
               new URL(request.url, "https://fixture.invalid").searchParams.get(
                 "key",
               ) ?? "environment";
+
             return object(key)
               .snapshot()
               .pipe(Effect.map(HttpServerResponse.jsonUnsafe));
@@ -275,6 +312,7 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
             ),
           ),
     );
+
     return {
       fetch: HttpApiBuilder.layer(TenantFixtureApi).pipe(
         Layer.provide(handlers),
@@ -287,4 +325,5 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
     };
   }),
 ) {}
+
 export default TenantFixtureWorker;

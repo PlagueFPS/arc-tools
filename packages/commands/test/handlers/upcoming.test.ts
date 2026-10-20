@@ -26,9 +26,11 @@ describe("upcomingHandler", () => {
     "returns single upcoming event",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* run({
         events: [event({ name: "Event", map: "Map", startTime: 60_000 })],
       })("");
+
       expect(result).toContain("Event on Map");
       expect(result).toContain("starts in");
     }).pipe(Effect.provide(TestClock.layer())),
@@ -38,6 +40,7 @@ describe("upcomingHandler", () => {
     "sorts multiple upcoming by startTime",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* run({
         events: [
           event({
@@ -54,6 +57,7 @@ describe("upcomingHandler", () => {
           }),
         ],
       })("");
+
       const idxEarlier = result.indexOf("Earlier");
       const idxLater = result.indexOf("Later");
       expect(idxEarlier >= 0).toBeTrue();
@@ -66,12 +70,14 @@ describe("upcomingHandler", () => {
     "excludes events starting at or before now",
     Effect.gen(function* () {
       yield* TestClock.setTime(60_000);
+
       const result = yield* run({
         events: [
           event({ startTime: 60_000, endTime: 120_000 }),
           event({ startTime: 59_999, endTime: 120_000 }),
         ],
       })("");
+
       expect(result).toBe("No upcoming events");
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -80,6 +86,7 @@ describe("upcomingHandler", () => {
     "excludes events beyond 2h window",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* run({
         events: [
           event({
@@ -88,6 +95,7 @@ describe("upcomingHandler", () => {
           }),
         ],
       })("");
+
       expect(result).toBe("No upcoming events");
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -96,6 +104,7 @@ describe("upcomingHandler", () => {
     "includes events exactly 2h away",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* run({
         events: [
           event({
@@ -106,6 +115,7 @@ describe("upcomingHandler", () => {
           }),
         ],
       })("");
+
       expect(result).toContain("Harvester on Dam");
       expect(result).toContain("starts in 2h");
     }).pipe(Effect.provide(TestClock.layer())),

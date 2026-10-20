@@ -3,6 +3,7 @@ import { expect } from "bun:test";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Test from "alchemy/Test/Bun";
 import {
+  Predicate,
   Clock,
   Deferred,
   Effect,
@@ -51,6 +52,7 @@ import {
 import { makeProviderFixture } from "./twitch-provider-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
 const runtime = RuntimeContext.of({
   Type: "test",
   id: "attribution",
@@ -58,17 +60,23 @@ const runtime = RuntimeContext.of({
   get: () => Effect.succeed(undefined),
   set: (key) => Effect.succeed(key),
 });
+
 const memory = Effect.fnUntraced(function* () {
   const values = new Map<string, unknown>();
   const lock = yield* Semaphore.make(1);
   let alarm: number | null = null;
+
   return {
+    // SAFETY: This fixture mirrors Cloudflare's generic storage API; callers own
+    // the key's type and production readers validate persisted data with schemas.
     get: <T = unknown>(key: string) =>
       Effect.sync(() => structuredClone(values.get(key)) as T | undefined),
-    put: (key: string, value: unknown) =>
+    put: <T>(key: string, value: T) =>
       Effect.sync(() => {
         values.set(key, structuredClone(value));
       }),
+    // SAFETY: As with native storage, list's generic is supplied by the caller;
+    // the fixture preserves the values written under each key without conversion.
     list: <T = unknown>({ prefix }: { prefix: string }) =>
       Effect.sync(
         () =>
@@ -90,6 +98,7 @@ const memory = Effect.fnUntraced(function* () {
       }),
   };
 });
+
 const providerConfig = {
   clientId: fixtureConfig.twitchClientId,
   clientSecret: Redacted.make("CANARY-CLIENT-SECRET"),
@@ -97,13 +106,16 @@ const providerConfig = {
   callback: "https://fixture.invalid/webhooks/twitch",
   redirect: "https://fixture.invalid/oauth/twitch/callback",
 };
+
 const loopback = Effect.gen(function* () {
   const core = yield* makeProviderFixture(yield* memory(), fixtureConfig);
+
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
+
       const result = await Effect.runPromise(
         core
           .request(
@@ -114,12 +126,16 @@ const loopback = Effect.gen(function* () {
           )
           .pipe(Effect.provideService(RuntimeContext, runtime)),
       );
+
       return Response.json(result.body, { status: result.status });
     },
   });
+
   yield* Effect.addFinalizer(() => Effect.promise(() => server.stop(true)));
+
   return { core, url: server.url.toString() };
 });
+
 const actor = Effect.fnUntraced(function* (url: string, start = initial) {
   const storage = yield* memory();
   const store = yield* makeAccountStorage(storage);
@@ -127,6 +143,7 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
   let time = start;
   let instance = "";
   let duplicateHttp = false;
+
   const clock: Clock.Clock = {
     sleep: (duration) => realClock.sleep(duration),
     monotonicTimeNanos: realClock.monotonicTimeNanos,
@@ -136,8 +153,10 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
     currentTimeNanos: Effect.sync(() => BigInt(time) * 1_000_000n),
     currentTimeNanosUnsafe: () => BigInt(time) * 1_000_000n,
   };
+
   const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provideService(Clock.Clock, clock));
+
   const providerFor = (
     correlation: Parameters<typeof validationEndpoints>[1],
   ) => {
@@ -145,15 +164,19 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
       providerConfig,
       validationEndpoints(url, correlation),
     );
+
     return {
       ...provider,
       validate: Effect.fnUntraced(function* (token: string) {
         const value = yield* provider.validate(token);
+
         if (duplicateHttp) yield* provider.validate(token);
+
         return value;
       }),
     };
   };
+
   const construct = Effect.fnUntraced(function* () {
     if (instance)
       yield* recordActivation(storage, {
@@ -167,6 +190,7 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
       instance,
       alarmRun: null,
     });
+
     return yield* run(
       makeAccount({
         identity: fixtureConfig,
@@ -187,6 +211,7 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
       ),
     );
   });
+
   const state = () =>
     storage
       .get("account:v1")
@@ -194,12 +219,14 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
         Effect.flatMap(Schema.decodeUnknownEffect(AccountState)),
         Effect.orDie,
       );
+
   const alarm = Effect.fnUntraced(function* (
     account: Effect.Success<ReturnType<typeof construct>>,
     extraInvocation = false,
   ) {
     const alarmRun =
       ((yield* storage.get<number>("fixtureAlarmRuns")) ?? 0) + 1;
+
     yield* storage.deleteAlarm();
     const entryAlarm = yield* storage.getAlarm();
     yield* storage.put("fixtureAlarmRuns", alarmRun);
@@ -211,14 +238,18 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
     yield* run(
       Effect.gen(function* () {
         yield* account.credentialAlarm();
+
         if (extraInvocation) {
           const token = (yield* state()).session?.token;
+
           if (!token) return yield* Effect.die("Missing test credential");
+
           const provider = yield* observeValidations(
             providerFor,
             storage,
             instance,
           );
+
           yield* provider.validate(token);
         }
       }),
@@ -228,6 +259,7 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
         alarmRun,
       }),
     );
+
     return yield* recordCompletedAlarm(storage, {
       instance,
       alarmRun,
@@ -235,6 +267,7 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
       accountTime: time,
     });
   });
+
   return {
     storage,
     state,
@@ -251,12 +284,14 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
     observations: () => readAccountAttribution(storage),
   };
 });
+
 const preparedProof = Effect.fnUntraced(function* (extraEarly = false) {
   const { core, url } = yield* loopback;
   const target = yield* actor(url);
   const original = yield* target.construct();
   yield* target.run(original.service.setup("operator"));
   const preparedInstance = (yield* target.observations()).events[0]?.instance;
+
   if (!preparedInstance)
     return yield* Effect.die("Missing original activation");
   const leaseUntil = initial + policy.tokenLeaseMs;
@@ -272,11 +307,14 @@ const preparedProof = Effect.fnUntraced(function* (extraEarly = false) {
     extraEarly ? 2 : 1,
   );
   target.time(leaseUntil);
+
   return { target, recovered, early, core, url, preparedInstance, leaseUntil };
 });
+
 const completedProof = Effect.gen(function* () {
   const proof = yield* preparedProof();
   const recovery = yield* proof.target.alarm(proof.recovered);
+
   const evidence: CompletedRecoveryEvidence = {
     account: yield* proof.target.observations(),
     provider: (yield* proof.core.snapshot()).validations,
@@ -285,8 +323,10 @@ const completedProof = Effect.gen(function* () {
     preparedInstance: proof.preparedInstance,
     leaseUntil: proof.leaseUntil,
   };
+
   return { ...proof, evidence };
 });
+
 const local = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.scoped, Effect.provideService(RuntimeContext, runtime));
 
@@ -315,11 +355,13 @@ test(
       expect((yield* core.snapshot()).calls["GET /oauth/validate"]).toBe(4);
       const targetRebuilt = yield* target.construct();
       const later = yield* target.alarm(targetRebuilt);
+
       const latest = {
         ...evidence,
         account: yield* target.observations(),
         provider: (yield* core.snapshot()).validations,
       };
+
       expect((yield* core.snapshot()).calls["GET /oauth/validate"]).toBe(5);
       expect(verifyCompletedRecovery(latest)).toEqual(verified);
       expect(
@@ -333,10 +375,12 @@ test(
         selectCompletedRun(evidence.account, evidence.recoveryRunKey).instance,
       );
       expect(completedRunKey(latest.account, 2)).toBe(evidence.recoveryRunKey);
+
       const immutable = selectCompletedRun(
         latest.account,
         evidence.recoveryRunKey,
       );
+
       expect(
         Exit.isFailure(
           yield* Effect.exit(recordCompletedAlarm(target.storage, immutable)),
@@ -446,6 +490,7 @@ test(
       const { target, core, evidence } = yield* completedProof;
       const early = selectCompletedRun(evidence.account, evidence.earlyRunKey);
       const token = (yield* target.state()).session?.token;
+
       if (!token) return yield* Effect.die("Missing test token");
       yield* target
         .providerFor({
@@ -475,12 +520,16 @@ test(
   local(
     Effect.gen(function* () {
       const { evidence } = yield* completedProof;
+
       const recovery = selectCompletedRun(
         evidence.account,
         evidence.recoveryRunKey,
       );
+
       const id = recovery.validationInvocationIds[0];
+
       if (!id) return yield* Effect.die("Missing recovery invocation");
+
       const changeEvent = (
         change: (
           event: (typeof evidence.provider.events)[number],
@@ -494,6 +543,7 @@ test(
           ),
         },
       });
+
       const mutations: CompletedRecoveryEvidence[] = [
         {
           ...evidence,
@@ -579,6 +629,7 @@ test(
         })),
         changeEvent((event) => ({ ...event, correlationError: true })),
       ];
+
       for (const field of [
         "eventsDropped",
         "invocationsDropped",
@@ -589,11 +640,13 @@ test(
           ...evidence,
           account: { ...evidence.account, [field]: 1 },
         });
+
       for (const field of ["eventsDropped", "credentialsDropped"] as const)
         mutations.push({
           ...evidence,
           provider: { ...evidence.provider, [field]: 1 },
         });
+
       for (const mutation of mutations)
         expect(() => verifyCompletedRecovery(mutation)).toThrow(
           "Completed alarm evidence rejected",
@@ -632,41 +685,52 @@ for (const phase of ["start", "completion"] as const) {
           const defect = new Error("CANARY-DIAGNOSTIC-DEFECT");
           const entered = yield* Deferred.make<void>();
           let injected = false;
+
           const brokenStorage = {
             ...storage,
-            put: (key: string, value: unknown) =>
+            put: <T>(key: string, value: T) =>
               Effect.suspend(() => {
                 if (key === "fixtureAttribution" && !injected) {
                   const journal =
                     Schema.decodeUnknownSync(AccountAttribution)(value);
+
                   if (
                     journal.invocations.length > 0 &&
                     (phase === "start" ||
                       journal.invocations[0]?.completion !== null)
                   ) {
                     injected = true;
+
                     return Effect.die("CANARY-STORAGE-FAILURE");
                   }
                 }
+
                 return storage.put(key, value);
               }),
           };
+
           const provider = yield* observeValidations(
             (correlation) => {
               const real = makeProvider(
                 providerConfig,
                 validationEndpoints(url, correlation),
               );
+
               return {
                 ...real,
                 validate: Effect.fnUntraced(function* (token: string) {
                   const result = yield* real.validate(token);
+
                   if (outcome === "failure") return yield* failure;
+
                   if (outcome === "defect") return yield* Effect.die(defect);
+
                   if (outcome === "interrupted") {
                     yield* Deferred.succeed(entered, undefined);
+
                     return yield* Effect.never;
                   }
+
                   return result;
                 }),
               };
@@ -674,30 +738,35 @@ for (const phase of ["start", "completion"] as const) {
             brokenStorage,
             instance,
           );
+
           const validation = provider.validate("synthetic-app-exit-proof").pipe(
             Effect.provideService(CurrentValidationOrigin, {
               operation: "alarm",
               alarmRun: 2,
             }),
           );
+
           let exit: Exit.Exit<
             Effect.Success<ReturnType<typeof provider.validate>>,
             AccountError
           >;
+
           if (outcome === "interrupted") {
             const fiber = yield* validation.pipe(Effect.forkChild);
             yield* Deferred.await(entered);
             yield* Fiber.interrupt(fiber);
             exit = yield* Fiber.await(fiber);
             expect(Exit.hasInterrupts(exit)).toBeTrue();
+
             if (Exit.isFailure(exit))
               expect(
-                exit.cause.reasons.every(
-                  (reason) => reason._tag === "Interrupt",
+                exit.cause.reasons.every((reason) =>
+                  Predicate.isTagged(reason, "Interrupt"),
                 ),
               ).toBeTrue();
           } else {
             exit = yield* Effect.exit(validation);
+
             if (outcome === "failure") expect(exit).toEqual(Exit.fail(failure));
             else if (outcome === "defect")
               expect(exit).toEqual(Exit.die(defect));
@@ -710,6 +779,7 @@ for (const phase of ["start", "completion"] as const) {
                 }),
               );
           }
+
           expect(injected).toBeTrue();
           expect((yield* core.snapshot()).calls["GET /oauth/validate"]).toBe(1);
           const account = yield* readAccountAttribution(storage);
@@ -740,29 +810,36 @@ for (const phase of ["start", "completion"] as const) {
       Effect.gen(function* () {
         const { target, core, early } = yield* preparedProof();
         let started = false;
+
         const unavailable = {
           ...target.storage,
-          put: (key: string, value: unknown) =>
+          put: <T>(key: string, value: T) =>
             Effect.suspend(() => {
               if (phase === "completion" && !started) {
                 started = true;
+
                 return target.storage.put(key, value);
               }
+
               return Effect.die("CANARY-UNAVAILABLE-JOURNAL");
             }),
         };
+
         const provider = yield* observeValidations(
           target.providerFor,
           unavailable,
           early.instance,
         );
+
         const token = (yield* target.state()).session?.token;
+
         if (!token) return yield* Effect.die("Missing test token");
         yield* recordActivation(target.storage, {
           kind: "alarm-entry",
           instance: early.instance,
           alarmRun: 2,
         });
+
         const exit = yield* Effect.exit(
           provider.validate(token).pipe(
             Effect.provideService(CurrentValidationOrigin, {
@@ -771,13 +848,16 @@ for (const phase of ["start", "completion"] as const) {
             }),
           ),
         );
+
         expect(Exit.isSuccess(exit)).toBeTrue();
+
         const completed = yield* recordCompletedAlarm(target.storage, {
           instance: early.instance,
           alarmRun: 2,
           entryAlarm: null,
           accountTime: initial + policy.tokenLeaseMs,
         });
+
         const account = yield* target.observations();
         const providerEvidence = (yield* core.snapshot()).validations;
         expect((yield* core.snapshot()).calls["GET /oauth/validate"]).toBe(2);
@@ -804,17 +884,21 @@ test(
     Effect.gen(function* () {
       const { target, core, url, evidence } = yield* completedProof;
       const token = (yield* target.state()).session?.token;
+
       if (!token) return yield* Effect.die("Missing test token");
+
       const recovery = selectCompletedRun(
         evidence.account,
         evidence.recoveryRunKey,
       );
+
       const response = yield* Effect.promise(() =>
         fetch(
           `${url}fixture-validation/${recovery.instance}/alarm/2/missing-uuid/oauth/validate`,
           { headers: { authorization: `OAuth ${token}` } },
         ),
       );
+
       expect(response.status).toBe(200);
       const provider = (yield* core.snapshot()).validations;
       expect(provider.events.at(-1)?.correlationError).toBeTrue();
@@ -831,6 +915,7 @@ test(
     Effect.gen(function* () {
       const { target, core, evidence } = yield* completedProof;
       const account = yield* target.construct();
+
       for (let i = 0; i < attributionLimit + 3; i++) {
         yield* target.alarm(account, true);
         yield* recordActivation(target.storage, {
@@ -839,6 +924,7 @@ test(
           alarmRun: null,
         });
       }
+
       const journal = yield* target.observations();
       const provider = (yield* core.snapshot()).validations;
       expect(journal.completedRuns).toHaveLength(attributionLimit);
@@ -852,6 +938,7 @@ test(
       expect(() =>
         verifyCompletedRecovery({ ...evidence, account: journal, provider }),
       ).toThrow("truncated journal");
+
       for (let i = 0; i < attributionLimit + 3; i++)
         yield* core.request(
           "GET",

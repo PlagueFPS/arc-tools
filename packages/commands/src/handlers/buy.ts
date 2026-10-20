@@ -22,6 +22,7 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
     for (const [traderName, inventory] of Object.entries(traders)) {
       inventory.forEach((item) => {
         const matchesId = item.id.toLowerCase() === potentialId;
+
         const matchesName =
           item.name.toLowerCase().includes(query.toLowerCase()) ||
           normalize(item.name).includes(normalizedQuery);

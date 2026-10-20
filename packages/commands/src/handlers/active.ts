@@ -20,6 +20,7 @@ export const activeHandler = Effect.fn("Command.activeHandler")(
           `${e.name} on ${e.map} (ends in ${formatMinutes(e.endTime - now)})`,
       )
       .join(", ");
+
     return yield* Effect.succeed(response);
   },
   (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),

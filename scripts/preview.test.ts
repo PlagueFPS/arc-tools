@@ -28,10 +28,12 @@ const preview = previewIdentity({
   repository: "PlagueFPS/arc-tools",
   number: 10,
 });
+
 const checked = Schema.decodeUnknownSync(CheckedPreview)({
   revision: "a".repeat(40),
   head: "b".repeat(40),
 });
+
 const pr = (
   state = "open",
   head: string = checked.head,
@@ -43,7 +45,9 @@ const pr = (
     base: { repo: { full_name: preview.repository } },
     merge_commit_sha: merge,
   });
+
 const directories: string[] = [];
+
 afterEach(async () => {
   await Promise.all(
     directories
@@ -55,15 +59,19 @@ afterEach(async () => {
 function fixture(states: PullRequest[]) {
   const calls: string[] = [];
   const publications: string[] = [];
+
   const operations: PreviewOperations = {
     readPr: async () => {
       calls.push("read");
       const value = states.shift();
+
       if (!value) throw new Error("Missing PR observation");
+
       return value;
     },
     deploy: async (origin) => {
       calls.push(`deploy:${origin}`);
+
       return { stage: preview.stage, url: "https://fixture.invalid" };
     },
     cleanup: async () => {
@@ -76,6 +84,7 @@ function fixture(states: PullRequest[]) {
       publications.push(body);
     },
   };
+
   return { calls, publications, operations };
 }
 
@@ -98,6 +107,7 @@ describe("preview identity and boundaries", () => {
         ),
       ).size,
     ).toBe(200);
+
     for (const number of [0, -1, 1.5, NaN, Infinity, "10"])
       expect(() =>
         previewIdentity({ repository: preview.repository, number }),
@@ -116,6 +126,7 @@ describe("preview identity and boundaries", () => {
       "test-tenant-1-0123456789ab",
     ])
       expect(() => Schema.decodeUnknownSync(PreviewStage)(target)).toThrow();
+
     for (const args of [
       ["cleanup", "--stage", "prod"],
       ["cleanup", "--pr", "10", "prod"],
@@ -157,6 +168,7 @@ describe("preview identity and boundaries", () => {
       ...preview,
       profile: "fixture",
     });
+
     const env = syntheticEnvironment(
       {
         TWITCH_CLIENT_SECRET: "PROD",
@@ -173,6 +185,7 @@ describe("preview identity and boundaries", () => {
       },
       settings,
     );
+
     expect(Object.values(env)).not.toContain("PROD");
     expect(env.ARC_PUBLIC_URL).toBeUndefined();
     expect(env.ARC_BUILD_REVISION).toBeUndefined();
@@ -206,6 +219,7 @@ describe("resident preview reconciliation", () => {
     expect(f.publications.at(-1)).toContain(checked.revision);
     expect(f.publications.at(-1)).toContain(checked.head);
   });
+
   for (const states of [
     [pr("closed")],
     [pr(), pr("closed")],
@@ -226,6 +240,7 @@ describe("resident preview reconciliation", () => {
       ).toBeFalse();
     });
   }
+
   for (const states of [
     [pr("open", "c".repeat(40))],
     [pr(), pr("open", "c".repeat(40))],
@@ -245,8 +260,10 @@ describe("resident preview reconciliation", () => {
       ).toBeFalse();
     });
   }
+
   test("repeat cleanup is repeatable, API failure prevents mutation, cleanup failure never claims success", async () => {
     const f = fixture([pr("closed"), pr("closed")]);
+
     for (let attempt = 0; attempt < 2; attempt++)
       expect(
         await reconcilePreview({ action: "cleanup", preview }, f.operations),
@@ -261,6 +278,7 @@ describe("resident preview reconciliation", () => {
     failed.operations.cleanup = async () => {
       throw new Error("strict cleanup failed");
     };
+
     await expect(
       reconcilePreview({ action: "cleanup", preview }, failed.operations),
     ).rejects.toThrow("strict cleanup failed");
@@ -279,6 +297,7 @@ describe("resident preview reconciliation", () => {
     f.operations.health = async () => {
       throw new Error("wrong revision");
     };
+
     await expect(
       reconcilePreview({ action: "deploy", preview, checked }, f.operations),
     ).rejects.toThrow("wrong revision");
@@ -302,12 +321,14 @@ describe("resident preview reconciliation", () => {
 async function launcher() {
   const directory = await mkdtemp(join(tmpdir(), "arc-preview-"));
   directories.push(directory);
+
   for (const path of ["scripts", "node_modules", "apps/bot/src"])
     await mkdir(join(directory, path), { recursive: true });
   await symlink(
     new URL("../node_modules/effect", import.meta.url).pathname,
     join(directory, "node_modules/effect"),
   );
+
   for (const name of ["preview.ts", "preview-identity.ts", "cloud-settings.ts"])
     await copyFile(
       new URL(name, import.meta.url),
@@ -364,6 +385,7 @@ globalThis.fetch = async (input, init) => {
 };
 `,
   );
+
   return {
     directory,
     async run(action: string, extra: NodeJS.ProcessEnv = {}) {
@@ -399,11 +421,13 @@ globalThis.fetch = async (input, init) => {
           stderr: "pipe",
         },
       );
+
       const [code, stdout, stderr] = await Promise.all([
         child.exited,
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
       ]);
+
       return { code, output: stdout + stderr };
     },
     async calls() {
@@ -432,6 +456,7 @@ test("real controller CLI writes recovery before children, strips secrets, redep
     "",
     "https://fixture.invalid",
   ]);
+
   for (const call of deployments) {
     expect(call.env.ARC_BUILD_REVISION).toBe(checked.revision);
     expect(call.env.TWITCH_UNKNOWN).toBeUndefined();
@@ -439,6 +464,7 @@ test("real controller CLI writes recovery before children, strips secrets, redep
     expect(call.env.DISCORD_BOT_TOKEN).toBe("fixture-token");
     expect(call.env.GITHUB_TOKEN).toBeUndefined();
   }
+
   expect(
     calls
       .filter((call) => call.type === "comment")
@@ -464,10 +490,12 @@ test("real controller CLI writes recovery before children, strips secrets, redep
 
 test("closed cleanup works in a fresh checkout with no prior artifact, repeats, and retains failure evidence", async () => {
   const f = await launcher();
+
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await f.run("cleanup", { PR_STATE: "closed" });
     expect(result.code).toBe(0);
   }
+
   expect(
     (await f.calls()).filter((call) => call.type === "cleanup"),
   ).toHaveLength(2);
@@ -482,9 +510,11 @@ test("closed cleanup works in a fresh checkout with no prior artifact, repeats, 
     stage: preview.stage,
     run: preview.run,
   });
+
   const before = (await f.calls()).filter(
     (call) => call.type === "comment",
   ).length;
+
   expect((await f.run("deploy", { FAIL_DEPLOY: "1" })).code).toBe(1);
   expect(
     (await f.calls()).filter((call) => call.type === "comment"),

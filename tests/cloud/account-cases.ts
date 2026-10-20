@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { appendFile } from "node:fs/promises";
 
-import { Effect, Fiber, Redacted, Schedule, Schema } from "effect";
+import { Match, Effect, Fiber, Redacted, Schedule, Schema } from "effect";
 
 import { commandManifest } from "../../apps/bot/src/discord-manifest.js";
 import {
@@ -36,12 +36,14 @@ const Snapshot = Schema.Struct({
   onboardingRetained: Schema.Boolean,
   alarm: Schema.NullOr(Schema.Number),
 });
+
 const rpc = Effect.fnUntraced(function* <A, I>(
   url: string,
   schema: Schema.Codec<A, I>,
-  body: unknown = {},
+  body: Schema.Json = {},
 ) {
   const result = yield* post(url, body);
+
   const decoded = yield* json(
     result,
     Schema.Union([
@@ -49,29 +51,36 @@ const rpc = Effect.fnUntraced(function* <A, I>(
       Schema.Struct({ kind: Schema.Literal("failure"), code: Schema.String }),
     ]),
   );
+
   if (decoded.kind === "failure")
     return yield* Effect.fail(
       new Error(`Account RPC ${new URL(url).pathname}: ${decoded.code}`),
     );
+
   return decoded.value;
 });
-const rawReply = Effect.fnUntraced(function* (url: string, body: unknown) {
+
+const rawReply = Effect.fnUntraced(function* (url: string, body: Schema.Json) {
   const response = yield* post(url, body);
+
   return yield* json(
     response,
     Schema.Struct({ kind: Schema.Literal("failure"), code: Schema.String }),
   );
 });
+
 const authorize = Effect.fnUntraced(function* (url: string) {
   const setup = yield* rpc(`${url}/setup`, SetupResult);
+
   for (const auth of setup.authorizations) {
     const params = new URL(auth.url).searchParams;
-    const userId =
-      auth.login === "fixture_sender"
-        ? "100"
-        : auth.login === "fixture_channel"
-          ? "200"
-          : "300";
+
+    const userId = Match.value(auth.login).pipe(
+      Match.when("fixture_sender", () => "100"),
+      Match.when("fixture_channel", () => "200"),
+      Match.orElse(() => "300"),
+    );
+
     yield* rpc(`${url}/complete`, AccountStatus, {
       state: params.get("state"),
       operator: "fixture-operator-digest",
@@ -83,8 +92,10 @@ const authorize = Effect.fnUntraced(function* (url: string) {
       }),
     });
   }
+
   return yield* rpc(`${url}/setup`, SetupResult);
 });
+
 const sendInput = (
   attemptId: string,
   deadline: number,
@@ -106,14 +117,17 @@ export function registerAccountTests({
 }) {
   const urls = Effect.gen(function* () {
     const deployed = yield* stack;
+
     if (!deployed.accountUrl || !deployed.providerUrl)
       return yield* Effect.die("Missing account fixture bindings");
+
     return {
       account: deployed.accountUrl,
       provider: deployed.providerUrl,
       bot: deployed.url,
     };
   });
+
   test(
     "account native storage binds OAuth identity/client, expiry, replay and config revision",
     Effect.gen(function* () {
@@ -122,15 +136,18 @@ export function registerAccountTests({
       yield* get(`${u.account}/snapshot`, Snapshot);
       const now = Date.now() + 86_400_000;
       yield* post(`${u.account}/time`, now);
+
       for (const [field, override, expected] of [
         ["userId", "999", "identity"],
         ["clientId", "wrong", "client"],
         ["scopes", [], "scopes"],
       ] as const) {
         const setup = yield* rpc(`${u.account}/setup`, SetupResult);
+
         const state = new URL(
           setup.authorizations[0]?.url ?? "",
         ).searchParams.get("state");
+
         const code = JSON.stringify({
           userId: "100",
           login: "fixture_sender",
@@ -138,6 +155,7 @@ export function registerAccountTests({
           scopes: ["user:read:chat", "user:write:chat", "user:bot"],
           [field]: override,
         });
+
         const request = { state, code, operator: "fixture-operator-digest" };
         expect((yield* rawReply(`${u.account}/complete`, request)).code).toBe(
           expected,
@@ -146,10 +164,13 @@ export function registerAccountTests({
           "state",
         );
       }
+
       const expiry = yield* rpc(`${u.account}/setup`, SetupResult);
+
       const oldState = new URL(
         expiry.authorizations[0]?.url ?? "",
       ).searchParams.get("state");
+
       yield* post(`${u.account}/time`, now + 600_000);
       expect(
         (yield* rawReply(`${u.account}/complete`, {
@@ -180,6 +201,7 @@ export function registerAccountTests({
       expect(
         (yield* get(`${u.account}/snapshot`, Snapshot)).onboardingRetained,
       ).toBeFalse();
+
       const statusResponse = yield* Effect.promise(() =>
         fetch(`${u.bot}/ops/status`, {
           method: "POST",
@@ -187,7 +209,9 @@ export function registerAccountTests({
           body: JSON.stringify({ stage: "wrong" }),
         }),
       );
+
       expect(statusResponse.status).toBe(401);
+
       const authenticated = yield* Effect.promise(() =>
         fetch(`${u.bot}/ops/status`, {
           method: "POST",
@@ -198,12 +222,16 @@ export function registerAccountTests({
           body: JSON.stringify({ stage: ready.status.stage }),
         }),
       );
+
       expect(authenticated.status).toBe(200);
+
       const operational = yield* Effect.promise(() =>
         authenticated.json(),
       ).pipe(Effect.flatMap(Schema.decodeUnknownEffect(AccountStatus)));
+
       expect(operational.setup).toBe("unresolved");
       expect(operational.credential).toBe("absent");
+
       const child = Bun.spawn(
         [
           process.execPath,
@@ -221,12 +249,15 @@ export function registerAccountTests({
           stderr: "pipe",
         },
       );
+
       const output = yield* Effect.promise(() =>
         new Response(child.stdout).text(),
       );
+
       const errors = yield* Effect.promise(() =>
         new Response(child.stderr).text(),
       );
+
       expect(yield* Effect.promise(() => child.exited)).toBe(0);
       expect(
         Schema.decodeUnknownSync(AccountStatus)(JSON.parse(output)).stage,
@@ -262,10 +293,12 @@ export function registerAccountTests({
       ).toEqual(["200"]);
       yield* post(`${u.provider}/control`, { remote: [], holdCreate: true });
       const starting = yield* get(`${u.account}/snapshot`, Snapshot);
+
       const interrupted = yield* rpc(`${u.account}/setup`, SetupResult).pipe(
         Effect.exit,
         Effect.forkChild,
       );
+
       const created = yield* get(
         `${u.provider}/snapshot`,
         ProviderSnapshot,
@@ -276,14 +309,17 @@ export function registerAccountTests({
           schedule: Schedule.spaced("100 millis"),
         }),
       );
+
       expect(created.remote.length).toBe(1);
       yield* post(`${u.account}/reconstruct`);
       yield* post(`${u.provider}/control`, { holdCreate: false });
       expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
+
       const reconstructed = yield* reconstructedSnapshot(
         get(`${u.account}/snapshot`, Snapshot),
         starting.instance,
       );
+
       expect(reconstructed.instance).not.toBe(starting.instance);
       yield* post(`${u.account}/time`, starting.time + 121_000);
       expect((yield* rpc(`${u.account}/setup`, SetupResult)).status.setup).toBe(
@@ -366,11 +402,13 @@ export function registerAccountTests({
       yield* post(`${u.account}/time`, time);
       const input = sendInput("interrupted-send", time + 10_000);
       const previous = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+
       const interrupted = yield* rpc(
         `${u.account}/dispatch`,
         DispatchOutcome,
         input,
       ).pipe(Effect.exit, Effect.forkChild);
+
       const observed = yield* get(
         `${u.provider}/snapshot`,
         ProviderSnapshot,
@@ -383,6 +421,7 @@ export function registerAccountTests({
           schedule: Schedule.spaced("100 millis"),
         }),
       );
+
       expect(observed.calls["POST /helix/chat/messages"]).toBe(
         (previous.calls["POST /helix/chat/messages"] ?? 0) + 1,
       );
@@ -390,10 +429,12 @@ export function registerAccountTests({
       yield* post(`${u.account}/reconstruct`);
       yield* post(`${u.provider}/control`, { holdSend: false });
       expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
+
       const reconstructed = yield* reconstructedSnapshot(
         get(`${u.account}/snapshot`, Snapshot),
         snapshot.instance,
       );
+
       expect(reconstructed.instance).not.toBe(snapshot.instance);
       expect(
         yield* rpc(`${u.account}/dispatch`, DispatchOutcome, input),
@@ -421,16 +462,19 @@ export function registerAccountTests({
       yield* post(`${u.account}/time`, time);
       yield* post(`${u.provider}/control`, { holdMint: true });
       const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+
       const one = yield* rpc(
         `${u.account}/dispatch`,
         DispatchOutcome,
         sendInput("late-refresh", time + 10_000),
       ).pipe(Effect.forkChild);
+
       const two = yield* rpc(
         `${u.account}/dispatch`,
         DispatchOutcome,
         sendInput("late-refresh-two", time + 9_000),
       ).pipe(Effect.forkChild);
+
       const pending = yield* get(
         `${u.provider}/snapshot`,
         ProviderSnapshot,
@@ -441,6 +485,7 @@ export function registerAccountTests({
           schedule: Schedule.spaced("100 millis"),
         }),
       );
+
       expect(pending.calls.mint).toBe((before.calls.mint ?? 0) + 1);
       expect(
         (yield* get(`${u.account}/snapshot`, Snapshot)).alarm,
@@ -459,11 +504,13 @@ export function registerAccountTests({
       expect(scheduled.alarm ?? 0).toBeGreaterThan(scheduled.time);
       yield* post(`${u.provider}/control`, { appClient: "wrong-client" });
       yield* post(`${u.account}/reconstruct`);
+
       const refused = yield* rpc(
         `${u.account}/dispatch`,
         DispatchOutcome,
         sendInput("bad-app", time + 10_000),
       );
+
       expect(refused.kind).toBe("retryable");
       expect(
         (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
@@ -495,12 +542,15 @@ export function registerAccountTests({
           sendInput("budget-start", base + 10_000),
         )).kind,
       ).toBe("sent");
+
       const waiting = yield* rpc(
         `${u.account}/dispatch`,
         DispatchOutcome,
         sendInput("budget-wait", base + 10_000),
       );
+
       expect(waiting.kind).toBe("retryable");
+
       if (waiting.kind === "retryable")
         expect(Number(waiting.retryAt)).toBe(base + 1000);
       expect(
@@ -510,6 +560,7 @@ export function registerAccountTests({
           sendInput("budget-other", base + 10_000, "300"),
         )).kind,
       ).toBe("sent");
+
       for (let i = 1; i <= 18; i++) {
         yield* post(`${u.account}/time`, base + i * 1000);
         expect(
@@ -520,6 +571,7 @@ export function registerAccountTests({
           )).kind,
         ).toBe("sent");
       }
+
       expect(
         yield* rpc(
           `${u.account}/dispatch`,
@@ -528,9 +580,11 @@ export function registerAccountTests({
         ),
       ).toEqual({ kind: "expired" });
       const remote = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+
       const subscription = remote.remote.find(
         (sub) => sub.condition.broadcaster_user_id === "300",
       );
+
       if (!subscription) return yield* Effect.die("Missing revocation fixture");
       yield* rpc(`${u.account}/observe`, Schema.Null, {
         id: subscription.id,
@@ -551,6 +605,7 @@ export function registerAccountTests({
           sendInput("revoked-final", base + 28_000, "300"),
         ),
       ).toEqual({ kind: "rejected" });
+
       const status = yield* get(
         `${u.account}/status`,
         Schema.Struct({
@@ -558,6 +613,7 @@ export function registerAccountTests({
           value: AccountStatus,
         }),
       );
+
       expect(status.value.sender?.authorized).toBeFalse();
     }),
     { timeout: 120_000 },
@@ -567,17 +623,20 @@ export function registerAccountTests({
     Effect.gen(function* () {
       const u = yield* urls;
       const snapshotSchema = NativeAlarmSnapshot;
+
       const retain = Effect.fnUntraced(function* (
         boundary: string,
-        snapshots: unknown,
+        snapshots: Schema.Json,
       ) {
         const stage = process.env.ARC_CLOUD_STAGE;
+
         const entry = JSON.stringify({
           stage,
           at: Date.now(),
           boundary,
           snapshots,
         });
+
         console.info(`NATIVE_ALARM_ATTRIBUTION ${entry}`);
         yield* Effect.promise(() =>
           appendFile(
@@ -589,14 +648,17 @@ export function registerAccountTests({
           ),
         );
       });
+
       yield* Effect.gen(function* () {
         const preparedResponse = yield* post(
           `${u.account}/native-alarm/prepare`,
         );
+
         const prepared = yield* json(
           preparedResponse,
           Schema.Struct({ instance: Schema.String, until: Schema.Number }),
         );
+
         const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
         yield* retain("prepared", {
           prepared,
@@ -614,6 +676,7 @@ export function registerAccountTests({
           get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
           prepared.instance,
         );
+
         const recovered = yield* get(
           `${u.account}/native-alarm/snapshot`,
           snapshotSchema,
@@ -625,6 +688,7 @@ export function registerAccountTests({
             schedule: Schedule.spaced("100 millis"),
           }),
         );
+
         yield* retain("early-account", recovered);
         const earlyKey = completedRunKey(recovered.attribution, 1);
         const early = selectCompletedRun(recovered.attribution, earlyKey);
@@ -638,6 +702,7 @@ export function registerAccountTests({
           "early-provider",
           yield* get(`${u.provider}/snapshot`, ProviderSnapshot),
         );
+
         const validated = yield* get(
           `${u.account}/native-alarm/snapshot`,
           snapshotSchema,
@@ -649,6 +714,7 @@ export function registerAccountTests({
             schedule: Schedule.spaced("100 millis"),
           }),
         );
+
         yield* retain("late-account", validated);
         const recoveryKey = completedRunKey(validated.attribution, 2);
         const recovery = selectCompletedRun(validated.attribution, recoveryKey);
@@ -656,17 +722,21 @@ export function registerAccountTests({
         expect(recovery.lease).toBeNull();
         expect(recovery.intended ?? 0).toBeGreaterThan(prepared.until);
         expect(recovery.native).toBe(recovery.intended);
+
         const lateProvider = yield* get(
           `${u.provider}/snapshot`,
           ProviderSnapshot,
         );
+
         yield* retain("late-provider", lateProvider);
+
         const evidence = {
           earlyRunKey: earlyKey,
           recoveryRunKey: recoveryKey,
           preparedInstance: prepared.instance,
           leaseUntil: prepared.until,
         };
+
         const verified = yield* Effect.sync(() =>
           verifyCompletedRecovery({
             ...evidence,
@@ -674,15 +744,19 @@ export function registerAccountTests({
             provider: lateProvider.validations,
           }),
         );
+
         expect(verified.runKey).toBe(recoveryKey);
         yield* retain("verified-recovery", verified);
+
         const beforePaired = yield* get(
           `${u.account}/native-alarm/snapshot`,
           snapshotSchema,
         );
+
         const priorInstances = new Set(
           beforePaired.attribution.events.map((event) => event.instance),
         );
+
         const pairedRuns = (value: typeof snapshotSchema.Type) =>
           value.attribution.completedRuns.filter(
             (run) =>
@@ -690,6 +764,7 @@ export function registerAccountTests({
               !priorInstances.has(run.instance) &&
               run.validationInvocationIds.length > 0,
           );
+
         expect(
           (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
         ).toBe(204);
@@ -697,6 +772,7 @@ export function registerAccountTests({
           get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
           beforePaired.instance,
         );
+
         const paired = yield* get(
           `${u.account}/native-alarm/snapshot`,
           snapshotSchema,
@@ -707,16 +783,20 @@ export function registerAccountTests({
             schedule: Schedule.spaced("100 millis"),
           }),
         );
+
         const pairedOrdinal = Math.min(
           ...pairedRuns(paired).map((run) => run.alarmRun),
         );
+
         const pairedKey = completedRunKey(paired.attribution, pairedOrdinal);
         const pairedRun = selectCompletedRun(paired.attribution, pairedKey);
         expect(pairedRun.instance).not.toBe(beforePaired.instance);
+
         const latestProvider = yield* get(
           `${u.provider}/snapshot`,
           ProviderSnapshot,
         );
+
         const pairedVerified = yield* Effect.sync(() =>
           verifyCompletedValidation({
             account: paired.attribution,
@@ -724,12 +804,14 @@ export function registerAccountTests({
             runKey: pairedKey,
           }),
         );
+
         expect(pairedRun.lease).toBeNull();
         expect(pairedRun.native).toBe(pairedRun.intended);
         expect(pairedVerified.invocationId).not.toBe(verified.invocationId);
         expect(
           latestProvider.calls["GET /oauth/validate"] ?? 0,
         ).toBeGreaterThan((before.calls["GET /oauth/validate"] ?? 0) + 1);
+
         const reverified = yield* Effect.sync(() =>
           verifyCompletedRecovery({
             ...evidence,
@@ -737,6 +819,7 @@ export function registerAccountTests({
             provider: latestProvider.validations,
           }),
         );
+
         expect(reverified).toEqual(verified);
         yield* retain("paired-native-revalidation", {
           before: beforePaired,
@@ -752,6 +835,7 @@ export function registerAccountTests({
               effect.pipe(
                 Effect.catchCause(() => Effect.succeed({ unavailable: true })),
               );
+
             yield* retain("final", {
               target: yield* safe(
                 get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
@@ -774,6 +858,7 @@ export function registerAccountTests({
     Effect.gen(function* () {
       const u = yield* urls;
       const health = yield* get(`${u.provider}/health`, ReleaseHealth);
+
       const release = {
         endpoint: u.provider,
         stage: health.stage,
@@ -781,6 +866,7 @@ export function registerAccountTests({
         applicationId: "fixture-discord",
         token: Redacted.make("CANARY-DISCORD-TOKEN"),
       };
+
       const options = { api: u.provider };
       yield* post(`${u.provider}/control`, {
         commands: [

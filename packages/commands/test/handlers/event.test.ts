@@ -37,9 +37,11 @@ describe("eventHandler", () => {
     "active event shows ends in",
     Effect.gen(function* () {
       yield* TestClock.setTime(1500);
+
       const result = yield* run({
         events: [event({ startTime: 1000, endTime: 2000 })],
       })("prospecting");
+
       expect(result).toContain("is active now");
       expect(result).toContain("ends in");
     }).pipe(Effect.provide(TestClock.layer())),
@@ -49,9 +51,11 @@ describe("eventHandler", () => {
     "upcoming event shows starts in",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* run({
         events: [event({ startTime: 60_000, endTime: 120_000 })],
       })("prospecting");
+
       expect(result).toContain("starts in");
       expect(result).toContain("1m");
     }).pipe(Effect.provide(TestClock.layer())),
@@ -61,6 +65,7 @@ describe("eventHandler", () => {
     "queen alias rewrites to harvester",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* run({
         events: [
           event({
@@ -71,6 +76,7 @@ describe("eventHandler", () => {
           }),
         ],
       })("queen");
+
       expect(result).toContain("Harvester");
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -81,6 +87,7 @@ describe("eventHandler", () => {
       const result = yield* run({
         events: [event()],
       })("nonexistent");
+
       expect(result).toBe("[Warn] No event or map found matching: nonexistent");
     }).pipe(Effect.provide(TestClock.layer())),
   );

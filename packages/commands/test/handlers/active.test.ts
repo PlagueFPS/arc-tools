@@ -17,9 +17,11 @@ describe("activeHandler", () => {
     "returns no active events when none",
     Effect.gen(function* () {
       yield* TestClock.setTime(2000);
+
       const result = yield* run({
         events: [event({ startTime: 0, endTime: 1000 })],
       })("");
+
       expect(result).toBe("No active events");
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -28,11 +30,13 @@ describe("activeHandler", () => {
     "returns single active event",
     Effect.gen(function* () {
       yield* TestClock.setTime(500);
+
       const result = yield* run({
         events: [
           event({ name: "Event", map: "Map", startTime: 0, endTime: 1000 }),
         ],
       })("");
+
       expect(result).toContain("Event on Map");
       expect(result).toContain("ends in");
     }).pipe(Effect.provide(TestClock.layer())),
@@ -42,12 +46,14 @@ describe("activeHandler", () => {
     "returns multiple active events",
     Effect.gen(function* () {
       yield* TestClock.setTime(500);
+
       const result = yield* run({
         events: [
           event({ name: "A", map: "M1", startTime: 0, endTime: 1000 }),
           event({ name: "B", map: "M2", startTime: 0, endTime: 1000 }),
         ],
       })("");
+
       expect(result).toContain("A on M1");
       expect(result).toContain("B on M2");
     }).pipe(Effect.provide(TestClock.layer())),
@@ -57,11 +63,13 @@ describe("activeHandler", () => {
     "inclusive end boundary - event at exact endTime is active",
     Effect.gen(function* () {
       yield* TestClock.setTime(1000);
+
       const result = yield* run({
         events: [
           event({ name: "Event", map: "Map", startTime: 0, endTime: 1000 }),
         ],
       })("");
+
       expect(result).toContain("Event on Map");
     }).pipe(Effect.provide(TestClock.layer())),
   );

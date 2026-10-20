@@ -130,6 +130,7 @@ describe("sortByDesc", () => {
       { name: "b", value: 3 },
       { name: "c", value: 2 },
     ];
+
     const sorted = sortByDesc(items, (i) => i.value);
     expect(sorted).toEqual([
       { name: "b", value: 3 },
@@ -151,6 +152,7 @@ describe("sortByDesc", () => {
       { id: "b", v: 1 },
       { id: "c", v: 1 },
     ];
+
     const sorted = sortByDesc(items, (i) => i.v);
     expect(sorted.map((i) => i.id)).toEqual(["a", "b", "c"]);
   });

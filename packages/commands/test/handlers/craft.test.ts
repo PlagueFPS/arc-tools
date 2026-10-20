@@ -34,6 +34,7 @@ describe("craftHandler", () => {
       const result = yield* run({
         items: [item({ workbench: null })],
       })("item");
+
       expect(result).toBe("Item cannot be crafted.");
     }),
   );
@@ -44,6 +45,7 @@ describe("craftHandler", () => {
       const result = yield* run({
         items: [item({ workbench: "Basic", components: null })],
       })("item");
+
       expect(result).toBe("Item cannot be crafted.");
     }),
   );
@@ -68,6 +70,7 @@ describe("craftHandler", () => {
           }),
         ],
       })("item");
+
       expect(result).toContain("Refiner");
       expect(result).toContain("Component X (x2)");
       expect(result).toContain("Component Y (x1)");

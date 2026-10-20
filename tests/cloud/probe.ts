@@ -27,16 +27,20 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
   "FoundationProbe",
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
+
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
       yield* state.storage.sql.exec(
         "CREATE TABLE IF NOT EXISTS proof (id INTEGER PRIMARY KEY, value TEXT NOT NULL)",
       );
+
       const snapshot = Effect.fn("Probe.snapshot")(function* () {
         const cursor = yield* state.storage.sql.exec<{ value: string }>(
           "SELECT value FROM proof WHERE id = 1",
         );
+
         const rows = yield* cursor.toArray();
+
         return {
           instance,
           value: rows[0]?.value ?? "empty",
@@ -46,6 +50,7 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
           alarm: yield* state.storage.getAlarm(),
         };
       });
+
       return {
         snapshot,
         prepare: Effect.fn("Probe.prepare")(function* () {
@@ -54,6 +59,7 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
           );
           const before = Date.now() + 60_000;
           yield* state.storage.setAlarm(before);
+
           const rolledBack = yield* state.storage
             .transaction(
               Effect.gen(function* () {
@@ -62,6 +68,7 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
                 );
                 yield* state.storage.put("attempts", 99);
                 yield* state.storage.setAlarm(Date.now() + 120_000);
+
                 return yield* Effect.fail("intentional-rollback");
               }),
             )
@@ -71,6 +78,7 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
                 onSuccess: () => false,
               }),
             );
+
           return {
             rolledBack,
             before,
@@ -84,6 +92,7 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
             retryCount: 0,
           });
           yield* state.storage.setAlarm(Date.now() + 1_000);
+
           return yield* snapshot();
         }),
         reset: Effect.fn("Probe.reset")(function* () {
@@ -95,16 +104,19 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
         ) {
           const attempts =
             ((yield* state.storage.get<number>("attempts")) ?? 0) + 1;
+
           yield* state.storage.put({
             attempts,
             retryCount: info?.retryCount ?? 0,
           });
           yield* state.storage.sync();
+
           if (attempts === 1) {
             return yield* Effect.die(
               "intentional alarm failure to exercise Cloudflare retry",
             );
           }
+
           yield* state.storage.put("completed", true);
         }),
       };
@@ -127,6 +139,7 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
   "Probe",
   Effect.gen(function* () {
     const { stage } = yield* Stack;
+
     return {
       name: `arc-tools-probe-${stage}`,
       main: import.meta.url,
@@ -137,6 +150,7 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
   Effect.gen(function* () {
     const objects = yield* ProbeObject;
     const object = () => objects.getByName("proof");
+
     const handlers = HttpApiBuilder.group(ProbeApi, "probe", (handlers) =>
       handlers
         .handleRaw("health", () =>
@@ -147,6 +161,7 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
             const bytes = new Uint8Array(
               yield* request.arrayBuffer.pipe(Effect.orDie),
             );
+
             return HttpServerResponse.uint8Array(bytes, {
               contentType: "application/octet-stream",
             });
@@ -204,6 +219,7 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
             ),
         ),
     );
+
     return {
       fetch: HttpApiBuilder.layer(ProbeApi).pipe(
         Layer.provide(handlers),

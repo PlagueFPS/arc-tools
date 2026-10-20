@@ -10,11 +10,14 @@ import { CloudResourceEvidence, cloudSettings } from "./cloud-settings.js";
 import { PreviewOutput, PreviewStage } from "./preview-identity.js";
 
 const settings = cloudSettings(process.env);
+
 Schema.decodeUnknownSync(PreviewStage)(settings.stage);
+
 const directory = new URL(
   `../.cloud-tests/${settings.stage}/`,
   import.meta.url,
 );
+
 const options = {
   providers: Cloudflare.providers(),
   state: Cloudflare.state(),
@@ -41,6 +44,7 @@ await Core.run(
         ),
       ),
     );
+
     const output = yield* Schema.decodeUnknownEffect(PreviewOutput)(deployed);
     yield* Effect.promise(() =>
       writeFile(
@@ -48,6 +52,7 @@ await Core.run(
         JSON.stringify(output, null, 2),
       ),
     );
+
     const workers = [
       deployed.workerName,
       deployed.probeWorkerName,
@@ -57,9 +62,11 @@ await Core.run(
       deployed.providerWorkerName,
       deployed.tenantWorkerName,
     ];
+
     const namespaces = yield* Core.withProviders(
       Effect.gen(function* () {
         const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
+
         return yield* DurableObjects.listNamespaces
           .items({ accountId })
           .pipe(Stream.runCollect);
@@ -67,6 +74,7 @@ await Core.run(
       options,
       Stack.stackName,
     );
+
     const evidence = yield* Schema.decodeUnknownEffect(CloudResourceEvidence)({
       stage: settings.stage,
       workers,
@@ -74,6 +82,7 @@ await Core.run(
         .filter((namespace) => workers.includes(namespace.script ?? ""))
         .map((namespace) => namespace.id),
     });
+
     yield* Effect.promise(() =>
       writeFile(
         new URL("resources.json", directory),

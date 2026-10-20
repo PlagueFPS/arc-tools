@@ -12,6 +12,7 @@ export const craftHandler = Effect.fn("Command.craftHandler")(
     }
 
     const item = yield* resolveItem(search, { includeComponents: true });
+
     if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }

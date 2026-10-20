@@ -32,7 +32,9 @@ import {
 import { tenantFixture } from "./tenant-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
 const text = "Sensors can be sold for 10 coins each";
+
 const clockAt = (base: Clock.Clock, now: () => number): Clock.Clock => ({
   currentTimeMillis: Effect.sync(now),
   currentTimeMillisUnsafe: now,
@@ -42,15 +44,18 @@ const clockAt = (base: Clock.Clock, now: () => number): Clock.Clock => ({
   monotonicTimeNanosUnsafe: () => base.monotonicTimeNanosUnsafe(),
   sleep: (duration) => base.sleep(duration),
 });
+
 const fixture = Effect.fnUntraced(function* (worker: number) {
   const baseClock = yield* Clock.Clock;
   const clocks = { tenant: 0, account: 0 };
   const tenantClock = clockAt(baseClock, () => clocks.tenant);
   const accountClock = clockAt(baseClock, () => clocks.account);
   const a = yield* accountFixture();
+
   const account = yield* a
     .construct("fixture-signing")
     .pipe(Effect.provideService(Clock.Clock, accountClock));
+
   yield* a
     .grants(account.service)
     .pipe(Effect.provideService(Clock.Clock, accountClock));
@@ -60,6 +65,7 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
       .pipe(Effect.provideService(Clock.Clock, accountClock))).status.setup,
   ).toBe("ready");
   const dispatches: Dispatch[] = [];
+
   const trustedAccount: Account = {
     ...account.service,
     status: () =>
@@ -76,7 +82,9 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
         Effect.provideService(Clock.Clock, accountClock),
       ),
   };
+
   const f = yield* tenantFixture();
+
   const tenant = yield* makeTenant({
     activation: "clock-contract",
     launch: (effect) =>
@@ -90,6 +98,7 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
     Effect.provideService(ArcData, f.source.data),
     Effect.provideService(TwitchAccount, trustedAccount),
   );
+
   const tenants = Tenants.of({
     acceptTwitch: (receipt) =>
       tenant
@@ -100,6 +109,7 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
         .respondDiscord(receipt)
         .pipe(Effect.provideService(Clock.Clock, tenantClock)),
   });
+
   const request = Effect.fnUntraced(function* (receivedAt = worker) {
     const handlers = HttpApiBuilder.layer(BotApi).pipe(
       Layer.provide(
@@ -130,15 +140,19 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
       Layer.provide(Layer.succeed(Tenants, tenants)),
       Layer.provide(HttpServer.layerServices),
     );
+
     const app = HttpRouter.toWebHandler(handlers, { disableLogger: true });
     const event = twitchEvent("original-parent", "!sell sensors", callback);
+
     const body = new TextEncoder().encode(
       JSON.stringify({
         ...event,
         subscription: { ...event.subscription, id: "created-1" },
       }),
     );
+
     const headers = yield* signTwitch(body, "notification", receivedAt);
+
     return yield* Effect.acquireUseRelease(
       Effect.succeed(app),
       (app) =>
@@ -148,13 +162,16 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
       (app) => Effect.promise(() => app.dispose()),
     );
   });
+
   const bodies: unknown[] = [];
   a.control.responses.set("POST /chat/messages", async (request) => {
     bodies.push(await request.json());
+
     return Response.json({
       data: [{ is_sent: true, message_id: "clock-sent" }],
     });
   });
+
   return {
     a,
     f,
@@ -194,11 +211,13 @@ for (const [worker, tenant, account] of [
         deadline: worker + 10000,
       });
       yield* h.f.drain;
+
       const observed = {
         work: h.work(),
         posts: h.posts(),
         ledger: Object.values(h.a.snapshot().attempts),
       };
+
       h.clocks.tenant += 100;
       h.clocks.account += 100;
       expect((yield* h.request(worker + 100)).status).toBe(204);
@@ -291,6 +310,7 @@ test(
     h.clocks.tenant = 40;
     h.a.control.responses.set("POST /chat/messages", async (request) => {
       h.bodies.push(await request.json());
+
       return h.bodies.length === 1
         ? Response.json({}, { status: 429 })
         : Response.json({
@@ -307,6 +327,7 @@ test(
     });
     expect(h.posts()).toBe(1);
     const frozen = h.dispatches[0];
+
     if (!frozen) return yield* Effect.die("Missing signed Twitch dispatch");
     expect(Object.values(h.a.snapshot().attempts)).toMatchObject([
       { kind: "waiting", deadline: 10020, retryAt: 1000 },
@@ -362,11 +383,13 @@ test(
     expect((yield* h.request()).status).toBe(204);
     yield* h.f.drain;
     const input = h.dispatches[0];
+
     if (!input) return yield* Effect.die("Missing signed Twitch dispatch");
     expect(yield* h.dispatch(input)).toEqual({
       kind: "sent",
       messageId: "clock-sent",
     });
+
     for (const change of [
       { text: "changed" },
       { replyParentId: ReplyId.make("different-parent") },
@@ -375,6 +398,7 @@ test(
       expect(yield* h.dispatch({ ...input, ...change })).toEqual({
         kind: "rejected",
       });
+
     for (const invalid of [
       { ...input, text: "" },
       { ...input, text: "x".repeat(501) },

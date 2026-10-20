@@ -6,7 +6,9 @@ import { Config, Effect, Layer, Schema } from "effect";
 const DiscordApplicationId = Schema.String.check(
   Schema.isPattern(/^[0-9]{17,20}$/),
 );
+
 const repository = { owner: "PlagueFPS", repository: "arc-tools" };
+
 const permissionGroups: Cloudflare.ApiToken.PermissionGroupRef[] = [
   "Workers Scripts Write",
   "Secrets Store Read",
@@ -24,6 +26,7 @@ export default Alchemy.Stack(
       DiscordApplicationId,
       "DISCORD_APPLICATION_ID",
     );
+
     const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
 
     const token = yield* Cloudflare.ApiToken.AccountApiToken("arc-tools-ci", {
@@ -59,6 +62,7 @@ export default Alchemy.Stack(
       name: "prod",
       deploymentBranchPolicy: { customBranchPolicies: ["main"] },
     });
+
     yield* GitHub.Variable("prod-account-id", {
       ...repository,
       environment: prod,

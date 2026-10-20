@@ -17,25 +17,34 @@ const ReadReply = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("success"), result: EncodedRead }),
   Schema.Struct({ kind: Schema.Literal("failure"), error: DataUnavailable }),
 ]);
+
 const day = 86_400_000;
 
 const read = Effect.fnUntraced(function* (url: string, query: ResourceQuery) {
   const response = yield* post(`${url}/read`, query);
+
   return yield* json(response, ReadReply);
 });
+
 const successful = Effect.fnUntraced(function* (
   url: string,
   query: ResourceQuery,
 ) {
   const result = yield* read(url, query);
   expect(result.kind).toBe("success");
+
   if (result.kind === "failure") return yield* result.error;
+
   return result.result;
 });
+
 const snapshot = (url: string) => get(`${url}/snapshot`, CacheSnapshot);
+
 const observations = (url: string) => get(`${url}/observations`, Observations);
+
 const configure = (url: string, control: typeof SourceControl.Type) =>
   post(`${url}/control`, control);
+
 const query = (id: string): ResourceQuery => ({
   resource: "items",
   params: { id },
@@ -47,6 +56,7 @@ export function registerCacheTests({
 }: Pick<typeof Foundation, "stack" | "test">) {
   const fixture = Effect.gen(function* () {
     const deployed = yield* stack;
+
     if (!deployed.cacheUrl || !deployed.sourceUrl)
       return yield* Effect.die("Cache test outputs are missing");
     const url = deployed.cacheUrl;
@@ -55,6 +65,7 @@ export function registerCacheTests({
     yield* snapshot(url);
     yield* post(`${url}/clear`);
     yield* post(`${url}/time`, 0);
+
     return { url, source };
   });
 
@@ -69,17 +80,21 @@ export function registerCacheTests({
         "entry:v1:json:/items?id=persist",
       ]);
       expect(first.provenance).toEqual({ freshness: "fresh", fetchedAt: 0 });
+
       const decoded = yield* Schema.decodeUnknownEffect(
         Schema.fromJsonString(ItemAPIResponse),
       )(first.body);
+
       expect(decoded.data[0]?.workbench).toEqual(Option.none());
       expect(decoded.data[0]?.loot_area).toEqual(Option.some("Industrial"));
       expect(decoded.data[0]?.components).toEqual(Option.some([]));
       yield* post(`${url}/reconstruct`);
+
       const after = yield* reconstructedSnapshot(
         snapshot(url),
         before.instance,
       );
+
       expect(after.instance).not.toBe(before.instance);
       expect(after.rows).toEqual(before.rows);
       yield* post(`${url}/time`, day - 1);
@@ -112,6 +127,7 @@ export function registerCacheTests({
     "schema, status and parse failures preserve original data, timestamp and persistent cooldown through the day-seven edge",
     Effect.gen(function* () {
       const { url, source } = yield* fixture;
+
       for (const [id, body, status, raw] of [
         [
           "schema",
@@ -233,6 +249,7 @@ export function registerCacheTests({
       yield* post(`${source}/release`, lateKey);
       const old = yield* Fiber.join(late);
       expect(old.kind).toBe("failure");
+
       if (old.kind === "failure") expect(old.error.reason).toBe("superseded");
       expect(yield* successful(url, lateInput)).toEqual(newer);
       expect(JSON.parse(newer.body).data[0].name).toBe("Current");
@@ -248,6 +265,7 @@ export function registerCacheTests({
     "real cache keys keep ID, search, response flags and limits separate, including valid empty responses",
     Effect.gen(function* () {
       const { url, source } = yield* fixture;
+
       const cases = [
         [{ resource: "items", params: { id: "flags" } }, "/items?id=flags"],
         [
@@ -282,11 +300,13 @@ export function registerCacheTests({
           "/arcs?id=flags&includeLoot=false",
         ],
       ] as const;
+
       for (const [input, key] of cases) {
         const first = yield* successful(url, input);
         expect(yield* successful(url, input)).toEqual(first);
         expect((yield* observations(source))[key]).toBe(1);
       }
+
       yield* successful(url, {
         resource: "items",
         params: { includeComponents: true, id: "flags" },

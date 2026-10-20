@@ -25,9 +25,11 @@ describe("TradersAPIResponse", () => {
           TianWen: [],
         },
       };
+
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(TradersAPIResponse)(payload),
       );
+
       expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
@@ -38,6 +40,7 @@ describe("TradersAPIResponse", () => {
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(TradersAPIResponse)({ data: null }),
       );
+
       expect(Exit.isFailure(result)).toBeTrue();
     }),
   );
@@ -56,9 +59,11 @@ describe("ArcsAPIResponse", () => {
           },
         ],
       };
+
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ArcsAPIResponse)(payload),
       );
+
       expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
@@ -69,9 +74,11 @@ describe("ArcsAPIResponse", () => {
       const payload = {
         data: [{ id: "a", name: "A", loot: null }],
       };
+
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ArcsAPIResponse)(payload),
       );
+
       expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
@@ -96,9 +103,11 @@ describe("ItemAPIResponse", () => {
           },
         ],
       };
+
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ItemAPIResponse)(payload),
       );
+
       expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
@@ -109,9 +118,11 @@ describe("ItemAPIResponse", () => {
       const payload = {
         data: [{ id: "x", name: "X", value: 5 }],
       };
+
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(ItemAPIResponse)(payload),
       );
+
       expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );
@@ -131,9 +142,11 @@ describe("EventAPIResponse", () => {
           },
         ],
       };
+
       const result = yield* Effect.exit(
         Schema.decodeUnknownEffect(EventAPIResponse)(payload),
       );
+
       expect(Exit.isSuccess(result)).toBeTrue();
     }),
   );

@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer, Option } from "effect";
+import { Match, Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
 import {
@@ -37,20 +37,21 @@ const fixture = {
     },
   ],
 };
+
 const mockLayer = layerUncached.pipe(
   Layer.provide(
     Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request) => {
         const resource = new URL(request.url).pathname.split("/").at(-1);
-        const data =
-          resource === "items"
-            ? fixture.items
-            : resource === "arcs"
-              ? fixture.arcs
-              : resource === "traders"
-                ? fixture.traders
-                : fixture.events;
+
+        const data = Match.value(resource).pipe(
+          Match.when("items", () => fixture.items),
+          Match.when("arcs", () => fixture.arcs),
+          Match.when("traders", () => fixture.traders),
+          Match.orElse(() => fixture.events),
+        );
+
         return Effect.succeed(
           HttpClientResponse.fromWeb(request, Response.json({ data })),
         );
@@ -78,6 +79,7 @@ describe("fetch contract", () => {
       const result = yield* getItem({ id: "item" }).pipe(
         Effect.provide(mockLayer),
       );
+
       const item = Option.getOrThrow(result);
       expect(item.name).toBe("Item");
     }),
@@ -101,9 +103,11 @@ describe("fetch contract", () => {
           ),
         ),
       );
+
       const result = yield* getItem({ id: "missing" }).pipe(
         Effect.provide(emptyLayer),
       );
+
       expect(Option.isNone(result)).toBeTrue();
     }),
   );
@@ -114,6 +118,7 @@ describe("fetch contract", () => {
       const result = yield* fetchArc({ id: "bastion" }).pipe(
         Effect.provide(mockLayer),
       );
+
       const arc = Option.getOrThrow(result);
       expect(arc.name).toBe("Bastion");
     }),

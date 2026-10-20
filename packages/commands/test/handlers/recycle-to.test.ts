@@ -34,6 +34,7 @@ describe("recycleToHandler", () => {
       const result = yield* run({
         items: [item({ recycle_from: null })],
       })("item");
+
       expect(result).toBe("[Warn] recycle data not found for Item");
     }),
   );
@@ -44,6 +45,7 @@ describe("recycleToHandler", () => {
       const result = yield* run({
         items: [item({ recycle_from: [] })],
       })("item");
+
       expect(result).toBe("No items recycle to Item");
     }),
   );
@@ -61,6 +63,7 @@ describe("recycleToHandler", () => {
           }),
         ],
       })("item");
+
       expect(result).toBe(
         "These items recycle to Item: Metal (x5), Scrap (x2)",
       );

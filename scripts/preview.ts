@@ -15,6 +15,7 @@ import {
 } from "./preview-identity.js";
 
 const marker = "<!-- arc-tools-synthetic-preview -->";
+
 type PreviewRequest =
   | { action: "cleanup"; preview: PreviewIdentity }
   | { action: "deploy"; preview: PreviewIdentity; checked: CheckedPreview };
@@ -32,37 +33,50 @@ export async function reconcilePreview(
   operations: PreviewOperations,
 ) {
   const pr = await operations.readPr();
+
   if (request.action === "cleanup") {
     if (pr.state !== "closed")
       throw new Error("Preview cleanup requires a closed PR");
     await operations.cleanup();
     await operations.publish("Synthetic preview removed. Cleanup verified.");
+
     return "destroyed";
   }
+
   const decision = previewDecision(pr, request.checked);
+
   if (decision === "destroy") {
     await operations.cleanup();
     await operations.publish("Synthetic preview removed. Cleanup verified.");
+
     return "destroyed";
   }
+
   if (decision === "stale") return "stale";
   await operations.publish(
     `Synthetic preview deploying. Checked merge ${request.checked.revision}; PR head ${request.checked.head}.`,
   );
   let output = await operations.deploy("");
+
   for (const phase of ["origin", "health", "publish"]) {
     const current = previewDecision(await operations.readPr(), request.checked);
+
     if (current === "destroy") {
       await operations.cleanup();
       await operations.publish("Synthetic preview removed. Cleanup verified.");
+
       return "destroyed";
     }
+
     if (current === "stale") return "stale";
+
     if (output.stage !== request.preview.stage)
       throw new Error("Deployed preview stage mismatch");
+
     if (phase === "origin") {
       const origin = output.url;
       output = await operations.deploy(origin);
+
       if (output.url !== origin)
         throw new Error(
           "Preview origin changed during explicit-origin redeploy",
@@ -71,9 +85,11 @@ export async function reconcilePreview(
       await operations.health(output.url, request.checked);
     }
   }
+
   await operations.publish(
     `Synthetic service preview: ${output.url}\n\nChecked merge: ${request.checked.revision}\nPR head: ${request.checked.head}\nStage: ${request.preview.stage}\n\nThis service uses fixture identities. It is not a live Twitch or Discord bot. Fixture state belongs to this PR and may survive pushes.`,
   );
+
   return "deployed";
 }
 
@@ -84,6 +100,7 @@ const Comments = Schema.Array(
     user: Schema.Struct({ login: Schema.String }),
   }),
 );
+
 const Health = Schema.Struct({
   status: Schema.Literal("ready"),
   stage: PreviewOutput.fields.stage,
@@ -92,10 +109,12 @@ const Health = Schema.Struct({
 
 async function main() {
   const { action, number } = previewAction(process.argv.slice(2));
+
   const preview = previewIdentity({
     repository: process.env.GITHUB_REPOSITORY ?? "PlagueFPS/arc-tools",
     number,
   });
+
   const request: PreviewRequest =
     action === "cleanup"
       ? { action, preview }
@@ -107,6 +126,7 @@ async function main() {
             head: process.env.PREVIEW_HEAD_SHA,
           }),
         };
+
   for (const [key, label] of Object.entries({
     CLOUDFLARE_ACCOUNT_ID: "repository variable CLOUDFLARE_TEST_ACCOUNT_ID",
     CLOUDFLARE_API_TOKEN: "repository secret CLOUDFLARE_TEST_API_TOKEN",
@@ -114,30 +134,33 @@ async function main() {
   })) {
     if (!process.env[key]) throw new Error(`Configure ${label}`);
   }
+
   const settings = Schema.decodeUnknownSync(CloudSettings)({
     stage: preview.stage,
     run: preview.run,
     profile: process.env.ALCHEMY_PROFILE ?? "default",
   });
+
   const directory = new URL(
     `../.cloud-tests/${preview.stage}/`,
     import.meta.url,
   );
+
   await mkdir(directory, { recursive: true });
   await writeFile(
     new URL("run.json", directory),
     JSON.stringify(
-      {
-        ...settings,
-        ...preview,
-        ...("checked" in request ? request.checked : {}),
-      },
+      "checked" in request
+        ? { ...settings, ...preview, ...request.checked }
+        : { ...settings, ...preview },
       null,
       2,
     ),
   );
+
   if (process.env.GITHUB_OUTPUT)
     await appendFile(process.env.GITHUB_OUTPUT, `stage=${preview.stage}\n`);
+
   const env = {
     ...syntheticEnvironment(process.env, settings),
     ARC_BUILD_REVISION:
@@ -146,7 +169,8 @@ async function main() {
     GITHUB_TOKEN: undefined,
     GH_TOKEN: undefined,
   };
-  const api = async (path: string, method = "GET", body?: unknown) => {
+
+  const api = async (path: string, method = "GET", body?: Schema.Json) => {
     const response = await fetch(
       `https://api.github.com/repos/${preview.repository}/${path}`,
       {
@@ -163,10 +187,13 @@ async function main() {
         signal: AbortSignal.timeout(30_000),
       },
     );
+
     if (!response.ok)
       throw new Error(`GitHub ${method} ${path}: HTTP ${response.status}`);
+
     return response.json();
   };
+
   const execute = async (script: string, origin = "") => {
     const child = Bun.spawn(
       [
@@ -184,12 +211,15 @@ async function main() {
         timeout: 600_000,
       },
     );
+
     if ((await child.exited) !== 0)
       throw new Error(
         `Preview ${script} failed; retain ${preview.stage} recovery journals`,
       );
   };
+
   let result = "failed";
+
   try {
     result = await reconcilePreview(request, {
       readPr: async () =>
@@ -198,6 +228,7 @@ async function main() {
         ),
       deploy: async (origin) => {
         await execute("preview-cloud.ts", origin);
+
         return Schema.decodeUnknownSync(PreviewOutput)(
           JSON.parse(
             await readFile(new URL("preview-output.json", directory), "utf8"),
@@ -211,10 +242,12 @@ async function main() {
             const response = await fetch(`${url}/health`, {
               signal: AbortSignal.timeout(10_000),
             });
+
             if (response.ok) {
               const value = Schema.decodeUnknownSync(Health)(
                 await response.json(),
               );
+
               if (
                 value.stage === preview.stage &&
                 value.revision === checked.revision
@@ -222,27 +255,33 @@ async function main() {
                 return;
             }
           } catch {}
+
           if (attempt < 59) await Bun.sleep(1000);
         }
+
         throw new Error(
           "Preview health did not match the exact stage and checked merge revision",
         );
       },
       publish: async (body) => {
         let existing: number | undefined;
+
         for (let page = 1; ; page++) {
           const comments = Schema.decodeUnknownSync(Comments)(
             await api(
               `issues/${preview.number}/comments?per_page=100&page=${page}`,
             ),
           );
+
           existing = comments.find(
             (comment) =>
               comment.user.login === "github-actions[bot]" &&
               comment.body?.includes(marker),
           )?.id;
+
           if (existing || comments.length < 100) break;
         }
+
         await api(
           existing
             ? `issues/comments/${existing}`
@@ -262,8 +301,8 @@ async function main() {
 }
 
 if (import.meta.main) {
-  await main().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : "Preview failed");
+  await main().catch((cause: unknown) => {
+    console.error(cause instanceof Error ? cause.message : "Preview failed");
     process.exitCode = 1;
   });
 }

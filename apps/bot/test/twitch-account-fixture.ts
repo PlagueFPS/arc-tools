@@ -2,7 +2,11 @@ import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Clock, Deferred, Effect, Schema, Semaphore } from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
-import { makeAccount, senderScopes } from "../src/twitch-account.js";
+import {
+  senderScopes,
+  AccountService,
+  accountServiceLayer,
+} from "../src/twitch-account.js";
 import {
   type Account,
   AccountError,
@@ -16,9 +20,10 @@ import {
   TwitchProvider,
 } from "../src/twitch-provider.js";
 import { AccountState, AccountStore, emptyState } from "../src/twitch-state.js";
-import { type AccountStorage, makeAccountStorage } from "../src/twitch.js";
+import { type AccountStorage, accountStorageLayer } from "../src/twitch.js";
 
 export const initial = 1_000_000_000_000;
+
 export const fixtureConfig = Schema.decodeUnknownSync(EnvironmentConfig)({
   kind: "test",
   stage: "test-account-0123456789ab",
@@ -29,6 +34,7 @@ export const fixtureConfig = Schema.decodeUnknownSync(EnvironmentConfig)({
   twitchClientId: "fixture-twitch",
   discordApplicationId: "fixture-discord",
 });
+
 export const harness = Effect.fnUntraced(function* (
   identity = fixtureConfig,
   webhookReady = true,
@@ -38,6 +44,7 @@ export const harness = Effect.fnUntraced(function* (
   let raw: unknown = emptyState("");
   const mutex = yield* Semaphore.make(1);
   let nativeAlarm: number | null = null;
+
   const storage: AccountStorage = {
     get: () => Effect.sync(() => structuredClone(raw)),
     put: (_key, value) =>
@@ -55,7 +62,10 @@ export const harness = Effect.fnUntraced(function* (
         nativeAlarm = null;
       }),
   };
-  const store = yield* makeAccountStorage(storage).pipe(
+
+  const store = yield* AccountStore.pipe(
+    Effect.provide(accountStorageLayer(storage)),
+  ).pipe(
     Effect.provideService(RuntimeContext, {
       Type: "test",
       id: "account-storage",
@@ -64,16 +74,20 @@ export const harness = Effect.fnUntraced(function* (
       set: (key) => Effect.succeed(key),
     }),
   );
+
   const noGate = (): Deferred.Deferred<void> | null => null;
+
   const defaultResult = (): SendResult => ({
     kind: "sent",
     messageId: "message-one",
   });
+
   const noFailure = (): "client" | "provider" | null => null;
   const remoteBindings: Record<string, string> = {};
   const usersTokens: string[] = [];
   const sendTokens: string[] = [];
   const remote: Subscription[] = [];
+
   const control = {
     grantClient: identity.twitchClientId,
     grantUser: "100",
@@ -102,10 +116,13 @@ export const harness = Effect.fnUntraced(function* (
     binding: "fixture-binding",
     remote,
   };
+
   const provider: Provider = {
     mint: Effect.fnUntraced(function* () {
       control.mints++;
+
       if (control.mintGate) yield* Deferred.await(control.mintGate);
+
       return {
         access_token: "canary-app-token",
         token_type: "bearer",
@@ -114,7 +131,9 @@ export const harness = Effect.fnUntraced(function* (
     }),
     exchange: Effect.fnUntraced(function* () {
       control.exchanges++;
+
       if (control.exchangeGate) yield* Deferred.await(control.exchangeGate);
+
       return {
         access_token: "canary-user-token",
         token_type: "bearer",
@@ -123,6 +142,7 @@ export const harness = Effect.fnUntraced(function* (
     }),
     validate: Effect.fnUntraced(function* (token) {
       control.validations++;
+
       const result =
         token === "canary-app-token"
           ? {
@@ -137,15 +157,20 @@ export const harness = Effect.fnUntraced(function* (
               login: control.grantLogin,
               scopes: control.grantScopes,
             };
+
       if (token === "canary-app-token" && control.validationGate)
         yield* Deferred.await(control.validationGate);
+
       return result;
     }),
     users: Effect.fnUntraced(function* (token, logins) {
       control.usersTokens.push(token);
       const failure = control.failUsers ? "client" : control.usersFailure;
+
       if (control.usersGate) yield* Deferred.await(control.usersGate);
+
       if (failure) return yield* new AccountError({ code: failure });
+
       return logins.map((login) => ({
         login,
         id:
@@ -164,6 +189,7 @@ export const harness = Effect.fnUntraced(function* (
         control.creates++;
         const id = `sub-${channel}-${control.creates}`;
         control.remoteBindings[id] = control.binding;
+
         const subscription: Subscription = {
           id,
           type: "channel.chat.message",
@@ -175,11 +201,14 @@ export const harness = Effect.fnUntraced(function* (
             callback: "https://fixture.invalid/webhooks/twitch",
           },
         };
+
         control.remote.push(subscription);
+
         if (control.failCreate)
           return { kind: "unknown" } satisfies Effect.Success<
             ReturnType<Provider["create"]>
           >;
+
         return {
           kind: "created",
           subscription: {
@@ -201,10 +230,13 @@ export const harness = Effect.fnUntraced(function* (
       if (time >= input.deadline) return { kind: "expired" };
       control.sends++;
       control.sendTokens.push(_token);
+
       if (control.sendGate) yield* Deferred.await(control.sendGate);
+
       return control.result;
     }),
   };
+
   const fakeClock: Clock.Clock = {
     currentTimeMillis: Effect.sync(() => time),
     currentTimeMillisUnsafe: () => time,
@@ -214,24 +246,32 @@ export const harness = Effect.fnUntraced(function* (
     monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
     sleep: (duration) => clock.sleep(duration),
   };
+
   const construct = (
     revision = "revision-one",
     subscriptionBinding = "fixture-binding",
   ) => {
     control.binding = subscriptionBinding;
-    return makeAccount({
-      identity,
-      webhookReady,
-      subscriptionBinding,
-      revision,
-      callback: "https://fixture.invalid/webhooks/twitch",
-      redirect: "https://fixture.invalid/oauth/twitch/callback",
-    }).pipe(
+
+    return AccountService.pipe(
+      Effect.provide(
+        accountServiceLayer({
+          identity,
+          webhookReady,
+          subscriptionBinding,
+          revision,
+          callback: "https://fixture.invalid/webhooks/twitch",
+          redirect: "https://fixture.invalid/oauth/twitch/callback",
+        }),
+      ),
+    ).pipe(
       Effect.provideService(AccountStore, store),
       Effect.provideService(TwitchProvider, provider),
     );
   };
+
   const account = yield* construct();
+
   return {
     account: account.service,
     alarm: account.credentialAlarm,
@@ -256,8 +296,10 @@ export const harness = Effect.fnUntraced(function* (
       target: Account = account.service,
     ): Effect.fn.Return<SetupResult, AccountError> {
       const setup = yield* target.setup("operator-digest");
+
       for (const authorization of setup.authorizations) {
         const url = new URL(authorization.url);
+
         const user =
           authorization.login === identity.senderLogin
             ? "100"
@@ -274,6 +316,7 @@ export const harness = Effect.fnUntraced(function* (
                         ]),
                       ].indexOf(authorization.login),
                   );
+
         control.grantUser = user;
         control.grantLogin = authorization.login;
         control.grantScopes = url.searchParams.get("scope")?.split(" ") ?? [];
@@ -283,6 +326,7 @@ export const harness = Effect.fnUntraced(function* (
           operator: "operator-digest",
         });
       }
+
       return yield* target.setup("operator-digest");
     }),
     send: (attemptId: string, channel = "200", deadline = time + 10_000) =>

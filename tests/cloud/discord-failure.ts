@@ -22,10 +22,12 @@ const sourceError = {
     true,
   ),
 };
+
 const tenantTimeout = {
   tenantCode: "timeout",
   reply: discordResponse(friendlyFailure, true),
 };
+
 const dataFailureOutcomes: Record<
   DataFailureScenario,
   readonly Pick<DiscordFailureObservation, "tenantCode" | "reply">[]

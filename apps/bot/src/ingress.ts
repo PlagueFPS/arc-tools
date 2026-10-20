@@ -34,6 +34,7 @@ export class IngressError extends Schema.TaggedError<IngressError>()(
   "IngressError",
   { status: Schema.Literals([400, 401, 408, 413]) },
 ) {}
+
 export const ingressPolicy = {
   maxBytes: 64 * 1024,
   bodyMs: 750,
@@ -41,6 +42,7 @@ export const ingressPolicy = {
   discordAgeMs: 300_000,
   futureSkewMs: 30_000,
 } as const;
+
 const TwitchAuthenticationHeaders = Schema.Struct({
   "twitch-eventsub-message-id": bounded(128),
   "twitch-eventsub-message-timestamp": Schema.String.check(
@@ -50,28 +52,34 @@ const TwitchAuthenticationHeaders = Schema.Struct({
     Schema.isPattern(/^sha256=[a-fA-F0-9]{64}$/),
   ),
 });
+
 const DiscordAuthenticationHeaders = Schema.Struct({
   "x-signature-timestamp": Schema.String.check(Schema.isPattern(/^\d{1,12}$/)),
   "x-signature-ed25519": Schema.String.check(
     Schema.isPattern(/^[a-fA-F0-9]{128}$/),
   ),
 });
+
 const TwitchDeliveryType = Schema.Literals([
   "notification",
   "revocation",
   "webhook_callback_verification",
 ]);
+
 const combined = (prefix: string, body: Uint8Array) => {
   const head = new TextEncoder().encode(prefix);
   const bytes = new Uint8Array(head.byteLength + body.byteLength);
   bytes.set(head);
   bytes.set(body, head.byteLength);
+
   return bytes;
 };
+
 export const readBody = Effect.fnUntraced(function* (
   request: HttpServerRequest.HttpServerRequest,
 ) {
   const length = request.headers["content-length"];
+
   if (
     Predicate.isNotUndefined(length) &&
     (!/^\d+$/.test(length) || Number(length) > ingressPolicy.maxBytes)
@@ -85,6 +93,7 @@ export const readBody = Effect.fnUntraced(function* (
     Stream.runForEach(
       Effect.fnUntraced(function* (chunk) {
         size += chunk.byteLength;
+
         if (size > ingressPolicy.maxBytes)
           return yield* new IngressError({ status: 413 });
         chunks.push(chunk);
@@ -92,25 +101,29 @@ export const readBody = Effect.fnUntraced(function* (
     ),
     Effect.timeout(ingressPolicy.bodyMs),
     Effect.mapError((error) =>
-      error._tag === "IngressError"
+      Predicate.isTagged(error, "IngressError")
         ? error
         : new IngressError({
-            status: error._tag === "TimeoutError" ? 408 : 400,
+            status: Predicate.isTagged(error, "TimeoutError") ? 408 : 400,
           }),
     ),
   );
   const bytes = new Uint8Array(size);
   let offset = 0;
+
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
   return bytes;
 });
+
 const fresh = (timestamp: number, receivedAt: number, age: number) =>
   Number.isFinite(timestamp) &&
   timestamp >= receivedAt - age &&
   timestamp <= receivedAt + ingressPolicy.futureSkewMs;
+
 export const verifyTwitch = Effect.fnUntraced(function* (
   headers: HttpServerRequest.HttpServerRequest["headers"],
   bytes: Uint8Array,
@@ -120,16 +133,20 @@ export const verifyTwitch = Effect.fnUntraced(function* (
   const authentication = yield* Schema.decodeUnknownEffect(
     TwitchAuthenticationHeaders,
   )(headers).pipe(Effect.mapError(() => new IngressError({ status: 401 })));
+
   const id = authentication["twitch-eventsub-message-id"];
   const timestamp = authentication["twitch-eventsub-message-timestamp"];
+
   const signature = yield* Hex.decode(
     authentication["twitch-eventsub-message-signature"].slice(7),
   ).pipe(
     Effect.fromResult,
     Effect.mapError(() => new IngressError({ status: 401 })),
   );
+
   if (!fresh(Date.parse(timestamp), receivedAt, ingressPolicy.twitchAgeMs))
     return yield* new IngressError({ status: 401 });
+
   const valid = yield* Effect.tryPromise({
     try: async () => {
       const key = await crypto.subtle.importKey(
@@ -139,6 +156,7 @@ export const verifyTwitch = Effect.fnUntraced(function* (
         false,
         ["verify"],
       );
+
       return await crypto.subtle.verify(
         "HMAC",
         key,
@@ -148,9 +166,12 @@ export const verifyTwitch = Effect.fnUntraced(function* (
     },
     catch: () => new IngressError({ status: 401 }),
   });
+
   if (!valid) return yield* new IngressError({ status: 401 });
+
   return id;
 });
+
 export const verifyDiscord = Effect.fnUntraced(function* (
   headers: HttpServerRequest.HttpServerRequest["headers"],
   bytes: Uint8Array,
@@ -160,19 +181,24 @@ export const verifyDiscord = Effect.fnUntraced(function* (
   const authentication = yield* Schema.decodeUnknownEffect(
     DiscordAuthenticationHeaders,
   )(headers).pipe(Effect.mapError(() => new IngressError({ status: 401 })));
+
   const timestamp = authentication["x-signature-timestamp"];
+
   const signature = yield* Hex.decode(
     authentication["x-signature-ed25519"],
   ).pipe(
     Effect.fromResult,
     Effect.mapError(() => new IngressError({ status: 401 })),
   );
+
   const keyBytes = yield* Hex.decode(publicKey).pipe(
     Effect.fromResult,
     Effect.mapError(() => new IngressError({ status: 401 })),
   );
+
   if (!fresh(Number(timestamp) * 1000, receivedAt, ingressPolicy.discordAgeMs))
     return yield* new IngressError({ status: 401 });
+
   const valid = yield* Effect.tryPromise({
     try: async () => {
       const key = await crypto.subtle.importKey(
@@ -182,6 +208,7 @@ export const verifyDiscord = Effect.fnUntraced(function* (
         false,
         ["verify"],
       );
+
       return await crypto.subtle.verify(
         "Ed25519",
         key,
@@ -191,8 +218,10 @@ export const verifyDiscord = Effect.fnUntraced(function* (
     },
     catch: () => new IngressError({ status: 401 }),
   });
+
   if (!valid) return yield* new IngressError({ status: 401 });
 });
+
 const decode = Effect.fnUntraced(function* <A, I>(
   bytes: Uint8Array,
   schema: Schema.Codec<A, I>,
@@ -201,20 +230,25 @@ const decode = Effect.fnUntraced(function* <A, I>(
     try: () => new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     catch: () => new IngressError({ status: 400 }),
   });
+
   return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(
     text,
   ).pipe(Effect.mapError(() => new IngressError({ status: 400 })));
 });
+
 export function parseTwitchCommand(
   text: string,
 ): typeof Invocation.Type | null {
   if (!text.startsWith("!")) return null;
   const [name, ...args] = text.slice(1).trim().split(/\s+/);
   const command = commands.find((entry) => entry.name === name?.toLowerCase());
+
   if (!command) return null;
   const input = args.join(" ");
+
   return input.length <= 256 ? { command: command.name, input } : null;
 }
+
 const Subscription = Schema.Struct({
   id: bounded(128),
   status: bounded(128),
@@ -229,6 +263,7 @@ const Subscription = Schema.Struct({
     callback: bounded(512),
   }),
 });
+
 const TwitchEnvelope = Schema.Struct({
   subscription: Subscription,
   challenge: Schema.optional(bounded(4096)),
@@ -244,10 +279,12 @@ const TwitchEnvelope = Schema.Struct({
     }),
   ),
 });
+
 const DiscordEnvelope = Schema.Struct({
   application_id: Schema.String,
   type: Schema.Int,
 });
+
 const DiscordCommand = Schema.Struct({
   application_id: Schema.String,
   id: DiscordReceipt.fields.id,
@@ -272,10 +309,12 @@ const DiscordCommand = Schema.Struct({
     ),
   }),
 });
+
 const privateReply = (text = friendlyFailure) =>
   HttpServerResponse.jsonUnsafe(discordResponse(text, true), {
     headers: { "Cache-Control": "no-store" },
   });
+
 export interface IngressConfig {
   readonly identity: EnvironmentConfig;
   readonly twitchSigningSecret: Redacted.Redacted<string>;
@@ -283,11 +322,13 @@ export interface IngressConfig {
   readonly callback: string;
   readonly receivedAt: number;
 }
+
 export const ingressHandlers = (config: IngressConfig) =>
   HttpApiBuilder.group(BotApi, "ingress", (handlers) =>
     Effect.gen(function* () {
       const account = yield* TwitchAccount;
       const tenants = yield* Tenants;
+
       const twitch = Effect.fnUntraced(function* (
         request: HttpServerRequest.HttpServerRequest,
       ) {
@@ -300,6 +341,7 @@ export const ingressHandlers = (config: IngressConfig) =>
         );
         const envelope = yield* decode(bytes, TwitchEnvelope);
         const subscription = envelope.subscription;
+
         if (
           request.headers["twitch-eventsub-subscription-type"] !==
             subscription.type ||
@@ -310,16 +352,20 @@ export const ingressHandlers = (config: IngressConfig) =>
           return yield* new IngressError({ status: 400 });
         const status = yield* account.status();
         const sender = status.sender;
+
         const channel = status.channels.find(
           (channel) =>
             channel.id === subscription.condition.broadcaster_user_id &&
             config.identity.channelLogins.includes(channel.login),
         );
+
         if (!channel || !sender || sender.id !== subscription.condition.user_id)
           return yield* new IngressError({ status: 400 });
+
         const type = yield* Schema.decodeUnknownEffect(TwitchDeliveryType)(
           request.headers["twitch-eventsub-message-type"],
         ).pipe(Effect.mapError(() => new IngressError({ status: 400 })));
+
         const valid = Match.value(type).pipe(
           Match.when(
             "webhook_callback_verification",
@@ -345,6 +391,7 @@ export const ingressHandlers = (config: IngressConfig) =>
           ),
           Match.exhaustive,
         );
+
         if (!valid) return yield* new IngressError({ status: 400 });
         yield* account.observeSubscription({
           id: subscription.id,
@@ -361,6 +408,7 @@ export const ingressHandlers = (config: IngressConfig) =>
             signingSecret: config.twitchSigningSecret,
           }),
         });
+
         return yield* Match.value(type).pipe(
           Match.when("webhook_callback_verification", () =>
             Effect.succeed(
@@ -379,14 +427,18 @@ export const ingressHandlers = (config: IngressConfig) =>
           Match.when("notification", () =>
             Effect.gen(function* () {
               const event = envelope.event;
+
               if (!event) return yield* new IngressError({ status: 400 });
+
               if (
                 config.identity.kind === "production" &&
                 event.chatter_user_id === sender.id
               )
                 return HttpServerResponse.empty({ status: 204 });
               const invocation = parseTwitchCommand(event.message.text);
+
               if (!invocation) return HttpServerResponse.empty({ status: 204 });
+
               const receipt = yield* Schema.decodeUnknownEffect(TwitchReceipt)({
                 id: `twitch:${yield* digest(JSON.stringify([channel.id, event.message_id]))}`,
                 broadcasterId: channel.id,
@@ -402,13 +454,16 @@ export const ingressHandlers = (config: IngressConfig) =>
                   ]),
                 ),
               }).pipe(Effect.mapError(() => new IngressError({ status: 400 })));
+
               yield* tenants.acceptTwitch(receipt);
+
               return HttpServerResponse.empty({ status: 204 });
             }),
           ),
           Match.exhaustive,
         );
       });
+
       const discord = Effect.fnUntraced(function* (
         request: HttpServerRequest.HttpServerRequest,
       ) {
@@ -420,25 +475,33 @@ export const ingressHandlers = (config: IngressConfig) =>
           config.discordPublicKey,
         );
         const header = yield* decode(bytes, DiscordEnvelope);
+
         if (header.application_id !== config.identity.discordApplicationId)
           return privateReply(
             "This interaction belongs to a different application.",
           );
+
         if (header.type === 1)
           return HttpServerResponse.jsonUnsafe({ type: 1 });
+
         const command = yield* decode(bytes, DiscordCommand).pipe(
           Effect.result,
         );
+
         if (Result.isFailure(command))
           return privateReply("Use a slash command from an installed server.");
         const value = command.success;
+
         if (value.guild_id !== value.authorizing_integration_owners["0"])
           return privateReply("Use a slash command from an installed server.");
+
         const definition = commands.find(
           (entry) => entry.name === value.data.name,
         );
+
         if (!definition) return privateReply("Command not found");
         const options = value.data.options ?? [];
+
         if (
           options.length !== definition.slashOptions.length ||
           options.some(
@@ -450,6 +513,7 @@ export const ingressHandlers = (config: IngressConfig) =>
           new Set(options.map((option) => option.name)).size !== options.length
         )
           return privateReply("Invalid command options.");
+
         const invocation = yield* Schema.decodeUnknownEffect(Invocation)({
           command: definition.name,
           input: definition.slashOptions
@@ -457,10 +521,12 @@ export const ingressHandlers = (config: IngressConfig) =>
               const input = options
                 .find((entry) => entry.name === option.name)
                 ?.value.trim();
+
               return input ? [input] : [];
             })
             .join(" "),
         }).pipe(Effect.mapError(() => new IngressError({ status: 400 })));
+
         const receipt: DiscordReceipt = {
           id: value.id,
           guildId: value.guild_id,
@@ -475,15 +541,18 @@ export const ingressHandlers = (config: IngressConfig) =>
             ]),
           ),
         };
+
         const remaining =
           config.receivedAt +
           tenantPolicy.rpcMs -
           (yield* Clock.currentTimeMillis);
+
         if (remaining <= 0)
           return HttpServerResponse.setHeaders(privateReply(), {
             "x-arc-command-fallback": "worker",
             "x-arc-command-code": "ingress-budget",
           });
+
         return yield* tenants.respondDiscord(receipt).pipe(
           Effect.timeout(remaining),
           Effect.map((reply) =>
@@ -493,9 +562,11 @@ export const ingressHandlers = (config: IngressConfig) =>
           ),
           Effect.catchCause((cause) => {
             if (Cause.hasInterrupts(cause)) return Effect.interrupt;
-            const error = cause.reasons.find(
-              (reason) => reason._tag === "Fail",
+
+            const error = cause.reasons.find((reason) =>
+              Predicate.isTagged(reason, "Fail"),
             );
+
             const code =
               error?._tag === "Fail" && Schema.is(TenantError)(error.error)
                 ? error.error.code
@@ -504,6 +575,7 @@ export const ingressHandlers = (config: IngressConfig) =>
                   : Cause.hasDies(cause)
                     ? "rpc-defect"
                     : "rpc-failure";
+
             return Effect.logWarning("Discord Worker fallback").pipe(
               Effect.annotateLogs({ phase: "worker-fallback", code }),
               Effect.as(
@@ -516,16 +588,21 @@ export const ingressHandlers = (config: IngressConfig) =>
           }),
         );
       });
+
       const guarded = <A, E>(effect: Effect.Effect<A, E>) =>
         effect.pipe(
           Effect.catchCause((cause) => {
             if (Cause.hasInterrupts(cause)) return Effect.interrupt;
+
             const errors = [...cause.reasons].flatMap((reason) =>
-              reason._tag === "Fail" && Schema.is(IngressError)(reason.error)
+              Predicate.isTagged(reason, "Fail") &&
+              Schema.is(IngressError)(reason.error)
                 ? [reason.error]
                 : [],
             );
+
             const status = errors[0]?.status ?? 503;
+
             return Effect.logWarning("Ingress response failure").pipe(
               Effect.annotateLogs({
                 phase: "ingress",
@@ -541,6 +618,7 @@ export const ingressHandlers = (config: IngressConfig) =>
             );
           }),
         );
+
       return handlers
         .handleRaw("twitch", ({ request }) => guarded(twitch(request)))
         .handleRaw("discord", ({ request }) => guarded(discord(request)));

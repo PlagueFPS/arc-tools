@@ -12,8 +12,10 @@ import {
 } from "./fixture-http.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
 const url =
   "https://arc-tools-probe-test-account-a0e65c16-56ec6e796e36.plague.workers.dev/arm";
+
 const placeholder = {
   method: "POST",
   route: `${new URL(url).hostname}/arm`,
@@ -31,6 +33,7 @@ test(
   "only the observed Cloudflare placeholder on a disposable Worker is route readiness",
   Effect.sync(() => {
     expect(isRouteNotReady(new URL(url), placeholder)).toBeTrue();
+
     for (const change of [
       { status: 500 },
       { status: 200 },
@@ -42,6 +45,7 @@ test(
       expect(
         isRouteNotReady(new URL(url), { ...placeholder, ...change }),
       ).toBeFalse();
+
     for (const host of [
       "https://example.com/arm",
       "https://arc-tools-probe-prod.plague.workers.dev/arm",
@@ -63,23 +67,26 @@ test(
       [302, "text/html", null],
     ] as const) {
       let calls = 0;
+
       const client = makeFixtureHttp(async (_url, init) => {
         calls++;
         expect(init.method).toBe("POST");
         expect(init.redirect).toBe("manual");
-        return new Response("SECRET-BUSINESS-BODY", {
-          status,
-          headers: {
-            "content-type": contentType,
-            ...(marker ? { [fixtureHeader]: marker } : {}),
-          },
-        });
+
+        const headers = new Headers({ "content-type": contentType });
+
+        if (marker) headers.set(fixtureHeader, marker);
+
+        return new Response("SECRET-BUSINESS-BODY", { status, headers });
       });
+
       const result = yield* Effect.exit(
         client.post(`${url}?token=SECRET-QUERY`, { secret: "SECRET-REQUEST" }),
       );
+
       expect(Exit.isFailure(result)).toBeTrue();
       expect(calls).toBe(1);
+
       if (Exit.isFailure(result)) {
         const rendered = Cause.pretty(result.cause);
         expect(rendered).not.toContain("SECRET-");
@@ -93,13 +100,16 @@ test(
   "transport loss after a POST has unknown execution and is never replayed",
   Effect.gen(function* () {
     let calls = 0;
+
     const client = makeFixtureHttp(async () => {
       calls++;
       throw new Error("SECRET-TRANSPORT-BODY");
     });
+
     const result = yield* Effect.exit(client.post(url));
     expect(calls).toBe(1);
     expect(Exit.isFailure(result)).toBeTrue();
+
     if (Exit.isFailure(result)) {
       expect(Cause.pretty(result.cause)).toContain(
         "execution unknown, not retried",
@@ -119,18 +129,23 @@ test(
       ['{"value":1}', "application/json", 201],
     ] as const) {
       let calls = 0;
+
       const client = makeFixtureHttp(async () => {
         calls++;
+
         return new Response(body, {
           status,
           headers: { "content-type": contentType },
         });
       });
+
       const result = yield* Effect.exit(
         client.get(url, Schema.Struct({ value: Schema.Number })),
       );
+
       expect(Exit.isFailure(result)).toBeTrue();
       expect(calls).toBe(1);
+
       if (Exit.isFailure(result))
         expect(Cause.pretty(result.cause)).not.toContain("SECRET-");
     }
@@ -141,6 +156,7 @@ test(
   "raw binary and schema-decoded JSON responses retain their actual values",
   Effect.gen(function* () {
     const bytes = new Uint8Array([0, 255, 13, 10]);
+
     const client = makeFixtureHttp(async (_url, init) =>
       init.method === "POST"
         ? new Response(bytes, {
@@ -148,10 +164,12 @@ test(
           })
         : Response.json({ value: 42 }),
     );
+
     const response = yield* client.request(url, {
       method: "POST",
       body: bytes,
     });
+
     expect(
       new Uint8Array(yield* Effect.promise(() => response.arrayBuffer())),
     ).toEqual(bytes);
@@ -165,14 +183,17 @@ test(
   "reconstruction polls the observed UUID and preserves the new snapshot",
   Effect.gen(function* () {
     let calls = 0;
+
     const read = Effect.sync(() => ({
       instance: ++calls < 3 ? "original" : "reconstructed",
       value: "committed",
       alarm: 123,
     }));
+
     const fiber = yield* reconstructedSnapshot(read, "original").pipe(
       Effect.forkChild,
     );
+
     yield* TestClock.adjust("1 second");
     expect(yield* Fiber.join(fiber)).toEqual({
       instance: "reconstructed",
@@ -187,32 +208,40 @@ test(
   "an unchanged UUID exhausts a bounded poll and a snapshot failure stops immediately",
   Effect.gen(function* () {
     let calls = 0;
+
     const read = Effect.sync(() => {
       calls++;
+
       return { instance: "original" };
     });
+
     const fiber = yield* reconstructedSnapshot(read, "original").pipe(
       Effect.exit,
       Effect.forkChild,
     );
+
     yield* TestClock.adjust("3 seconds");
     const result = yield* Fiber.join(fiber);
     expect(Exit.isFailure(result)).toBeTrue();
     expect(calls).toBe(21);
+
     if (Exit.isFailure(result))
       expect(Cause.pretty(result.cause)).toContain(
         "Reconstruction not observed",
       );
     let failures = 0;
+
     const failed = yield* Effect.exit(
       reconstructedSnapshot(
         Effect.suspend(() => {
           failures++;
+
           return Effect.fail("snapshot defect");
         }),
         "original",
       ),
     );
+
     expect(Exit.isFailure(failed)).toBeTrue();
     expect(failures).toBe(1);
   }).pipe(Effect.provide(TestClock.layer())),

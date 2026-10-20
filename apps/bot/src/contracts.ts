@@ -4,13 +4,19 @@ import { Schema } from "effect";
 export { CommandName };
 
 const identifier = Schema.NonEmptyString;
+
 export const BroadcasterId = identifier.pipe(Schema.brand("BroadcasterId"));
+
 export const GuildId = identifier.pipe(Schema.brand("GuildId"));
+
 export const WorkId = identifier.pipe(Schema.brand("WorkId"));
+
 export const AttemptId = identifier.pipe(Schema.brand("AttemptId"));
+
 export const Deadline = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).pipe(
   Schema.brand("Deadline"),
 );
+
 export const TenantKey = Schema.Union([
   Schema.Struct({
     transport: Schema.Literal("twitch"),
@@ -18,7 +24,9 @@ export const TenantKey = Schema.Union([
   }),
   Schema.Struct({ transport: Schema.Literal("discord"), guildId: GuildId }),
 ]);
+
 export type TenantKey = typeof TenantKey.Type;
+
 export const tenantName = (key: TenantKey) =>
   key.transport === "twitch"
     ? `twitch:${key.broadcasterId}`
@@ -29,12 +37,17 @@ export const CommandInput = Schema.Struct({
   input: Schema.String,
   deadline: Deadline,
 });
+
 export type CommandInput = typeof CommandInput.Type;
 
 export type BroadcasterId = typeof BroadcasterId.Type;
+
 export type GuildId = typeof GuildId.Type;
+
 export type WorkId = typeof WorkId.Type;
+
 export type AttemptId = typeof AttemptId.Type;
+
 export type Deadline = typeof Deadline.Type;
 
 export const budgets = {

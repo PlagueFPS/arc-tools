@@ -21,11 +21,14 @@ try {
       revision: { type: "string" },
     },
   });
+
   const operation = Schema.decodeUnknownSync(
     Schema.Literals(["setup", "status"]),
   )(positionals[0]);
+
   const stage = Schema.decodeUnknownSync(Stage)(values.stage);
   const endpoint = new URL(values.endpoint ?? "");
+
   if (
     endpoint.protocol !== "https:" ||
     endpoint.username ||
@@ -35,9 +38,11 @@ try {
     endpoint.pathname !== "/"
   )
     throw new Error("endpoint");
+
   const operator = Schema.decodeUnknownSync(Schema.NonEmptyString)(
     process.env.OPERATOR_SECRET,
   );
+
   await Effect.runPromise(
     Effect.gen(function* () {
       const result = yield* request(
@@ -52,18 +57,23 @@ try {
         },
         30_000,
       );
+
       if (result.status !== 200)
         return yield* Effect.fail("operator request failed");
+
       if (operation === "setup") {
-        const setup = yield* decodeBody(SetupResult, result.body);
+        const setup = yield* decodeBody(SetupResult)(result.body);
+
         if (setup.status.stage !== stage)
           return yield* Effect.fail("stage mismatch");
         console.info(JSON.stringify(setup, null, 2));
       } else {
-        const status = yield* decodeBody(AccountStatus, result.body);
+        const status = yield* decodeBody(AccountStatus)(result.body);
+
         if (status.stage !== stage) return yield* Effect.fail("stage mismatch");
         console.info(JSON.stringify(status, null, 2));
       }
+
       if (values.discord) {
         const drift = yield* syncCommands(
           {
@@ -83,6 +93,7 @@ try {
           },
           { checkOnly: true },
         );
+
         console.info(
           JSON.stringify({
             discordDrift: drift.drift,

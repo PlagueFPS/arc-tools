@@ -14,11 +14,13 @@ export const acknowledgeReconstruction = Effect.fnUntraced(function* <A, E, R>(
   reason: string,
 ) {
   const result = yield* Effect.exit(reset);
+
   if (Exit.isSuccess(result))
     return yield* Effect.fail(
       new Error("Reconstruction RPC returned without aborting"),
     );
   const error = Cause.squash(result.cause);
+
   if (
     !(
       error instanceof Cloudflare.RpcCallError &&
@@ -27,5 +29,6 @@ export const acknowledgeReconstruction = Effect.fnUntraced(function* <A, E, R>(
     )
   )
     return yield* Effect.failCause(result.cause);
+
   return HttpServerResponse.empty({ status: 204 });
 }, Effect.orDie);

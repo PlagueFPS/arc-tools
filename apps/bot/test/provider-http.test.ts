@@ -1,14 +1,15 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Fiber, Layer, Schema } from "effect";
+import { Result, Effect, Fiber, Layer, Schema } from "effect";
 import { FetchHttpClient } from "effect/http";
 
-import { digest, request } from "../src/provider-http.js";
+import { digest, request, ProviderError } from "../src/provider-http.js";
 import { Dispatch } from "../src/twitch-contracts.js";
 import { fixture } from "./subscription-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
 const errorBodies: { name: string; response: () => Response }[] = [
   {
     name: "HTML",
@@ -43,6 +44,7 @@ for (const body of errorBodies) {
     Effect.gen(function* () {
       const f = yield* fixture();
       const a = yield* f.construct("secret-A");
+
       for (const path of [
         "GET /users",
         "GET /eventsub/subscriptions",
@@ -99,6 +101,7 @@ test(
       incoming.signal.addEventListener("abort", () => cancelled.resolve(), {
         once: true,
       });
+
       return new Response(
         new ReadableStream({
           start(controller) {
@@ -122,10 +125,12 @@ test(
   "a returned HTTP 401 survives wire truncation without consuming its body",
   Effect.gen(function* () {
     const wire = yield* truncatedWireResponse(401);
+
     const fiber = yield* request(wire.url, {}).pipe(
       Effect.provideService(FetchHttpClient.Fetch, wire.fetch),
       Effect.forkChild,
     );
+
     const { response, signal } = yield* Effect.promise(() => wire.observed);
     expect(response.status).toBe(401);
     expect(response.bodyUsed).toBe(false);
@@ -141,6 +146,7 @@ test(
   "fetch rejection without a Response remains a network failure after one attempt",
   Effect.gen(function* () {
     let calls = 0;
+
     const rejectedFetch: typeof fetch = Object.assign(
       async () => {
         calls++;
@@ -153,12 +159,13 @@ test(
       },
       { preconnect: fetch.preconnect },
     );
+
     expect(
       yield* request("http://127.0.0.1/users", {}).pipe(
         Effect.provideService(FetchHttpClient.Fetch, rejectedFetch),
         Effect.flip,
       ),
-    ).toMatchObject({ _tag: "ProviderError", kind: "network" });
+    ).toMatchObject(new ProviderError({ kind: "network" }));
     expect(calls).toBe(1);
   }),
 );
@@ -169,6 +176,7 @@ test(
     const f = yield* fixture();
     const a = yield* f.construct("secret-A");
     const reset = Math.ceil((Date.now() + 2_000) / 1000);
+
     const limited = () =>
       Response.json(
         { retry_after: 0.01 },
@@ -180,6 +188,7 @@ test(
           },
         },
       );
+
     f.control.responses.set("GET /users", limited);
     f.control.responses.set("POST /chat/messages", limited);
     const response = yield* request(`${f.base}/users`, {});
@@ -227,18 +236,19 @@ for (const status of [200, 429])
     `a returned HTTP ${status} fails on wire truncation after receiving valid JSON bytes`,
     Effect.gen(function* () {
       const wire = yield* truncatedWireResponse(status);
+
       const fiber = yield* request(wire.url, {}).pipe(
         Effect.provideService(FetchHttpClient.Fetch, wire.fetch),
         Effect.result,
         Effect.forkChild,
       );
+
       const { response, signal } = yield* Effect.promise(() => wire.observed);
       expect(response.status).toBe(status);
       yield* wire.truncate;
-      expect(yield* Fiber.join(fiber)).toMatchObject({
-        _tag: "Failure",
-        failure: { _tag: "ProviderError", kind: "network" },
-      });
+      expect(yield* Fiber.join(fiber)).toMatchObject(
+        Result.fail(new ProviderError({ kind: "network" })),
+      );
       expect(signal?.aborted).toBe(true);
       expect(wire.calls.fetch).toBe(1);
       expect(wire.calls.requests).toBe(1);
@@ -251,6 +261,7 @@ for (const status of [200, 429])
     `a truncated HTTP ${status} body fails even when its received bytes are valid JSON`,
     Effect.gen(function* () {
       let calls = 0;
+
       const server = Bun.listen({
         hostname: "127.0.0.1",
         port: 0,
@@ -263,15 +274,13 @@ for (const status of [200, 429])
           },
         },
       });
+
       yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
       expect(
         yield* request(`http://127.0.0.1:${server.port}/users`, {}).pipe(
           Effect.flip,
         ),
-      ).toMatchObject({
-        _tag: "ProviderError",
-        kind: "network",
-      });
+      ).toMatchObject(new ProviderError({ kind: "network" }));
       expect(calls).toBe(1);
     }),
   );
@@ -284,12 +293,14 @@ for (const phase of ["headers", "body"])
         let calls = 0;
         const entered = Promise.withResolvers<void>();
         const closed = Promise.withResolvers<void>();
+
         const server = Bun.listen({
           hostname: "127.0.0.1",
           port: 0,
           socket: {
             data(socket) {
               calls++;
+
               if (phase === "body")
                 socket.write(
                   "HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\n{",
@@ -301,21 +312,24 @@ for (const phase of ["headers", "body"])
             },
           },
         });
+
         yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
+
         const fiber = yield* request(
           `http://127.0.0.1:${server.port}/users`,
           {},
           stop === "timeout" ? 100 : 2_000,
         ).pipe(Effect.result, Effect.forkChild);
+
         yield* Effect.promise(() => entered.promise).pipe(
           Effect.timeout(1_000),
         );
+
         if (stop === "interrupt") yield* Fiber.interrupt(fiber);
         else
-          expect(yield* Fiber.join(fiber)).toMatchObject({
-            _tag: "Failure",
-            failure: { _tag: "ProviderError", kind: "network" },
-          });
+          expect(yield* Fiber.join(fiber)).toMatchObject(
+            Result.fail(new ProviderError({ kind: "network" })),
+          );
         yield* Effect.promise(() => closed.promise).pipe(Effect.timeout(1_000));
         expect(calls).toBe(1);
       }),
@@ -343,17 +357,20 @@ test(
     f.control.responses.set("POST /redirect", async (incoming) => {
       expect(incoming.headers.get("Authorization")).toBe("canary-token");
       expect(await incoming.text()).toBe("payload");
+
       return new Response(null, {
         status: 307,
         headers: { Location: `${f.base}/users` },
       });
     });
+
     const response = yield* request(`${f.base}/redirect`, {
       method: "POST",
       headers: { Authorization: "canary-token" },
       body: "payload",
       redirect: "follow",
     });
+
     expect(response).toMatchObject({ status: 307, body: null });
     expect(response.headers.get("Location")).toBe(`${f.base}/users`);
     expect(f.control.requests).toEqual([{ method: "POST", path: "/redirect" }]);
@@ -404,13 +421,16 @@ for (const body of [
 
 const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
   const connected = Promise.withResolvers<Bun.Socket<string>>();
+
   const observed = Promise.withResolvers<{
     response: Response;
     signal: AbortSignal | null | undefined;
   }>();
+
   const closed = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();
   const calls = { fetch: 0, requests: 0, bodyAccesses: 0 };
+
   const server = Bun.listen<string>({
     hostname: "127.0.0.1",
     port: 0,
@@ -420,6 +440,7 @@ const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
       },
       data(socket, bytes) {
         socket.data += bytes.toString();
+
         if (!socket.data.includes("\r\n\r\n")) return;
         socket.data = "";
         calls.requests++;
@@ -433,12 +454,14 @@ const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
       },
     },
   });
+
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
       released.resolve();
       server.stop(true);
     }),
   );
+
   const coordinatedFetch: typeof fetch = Object.assign(
     async (...args: Parameters<typeof fetch>) => {
       calls.fetch++;
@@ -447,15 +470,18 @@ const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
       Object.defineProperty(response, "body", {
         get() {
           calls.bodyAccesses++;
+
           return body;
         },
       });
       observed.resolve({ response, signal: args[1]?.signal });
       await released.promise;
+
       return response;
     },
     { preconnect: fetch.preconnect },
   );
+
   return {
     url: `http://127.0.0.1:${server.port}/users`,
     fetch: coordinatedFetch,

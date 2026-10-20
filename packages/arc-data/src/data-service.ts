@@ -3,7 +3,9 @@ import { Context, type Effect, Schema } from "effect";
 import type { Arc, Event, Item, TradersAPIResponse } from "./schema.js";
 
 const QueryText = Schema.String.check(Schema.isMaxLength(256));
+
 const Limit = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }));
+
 export const ItemParams = Schema.Struct({
   id: Schema.optional(QueryText),
   search: Schema.optional(QueryText),
@@ -11,29 +13,38 @@ export const ItemParams = Schema.Struct({
   minimal: Schema.optional(Schema.Boolean),
   limit: Schema.optional(Limit),
 });
+
 export type ItemAPIParams = typeof ItemParams.Type;
+
 export const ArcParams = Schema.Struct({
   id: Schema.optional(QueryText),
   search: Schema.optional(QueryText),
   includeLoot: Schema.optional(Schema.Boolean),
 });
+
 export type ArcsAPIParams = typeof ArcParams.Type;
+
 export const ResourceQuery = Schema.Union([
   Schema.Struct({ resource: Schema.Literal("items"), params: ItemParams }),
   Schema.Struct({ resource: Schema.Literal("arcs"), params: ArcParams }),
   Schema.Struct({ resource: Schema.Literal("traders") }),
   Schema.Struct({ resource: Schema.Literal("events-schedule") }),
 ]);
+
 export type ResourceQuery = typeof ResourceQuery.Type;
+
 export const Provenance = Schema.Struct({
   freshness: Schema.Literals(["fresh", "fallback"]),
   fetchedAt: Schema.Number,
 });
+
 export type Provenance = typeof Provenance.Type;
+
 export interface DataRead<A> {
   readonly value: A;
   readonly provenance: Provenance;
 }
+
 export class DataUnavailable extends Schema.TaggedError<DataUnavailable>()(
   "DataUnavailable",
   {
@@ -69,6 +80,7 @@ export interface Interface {
     DataUnavailable
   >;
 }
+
 export class ArcData extends Context.Service<ArcData, Interface>()(
   "@arctools/ArcData",
 ) {}

@@ -1,31 +1,39 @@
-import { Effect } from "effect";
+import { Match, Effect } from "effect";
 
 import { ingressPolicy } from "../../apps/bot/src/ingress.js";
 import { fixtureRequestMs } from "./fixture-http.js";
+
 export const negativeFutureStamp = (sentAt: number) =>
   sentAt + ingressPolicy.futureSkewMs + fixtureRequestMs + 1000;
+
 export const discordPublicKey =
   "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+
 const bytes = (hex: string) =>
   Uint8Array.from(hex.match(/../g) ?? [], (value) =>
     Number.parseInt(value, 16),
   );
+
 const hex = (buffer: ArrayBuffer) =>
   Array.from(new Uint8Array(buffer), (value) =>
     value.toString(16).padStart(2, "0"),
   ).join("");
+
 const concat = (prefix: string, body: Uint8Array) => {
   const first = new TextEncoder().encode(prefix);
   const result = new Uint8Array(first.length + body.length);
   result.set(first);
   result.set(body, first.length);
+
   return result;
 };
+
 export const signDiscord = Effect.fnUntraced(function* (
   body: Uint8Array,
   now = Date.now(),
 ) {
   const timestamp = String(Math.floor(now / 1000));
+
   const signature = yield* Effect.promise(async () => {
     const key = await crypto.subtle.importKey(
       "pkcs8",
@@ -36,16 +44,19 @@ export const signDiscord = Effect.fnUntraced(function* (
       false,
       ["sign"],
     );
+
     return hex(
       await crypto.subtle.sign("Ed25519", key, concat(timestamp, body)),
     );
   });
+
   return {
     "x-signature-timestamp": timestamp,
     "x-signature-ed25519": signature,
     "content-type": "application/json",
   };
 });
+
 export const signTwitch = Effect.fnUntraced(function* (
   body: Uint8Array,
   id: string,
@@ -53,6 +64,7 @@ export const signTwitch = Effect.fnUntraced(function* (
   type = "notification",
 ) {
   const timestamp = new Date(now).toISOString();
+
   const signature = yield* Effect.promise(async () => {
     const key = await crypto.subtle.importKey(
       "raw",
@@ -61,10 +73,12 @@ export const signTwitch = Effect.fnUntraced(function* (
       false,
       ["sign"],
     );
+
     return hex(
       await crypto.subtle.sign("HMAC", key, concat(id + timestamp, body)),
     );
   });
+
   return {
     "twitch-eventsub-message-id": id,
     "twitch-eventsub-message-timestamp": timestamp,
@@ -75,6 +89,7 @@ export const signTwitch = Effect.fnUntraced(function* (
     "content-type": "application/json",
   };
 });
+
 export const discordCommand = (
   id: string,
   command = "sell",
@@ -96,18 +111,18 @@ export const discordCommand = (
       ? [
           {
             type: 3,
-            name:
-              command === "loot"
-                ? "arc"
-                : command === "event"
-                  ? "event_or_map"
-                  : "item",
+            name: Match.value(command).pipe(
+              Match.when("loot", () => "arc"),
+              Match.when("event", () => "event_or_map"),
+              Match.orElse(() => "item"),
+            ),
             value: input,
           },
         ]
       : [],
   },
 });
+
 export const twitchEvent = (
   id: string,
   text = "!sell sensors",

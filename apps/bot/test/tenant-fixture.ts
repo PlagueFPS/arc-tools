@@ -9,7 +9,7 @@ import {
   TenantState,
   TenantStore,
 } from "../src/tenant-state.js";
-import { makeTenant } from "../src/tenant.js";
+import { TenantService, tenantServiceLayer } from "../src/tenant.js";
 import {
   type Account,
   AccountError,
@@ -27,6 +27,7 @@ export const twitchReceipt = (id = "work", receivedAt = 0) =>
     replyParentId: "parent",
     invocation: { command: "sell", input: "sensors" },
   });
+
 export const discordReceipt = (id = "work", receivedAt = 0) =>
   Schema.decodeUnknownSync(DiscordReceipt)({
     id,
@@ -35,24 +36,30 @@ export const discordReceipt = (id = "work", receivedAt = 0) =>
     guildId: "guild",
     invocation: { command: "sell", input: "sensors" },
   });
+
 export const tenantFixture = Effect.fnUntraced(function* () {
   let raw: unknown = emptyTenant();
   let alarm: number | null = null;
   const launches: Effect.Effect<void>[] = [];
   const sent: Dispatch[] = [];
   const ledger = new Map<string, DispatchOutcome>();
+
   let dispatch = (
     input: Dispatch,
   ): Effect.Effect<DispatchOutcome, AccountError> =>
     Effect.sync(() => {
       sent.push(input);
+
       const outcome = ledger.get(input.attemptId) ?? {
         kind: "sent",
         messageId: "sent",
       };
+
       ledger.set(input.attemptId, outcome);
+
       return outcome;
     });
+
   const account: Account = {
     dispatch: (input) => dispatch(input),
     setup: () => new AccountError({ code: "configuration" }),
@@ -60,6 +67,7 @@ export const tenantFixture = Effect.fnUntraced(function* () {
     status: () => new AccountError({ code: "configuration" }),
     observeSubscription: () => Effect.void,
   };
+
   const store = TenantStore.of({
     read: Effect.sync(() => Schema.decodeUnknownSync(TenantState)(raw)),
     update: (f) =>
@@ -68,26 +76,34 @@ export const tenantFixture = Effect.fnUntraced(function* () {
         const result = f(state);
         raw = Schema.encodeSync(TenantState)(state);
         alarm = nextAlarm(state);
+
         return result;
       }),
   });
+
   const source = yield* makeFixture();
+
   const construct = (
     activation = "first",
     data: typeof ArcData.Service = source.data,
     storage: typeof TenantStore.Service = store,
   ) =>
-    makeTenant({
-      activation,
-      launch: (effect) =>
-        Effect.sync(() => {
-          launches.push(effect);
+    TenantService.pipe(
+      Effect.provide(
+        tenantServiceLayer({
+          activation,
+          launch: (effect) =>
+            Effect.sync(() => {
+              launches.push(effect);
+            }),
         }),
-    }).pipe(
+      ),
+    ).pipe(
       Effect.provideService(TenantStore, storage),
       Effect.provideService(ArcData, data),
       Effect.provideService(TwitchAccount, account),
     );
+
   return {
     source,
     store,
