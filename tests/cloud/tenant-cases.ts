@@ -9,6 +9,7 @@ import {
   SetupResult,
 } from "../../apps/bot/src/twitch-contracts.js";
 import { cloudSettings } from "../../scripts/cloud-settings.js";
+import { expectDataFailure } from "./discord-failure.js";
 import {
   FixtureHttpError,
   get,
@@ -36,6 +37,7 @@ const encode = (value: unknown) =>
   );
 const samples: {
   scenario: string;
+  reply: unknown;
   workerMs: number;
   clientMs: number;
   status: number;
@@ -178,8 +180,9 @@ export function registerTenantTests({
       if (!stamp || !/^\d+$/.test(stamp))
         return yield* Effect.die("Missing ingress timing stamp");
       const workerMs = Number(stamp);
-      samples.push({
+      const sample = {
         scenario,
+        reply,
         workerMs,
         clientMs: elapsed,
         status: response.status,
@@ -196,16 +199,17 @@ export function registerTenantTests({
           ? Number(response.headers.get("x-arc-tenant-cutoff"))
           : null,
         activation: response.headers.get("x-arc-tenant-activation"),
-      });
+      };
+      samples.push(sample);
       yield* recordSamples();
       if (enforceBudget) {
         expect(workerMs).toBeGreaterThanOrEqual(0);
         expect(workerMs).toBeLessThan(3000);
         expect(elapsed).toBeLessThan(3000);
       }
-      return { response, reply };
+      return { response, reply, sample };
     }
-    return { response, reply: null };
+    return { response, reply: null, sample: null };
   });
   const signedTwitch = Effect.fnUntraced(function* (
     bot: string,
@@ -751,19 +755,17 @@ export function registerTenantTests({
           statusCode,
         );
         const before = yield* get(`${u.source}/observations`, Observations);
-        const reply = (yield* signedDiscord(
+        const { sample } = yield* signedDiscord(
           u.bot,
           discordCommand(name, "sell", name, `${name}-guild`),
           name,
-        )).reply;
+        );
         const after = yield* get(`${u.source}/observations`, Observations);
         expect(after[`/items?id=${name}&minimal=true`]).toBe(
           (before[`/items?id=${name}&minimal=true`] ?? 0) + 1,
         );
-        expect(reply?.data.flags).toBe(64);
-        expect(reply?.data.content).toBe(
-          "Game data is temporarily unavailable. Please try again shortly.",
-        );
+        if (!sample) return yield* Effect.die("Data failure sample missing");
+        expectDataFailure(name, sample);
       }
       const observed = yield* provider(u.provider);
       expect(
@@ -1230,14 +1232,14 @@ export function registerTenantTests({
         expect(sample.flags).toBe(0);
         expect(sample.fallback).toBeNull();
       }
-      for (const scenario of ["slow", "missing", "malformed"]) {
+      for (const scenario of ["slow", "missing", "malformed"] as const) {
         const observed = samples.filter(
           (sample) => sample.scenario === scenario,
         );
         expect(observed).toHaveLength(1);
-        expect(observed[0]?.flags).toBe(64);
-        expect(observed[0]?.fallback).toBeNull();
-        expect(observed[0]?.tenantCode).toBe("command-error");
+        const sample = observed[0];
+        if (!sample) return yield* Effect.die("Data failure sample missing");
+        expectDataFailure(scenario, sample);
       }
       expect(samples).toHaveLength(22);
       expect(twitchSamples).toHaveLength(10);
