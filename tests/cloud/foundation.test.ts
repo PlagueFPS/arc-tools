@@ -302,5 +302,5 @@ if (
 
 if (settings.stage.startsWith("test-tenant-")) {
   const { registerTenantTests } = await import("./tenant-cases.js");
-  registerTenantTests({ stack, test, beforeAll });
+  registerTenantTests({ stack, test });
 }

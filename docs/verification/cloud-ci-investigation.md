@@ -2,6 +2,8 @@
 
 The cloud failures have several causes. The latest run failed in fixture startup, earlier assertions depended on competing deadlines or a temporary state, and one earlier cold command exceeded the application's useful-response contract. Treating all of these as one flaky test would hide an unresolved application reliability issue.
 
+The dedicated synthetic first-cold test was subsequently removed at the operator's request; see the final section. Earlier findings below describe the suite before that scope decision.
+
 This investigation inspected the CI runs from October 18 through October 20, 2026, their available recovery artifacts, the current harness, and the prior correction in PR #14. No production behavior or test acceptance criteria changed.
 
 ## Latest failure: fixture startup, exact cause unavailable
@@ -81,3 +83,9 @@ The previously corrected slow-response expectation from PR #14 remains in place.
 The corrected suite passed all 29 cases in stage `test-tenant-cdce75d1-1c3209362d85`, including held-source interruption, exact native alarm retry, and the first useful cold command. Test and cleanup exit codes were zero. Independent teardown verified zero stage Workers and Durable Object namespaces, absent state/output, and retention of the shared control backend. Evidence remains in `.cloud-tests/test-tenant-cdce75d1-1c3209362d85/`; the full terminal transcript is `.cloud-tests/cloud-ci-investigation-20261020/fixes-cloud.log`.
 
 The required local checks passed in order: `bun run typecheck`, `bun run lint`, `bun run fmt`, and `bun run test`. A fresh hosted CI run is the next evaluation; the local pass does not resolve the historical fixture 500 or establish a sustained reliability rate.
+
+## Remove the dedicated first-cold gate
+
+After the fresh CI run [39458793128](https://github.com/PlagueFPS/arc-tools/actions/runs/39458793128) passed 28 cases and failed only the dedicated first-cold assertion, the operator requested its removal. The operator also reported a timely response from a cold live application for a nonexistent item. That observation covers the reported live request, rather than proving every cold success or error path.
+
+The dedicated first-cold case and its eager `beforeAll` request are removed. Its unused timing-bypass argument and hook plumbing are deleted, and the expected timing-sample count drops by one. Regular signed-command, allocation/replay, cold/warm cache, error-response, interruption, and alarm coverage remain. Production code is unchanged. This removes a CI acceptance requirement; it does not establish the cause of the historical synthetic timeout.
