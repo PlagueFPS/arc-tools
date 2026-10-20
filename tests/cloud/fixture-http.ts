@@ -1,4 +1,4 @@
-import { Effect, Schedule, Schema } from "effect";
+import { Effect, Option, Schedule, Schema } from "effect";
 
 export const fixtureHeader = "x-arc-cloud-fixture";
 
@@ -17,6 +17,7 @@ const Diagnostic = Schema.Struct({
   fixture: Schema.NullOr(Schema.String),
   bodyBytes: Schema.Number,
   bodySha256: Schema.String,
+  probeError: Schema.optional(Schema.String),
   tenant: Schema.optional(
     Schema.Struct({
       lookups: Schema.NullOr(Schema.String),
@@ -82,7 +83,29 @@ export const makeFixtureHttp = (
         crypto.subtle.digest("SHA-256", body),
       );
 
+      const probeFailure =
+        method === "GET" &&
+        parsed.protocol === "https:" &&
+        /^arc-tools-probe-test-(?:foundation|cache|account|tenant)-[a-f0-9]{8}-[a-f0-9]{12}\.[a-z0-9-]+\.workers\.dev$/.test(
+          parsed.hostname,
+        ) &&
+        parsed.pathname === "/snapshot" &&
+        response.status === 500 &&
+        response.headers.get(fixtureHeader) === "v1" &&
+        body.byteLength <= 8192
+          ? Schema.decodeUnknownOption(
+              Schema.fromJsonString(
+                Schema.Struct({
+                  probeError: Schema.String.check(Schema.isMaxLength(4096)),
+                }),
+              ),
+            )(new TextDecoder().decode(body))
+          : Option.none();
+
       const diagnostic = {
+        probeError: Option.getOrUndefined(
+          Option.map(probeFailure, (value) => value.probeError),
+        ),
         method,
         route,
         status: response.status,

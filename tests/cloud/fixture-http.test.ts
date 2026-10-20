@@ -1,10 +1,11 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Cause, Effect, Exit, Fiber, Layer, Schema } from "effect";
+import { Cause, Effect, Exit, Fiber, Layer, Predicate, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  FixtureHttpError,
   fixtureHeader,
   isRouteNotReady,
   makeFixtureHttp,
@@ -245,4 +246,52 @@ test(
     expect(Exit.isFailure(failed)).toBeTrue();
     expect(failures).toBe(1);
   }).pipe(Effect.provide(TestClock.layer())),
+);
+
+test(
+  "probe snapshot failures retain their explanation without retrying or exposing other response bodies",
+  Effect.gen(function* () {
+    const snapshot = url.replace("/arm", "/snapshot");
+
+    for (const [target, method, marker, expected] of [
+      [snapshot, "GET", "v1", "RPC initialization failed"],
+      [snapshot, "POST", "v1", undefined],
+      [url, "GET", "v1", undefined],
+      ["https://example.com/snapshot", "GET", "v1", undefined],
+      [snapshot, "GET", "other", undefined],
+    ] as const) {
+      let calls = 0;
+
+      const client = makeFixtureHttp(async () => {
+        calls++;
+
+        return Response.json(
+          { probeError: "RPC initialization failed", secret: "SECRET" },
+          {
+            status: 500,
+            headers: { [fixtureHeader]: marker },
+          },
+        );
+      });
+
+      const result = yield* Effect.result(client.request(target, { method }));
+      expect(calls).toBe(1);
+      expect(result._tag).toBe("Failure");
+
+      if (
+        Predicate.isTagged(result, "Failure") &&
+        result.failure instanceof FixtureHttpError
+      ) {
+        expect(result.failure.diagnostic).toMatchObject({ status: 500 });
+        expect(
+          "probeError" in result.failure.diagnostic
+            ? result.failure.diagnostic.probeError
+            : undefined,
+        ).toBe(expected);
+        expect(JSON.stringify(result.failure.diagnostic)).not.toContain(
+          "SECRET",
+        );
+      } else throw new Error("Expected a fixture HTTP failure");
+    }
+  }),
 );

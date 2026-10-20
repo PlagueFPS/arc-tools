@@ -65,6 +65,7 @@ jobs:
             .cloud-tests/*/run.json
             .cloud-tests/*/resources.json
             .cloud-tests/*/result.json
+            .cloud-tests/*/alarm-observation.json
             .cloud-tests/*/timings.json
             .cloud-tests/*/twitch-timings.json
             .cloud-tests/*/preview-output.json

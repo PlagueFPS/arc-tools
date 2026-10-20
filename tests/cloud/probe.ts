@@ -14,6 +14,12 @@ import {
   identifyFixtureResponse,
 } from "./fixture-response.js";
 
+const AlarmInvocation = Schema.Struct({
+  at: Schema.Number,
+  attempt: Schema.Number,
+  retryCount: Schema.Number,
+});
+
 export const ProbeSnapshot = Schema.Struct({
   instance: Schema.String,
   value: Schema.String,
@@ -21,6 +27,7 @@ export const ProbeSnapshot = Schema.Struct({
   completed: Schema.Boolean,
   retryCount: Schema.Number,
   alarm: Schema.NullOr(Schema.Number),
+  invocations: Schema.Array(AlarmInvocation),
 });
 
 export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
@@ -43,6 +50,10 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
 
         return {
           instance,
+          invocations:
+            (yield* state.storage.get<readonly (typeof AlarmInvocation.Type)[]>(
+              "invocations",
+            )) ?? [],
           value: rows[0]?.value ?? "empty",
           attempts: (yield* state.storage.get<number>("attempts")) ?? 0,
           completed: (yield* state.storage.get<boolean>("completed")) ?? false,
@@ -90,6 +101,7 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
             attempts: 0,
             completed: false,
             retryCount: 0,
+            invocations: [],
           });
           yield* state.storage.setAlarm(Date.now() + 1_000);
 
@@ -105,7 +117,20 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
           const attempts =
             ((yield* state.storage.get<number>("attempts")) ?? 0) + 1;
 
+          const invocations =
+            (yield* state.storage.get<readonly (typeof AlarmInvocation.Type)[]>(
+              "invocations",
+            )) ?? [];
+
           yield* state.storage.put({
+            invocations: [
+              ...invocations,
+              {
+                at: Date.now(),
+                attempt: attempts,
+                retryCount: info?.retryCount ?? 0,
+              },
+            ],
             attempts,
             retryCount: info?.retryCount ?? 0,
           });

@@ -61,7 +61,7 @@ export const stack = beforeAll(
 );
 
 beforeAll(
-  Effect.gen(function* () {
+  Effect.fn("Cloud fixture startup and resource census")(function* () {
     const deployed = yield* stack;
     yield* get(`${deployed.probeUrl}/snapshot`, ProbeSnapshot);
 
@@ -136,7 +136,7 @@ beforeAll(
         JSON.stringify(evidence, null, 2),
       ),
     );
-  }),
+  })(),
   { timeout: 90_000 },
 );
 
@@ -230,26 +230,57 @@ test(
 
     expect(reconstructed.instance).not.toBe(armed.instance);
 
-    const completed = yield* snapshot(url).pipe(
-      Effect.repeat({
-        until: (value) => value.completed,
-        times: 30,
-        schedule: Schedule.spaced("1 second"),
-      }),
-    );
+    const observationBudgetMs = 60_000;
+    let completed = reconstructed;
 
-    yield* Effect.logInfo("alarm-retry-observation", {
+    const record = () => ({
+      observationBudgetMs,
       observedAt: Date.now(),
       armed,
       reconstructed,
       final: completed,
     });
+
+    yield* snapshot(url).pipe(
+      Effect.tap((value) =>
+        Effect.sync(() => {
+          completed = value;
+        }),
+      ),
+      Effect.repeat({
+        until: (value) => value.completed,
+        schedule: Schedule.spaced("1 second"),
+      }),
+      Effect.timeoutOption(observationBudgetMs),
+      Effect.ensuring(
+        Effect.promise(() =>
+          writeFile(
+            new URL(
+              `../../.cloud-tests/${settings.stage}/alarm-observation.json`,
+              import.meta.url,
+            ),
+            JSON.stringify(record(), null, 2),
+          ),
+        ),
+      ),
+    );
+
+    yield* Effect.logInfo("alarm-retry-observation", record());
     expect(completed.completed).toBeTrue();
     expect(completed.attempts).toBe(2);
     expect(completed.retryCount).toBe(1);
+    expect(
+      completed.invocations.map(({ attempt, retryCount }) => ({
+        attempt,
+        retryCount,
+      })),
+    ).toEqual([
+      { attempt: 1, retryCount: 0 },
+      { attempt: 2, retryCount: 1 },
+    ]);
     expect(completed.alarm).toBeNull();
   }),
-  { timeout: 60_000 },
+  { timeout: 90_000 },
 );
 
 if (

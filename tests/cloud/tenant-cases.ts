@@ -1111,11 +1111,15 @@ export function registerTenantTests({
     Effect.gen(function* () {
       const u = yield* urls;
       const key = "discord-interrupted";
-      yield* sourceControl(
-        u.source,
-        "/items?id=interrupt&minimal=true",
-        { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
-        1500,
+      const sourceKey = "/items?id=interrupt&minimal=true";
+      yield* post(`${u.source}/control`, {
+        key: sourceKey,
+        body: { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
+        hold: true,
+      });
+
+      yield* Effect.addFinalizer(() =>
+        post(`${u.source}/release`, sourceKey).pipe(Effect.orDie),
       );
 
       const input = {
@@ -1163,6 +1167,16 @@ export function registerTenantTests({
       );
 
       const admitted = yield* snapshot(u.tenant, key).pipe(
+        Effect.tap(() => {
+          const settled = original.pollUnsafe();
+
+          if (settled !== undefined)
+            return Effect.die(
+              "Original Discord request completed before the controlled interruption; inspect discord-interruption-request",
+            );
+
+          return Effect.void;
+        }),
         Effect.repeat({
           until: (value) => value.state?.works.interrupt?.kind === "computing",
           times: 20,
@@ -1193,6 +1207,20 @@ export function registerTenantTests({
               },
       });
       expect(admitted.state?.works.interrupt?.kind).toBe("computing");
+
+      const observed = yield* get(
+        `${u.source}/observations`,
+        Observations,
+      ).pipe(
+        Effect.repeat({
+          until: (value) => value[sourceKey] === 1,
+          times: 10,
+          schedule: Schedule.spaced(25),
+        }),
+      );
+
+      expect(observed[sourceKey]).toBe(1);
+      expect(original.pollUnsafe()).toBeUndefined();
       expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
         204,
       );
@@ -1249,7 +1277,7 @@ export function registerTenantTests({
             }),
           ),
         ).toMatchObject({ data: { flags: 64 } });
-    }),
+    }).pipe(Effect.scoped),
     { timeout: 90000 },
   );
 
