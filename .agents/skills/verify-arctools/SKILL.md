@@ -67,7 +67,7 @@ test -s ".cloud-tests/verify-arctools/$VERIFY_STAGE/discord-access.json"
 test -s ".cloud-tests/verify-arctools/$VERIFY_STAGE/cleanup.json"
 ```
 
-Cleanup uses Alchemy `Core.destroy` with `dev: true` for this exact local stage, checks absent control-store entries and output, and requires the listener to be stopped. It removes only the stage's bundle and three emulator data directories. It retains logs, proof, and shared Alchemy runtime caches. Never kill by process name or delete shared `.alchemy` state. Run cleanup after failed launch or drive attempts too. A failed cleanup is a failure to report and repair, not a passed proof.
+Cleanup reads every Bot listener address recorded in this stage's launch log and requires TCP connection refusal before it calls Alchemy `Core.destroy`. A live listener, a connection timeout, or a missing listener record stops cleanup before mutation. It uses `dev: true` for this exact local stage, checks absent control-store entries and output, and checks the recorded listeners again before deleting scratch data. `ARC_VERIFY_URL` cannot redirect cleanup to another port. It removes only the stage's bundle and three emulator data directories. It retains logs, proof, and shared Alchemy runtime caches. Never kill by process name or delete shared `.alchemy` state. Run cleanup after failed launch or drive attempts too. A failed cleanup is a failure to report and repair, not a passed proof.
 
 Cloud cleanup uses `bun run test:cloud:cleanup` with the exact stage printed by the runner and its retained `run.json`. Never pass a local stage to that cloud recovery command.
 
@@ -80,3 +80,5 @@ Keep this map current with `/maintain-verification-skill` when commands or entry
 ## Verified run
 
 On 2026-10-20, stage `local-verify-proof-20261020` passed launch, Doctor, signed PING, invalid-signature rejection, and private DM rejection. Cleanup confirmed absent stage state/output and a stopped listener. All five proof files listed above survived cleanup under `.cloud-tests/verify-arctools/local-verify-proof-20261020/`. This was a local workerd proof with public fixture identities. Cloud integration and live-provider journeys were not run for this skill's creation.
+
+The cleanup guards were exercised in stage `local-verify-review-20261020`. Cleanup refused a live recorded listener even with `ARC_VERIFY_URL` pointing to a closed port. After stopping the launch terminal, cleanup succeeded using the recorded address and retained the Discord proof. A separate comparison against the original helper reproduced both missed guards before the correction; transcripts are in `.cloud-tests/verify-arctools/cleanup-review-guards/`.

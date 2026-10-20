@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import assert from "node:assert/strict";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
 
 import * as Cloudflare from "alchemy/Cloudflare";
 import { State } from "alchemy/State";
@@ -25,10 +26,64 @@ async function record(name: string, value: unknown) {
   await writeFile(`${directory}/${name}.json`, JSON.stringify(value, null, 2));
 }
 
-async function doctor() {
+async function launchedEndpoints() {
   const launch = await readFile(`${directory}/launch.log`, "utf8");
   assert(launch.includes(stage), "No launch record for this stage");
-  assert(launch.includes(endpoint.origin), "Endpoint differs from launch log");
+  const origins = [
+    ...new Set(
+      [
+        ...launch.matchAll(
+          /\[Bot\] (?:ready at |Started in [^\n]*?→ )(http:\/\/(?:localhost|127\.0\.0\.1):\d+)/g,
+        ),
+      ].flatMap((match) => (match[1] ? [match[1]] : [])),
+    ),
+  ];
+  assert(
+    origins.length > 0,
+    "No launched listener address recorded; inspect this run's launch log before cleanup",
+  );
+  return origins.map((origin) => new URL(origin));
+}
+
+async function requireStopped(address: URL) {
+  await new Promise<void>((resolve, reject) => {
+    const socket = connect({
+      host: address.hostname,
+      port: Number(address.port),
+    });
+    socket.once("connect", () => {
+      socket.destroy();
+      reject(
+        new Error(
+          `Stop this run's launch terminal before cleanup: ${address.origin}`,
+        ),
+      );
+    });
+    socket.once("error", (error) => {
+      socket.destroy();
+      if (
+        Schema.is(Schema.Struct({ code: Schema.Literal("ECONNREFUSED") }))(
+          error,
+        )
+      )
+        resolve();
+      else reject(error);
+    });
+    socket.setTimeout(2000, () => {
+      socket.destroy();
+      reject(
+        new Error(`Could not establish that ${address.origin} is stopped`),
+      );
+    });
+  });
+}
+
+async function doctor() {
+  const addresses = await launchedEndpoints();
+  assert(
+    addresses.some((address) => address.origin === endpoint.origin),
+    "Endpoint differs from launch log",
+  );
   const response = await fetch(new URL("/health", endpoint), {
     signal: AbortSignal.timeout(10_000),
   });
@@ -50,6 +105,9 @@ async function doctor() {
 }
 
 if (action === "cleanup") {
+  const addresses = await launchedEndpoints();
+  for (const address of addresses) await requireStopped(address);
+
   const options = {
     providers: Cloudflare.providers(),
     state: Cloudflare.state(),
@@ -67,17 +125,7 @@ if (action === "cleanup") {
     }),
     options,
   );
-  const reachable = await fetch(new URL("/health", endpoint), {
-    signal: AbortSignal.timeout(2000),
-  }).then(
-    () => true,
-    () => false,
-  );
-  assert.equal(
-    reachable,
-    false,
-    "Stop this run's launch terminal before cleanup",
-  );
+  for (const address of addresses) await requireStopped(address);
   for (const path of [
     `.alchemy/bundles/arc-tools-${stage}-Bot`,
     ...["ArcCache", "Tenant", "TwitchAccount"].map(
@@ -90,6 +138,7 @@ if (action === "cleanup") {
     stateEntries: 0,
     outputAbsent: true,
     listenerStopped: true,
+    listeners: addresses.map((address) => address.origin),
   });
   process.stdout.write(`Cleanup passed; evidence retained in ${directory}\n`);
 } else if (action === "doctor" || action === "drive") {
