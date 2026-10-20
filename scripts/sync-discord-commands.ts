@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 
 import { Effect, Redacted, Schema } from "effect";
+import { HttpClientRequest } from "effect/http";
 
 import { Stage } from "../apps/bot/src/config.js";
 import { manifestHash } from "../apps/bot/src/discord-manifest.js";
@@ -52,7 +53,9 @@ try {
       let ready = false;
 
       for (let attempt = 0; attempt < (values.wait ? 60 : 1); attempt++) {
-        const health = yield* request(`${endpoint.origin}/health`, {}).pipe(
+        const health = yield* request(
+          HttpClientRequest.get(`${endpoint.origin}/health`),
+        ).pipe(
           Effect.flatMap((response) =>
             response.status === 200
               ? decodeBody(ReleaseHealth)(response.body)

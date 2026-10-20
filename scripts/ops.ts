@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 
 import { Effect, Redacted, Schema } from "effect";
+import { HttpClientRequest } from "effect/http";
 
 import { Stage } from "../apps/bot/src/config.js";
 import { syncCommands } from "../apps/bot/src/discord-sync.js";
@@ -46,15 +47,11 @@ try {
   await Effect.runPromise(
     Effect.gen(function* () {
       const result = yield* request(
-        `${endpoint.origin}/ops/${operation}`,
-        {
-          method: "POST",
+        HttpClientRequest.post(`${endpoint.origin}/ops/${operation}`, {
           headers: {
             Authorization: `Bearer ${operator}`,
-            "Content-Type": "application/json",
           },
-          body: JSON.stringify({ stage }),
-        },
+        }).pipe(HttpClientRequest.bodyJsonUnsafe({ stage })),
         30_000,
       );
 

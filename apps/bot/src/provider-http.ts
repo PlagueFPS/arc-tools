@@ -1,6 +1,10 @@
 import { flow, Crypto, Effect, Schema, Stream } from "effect";
 import { Hex } from "effect/encoding";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
+import {
+  FetchHttpClient,
+  HttpClient,
+  type HttpClientRequest,
+} from "effect/http";
 
 export class ProviderError extends Schema.TaggedError<ProviderError>()(
   "ProviderError",
@@ -10,62 +14,52 @@ export class ProviderError extends Schema.TaggedError<ProviderError>()(
 ) {}
 
 export const request = Effect.fn("Provider.request")(
-  function* (url: string, init: RequestInit, _timeoutMs = 4_000) {
-    const client = HttpClient.withScope(yield* HttpClient.HttpClient);
-
-    const outgoing = yield* Effect.try(() =>
-      HttpClientRequest.fromWeb(
-        new Request(url, { ...init, signal: undefined }),
+  function* (
+    outgoing: HttpClientRequest.HttpClientRequest,
+    _timeoutMs = 4_000,
+  ) {
+    const client = (yield* HttpClient.HttpClient).pipe(
+      HttpClient.withScope,
+      HttpClient.filterStatus(
+        (status) => (status >= 200 && status < 300) || status === 429,
       ),
     );
 
     const response = yield* client.execute(outgoing);
-    const headers = new Headers(response.headers);
+    const { status, headers } = response;
 
-    if (
-      (response.status < 200 || response.status >= 300) &&
-      response.status !== 429
-    )
-      return { status: response.status, headers, body: null };
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    yield* response.stream.pipe(
+    const bytes = yield* response.stream.pipe(
       Stream.catchReason(
         "HttpClientError",
         "EmptyBodyError",
         () => Stream.empty,
       ),
-      Stream.runForEach(
-        Effect.fnUntraced(function* (chunk) {
-          size += chunk.byteLength;
-
-          if (size > 256 * 1024)
-            return yield* new ProviderError({ kind: "network" });
-          chunks.push(chunk);
-        }),
+      Stream.mapError(() => new ProviderError({ kind: "network" })),
+      Stream.limitBytes(256 * 1024, () =>
+        Stream.fail(new ProviderError({ kind: "network" })),
       ),
+      Stream.mkUint8Array,
     );
-    const bytes = new Uint8Array(size);
-    let at = 0;
-
-    for (const chunk of chunks) {
-      bytes.set(chunk, at);
-      at += chunk.byteLength;
-    }
 
     const body =
-      size > 0
+      bytes.byteLength > 0
         ? yield* Schema.decodeUnknownEffect(
             Schema.fromJsonString(Schema.Unknown),
           )(new TextDecoder().decode(bytes))
         : null;
 
-    return { status: response.status, headers, body };
+    return { status, headers, body };
   },
-  (effect, _url, init, timeoutMs = 4_000) =>
+  (effect, _outgoing, timeoutMs = 4_000) =>
     effect.pipe(
+      Effect.catchReason("HttpClientError", "StatusCodeError", ({ response }) =>
+        Effect.succeed({
+          status: response.status,
+          headers: response.headers,
+          body: null,
+        }),
+      ),
       Effect.provideService(FetchHttpClient.RequestInit, {
-        ...init,
         redirect: "manual",
       }),
       Effect.provide(FetchHttpClient.layer),
