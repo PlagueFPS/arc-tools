@@ -14,18 +14,22 @@ import { identifyFixtureResponse } from "./fixture-response.js";
 export const SourceControl = Schema.Struct({
   key: Schema.String,
   status: Schema.optional(Schema.Int),
-  body: Schema.Unknown,
+  body: Schema.Json,
   delayMs: Schema.optional(Schema.Number),
   raw: Schema.optional(Schema.Boolean),
   hold: Schema.optional(Schema.Boolean),
 });
+
 export const Observations = Schema.Record(Schema.String, Schema.Number);
+
 class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
   "MetaforgeFixtureState",
   Effect.gen(function* () {
     const { storage } = yield* Cloudflare.DurableObjectState;
+
     return Effect.sync(() => {
       const gates = new Map<string, Deferred.Deferred<void>>();
+
       return {
         configure: Effect.fnUntraced(function* (
           control: typeof SourceControl.Type,
@@ -36,6 +40,7 @@ class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
         }),
         release: Effect.fnUntraced(function* (key: string) {
           const gate = gates.get(key);
+
           if (gate !== undefined) {
             yield* Deferred.succeed(gate, undefined);
             gates.delete(key);
@@ -52,6 +57,7 @@ class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
           const control = yield* storage.get<typeof SourceControl.Type>(
             `control:${key}`,
           );
+
           yield* storage
             .transaction(
               Effect.gen(function* () {
@@ -63,14 +69,18 @@ class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
             )
             .pipe(Effect.orDie);
           const gate = gates.get(key);
+
           if (control?.hold && gate !== undefined) yield* Deferred.await(gate);
+
           if (control?.delayMs) yield* Effect.sleep(control.delayMs);
+
           if (control !== undefined)
             return {
               status: control.status ?? 200,
               body: control.body,
               raw: control.raw ?? false,
             };
+
           return {
             status: 200,
             body: {
@@ -92,6 +102,7 @@ class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
     });
   }),
 ) {}
+
 class MetaforgeApi extends HttpApi.make("metaforge-fixture").add(
   HttpApiGroup.make("source").add(
     HttpApiEndpoint.get("items", "/items"),
@@ -103,10 +114,12 @@ class MetaforgeApi extends HttpApi.make("metaforge-fixture").add(
     HttpApiEndpoint.get("observations", "/observations"),
   ),
 ) {}
+
 export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
   "MetaforgeFixture",
   Effect.gen(function* () {
     const { stage } = yield* Stack;
+
     return {
       name: `arc-tools-metaforge-${stage}`,
       main: import.meta.url,
@@ -117,18 +130,22 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
   Effect.gen(function* () {
     const objects = yield* MetaforgeState;
     const source = () => objects.getByName("source");
+
     const handler = Effect.fnUntraced(function* (url: string) {
       const parsed = new URL(url, "https://fixture.invalid");
       parsed.searchParams.sort();
+
       const result = yield* source().request(
         `${parsed.pathname}${parsed.search}`,
       );
+
       return result.raw
         ? HttpServerResponse.text(String(result.body), {
             status: result.status,
           })
         : HttpServerResponse.jsonUnsafe(result.body, { status: result.status });
     });
+
     const handlers = HttpApiBuilder.group(MetaforgeApi, "source", (handlers) =>
       handlers
         .handleRaw("items", ({ request }) => handler(request.url))
@@ -141,7 +158,9 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
               Effect.flatMap(Schema.decodeUnknownEffect(SourceControl)),
               Effect.orDie,
             );
+
             yield* source().configure(control);
+
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
@@ -151,7 +170,9 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
               Effect.flatMap(Schema.decodeUnknownEffect(Schema.String)),
               Effect.orDie,
             );
+
             yield* source().release(key);
+
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
@@ -161,6 +182,7 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
             .pipe(Effect.map(HttpServerResponse.jsonUnsafe)),
         ),
     );
+
     return {
       fetch: HttpApiBuilder.layer(MetaforgeApi).pipe(
         Layer.provide(handlers),
@@ -173,4 +195,5 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
     };
   }),
 ) {}
+
 export default MetaforgeWorker;

@@ -78,6 +78,7 @@ export function createMockHttpClientLayer(mock: MockData) {
     (request: HttpClientRequest.HttpClientRequest) =>
       Effect.sync(() => {
         const url = request.url;
+
         if (!url.startsWith(baseUrl)) {
           return HttpClientResponse.fromWeb(
             request,
@@ -86,6 +87,7 @@ export function createMockHttpClientLayer(mock: MockData) {
             }),
           );
         }
+
         const path = url.slice(baseUrl.length).split("?")[0];
 
         if (path === "traders") {
@@ -103,6 +105,7 @@ export function createMockHttpClientLayer(mock: MockData) {
           const id = params.get("id");
           const search = params.get("search");
           let matched = items;
+
           if (id) {
             matched = items.filter(
               (i) => i.id.toLowerCase() === id.toLowerCase(),
@@ -113,6 +116,7 @@ export function createMockHttpClientLayer(mock: MockData) {
               i.name.toLowerCase().replace(/\s/g, "").includes(norm),
             );
           }
+
           return HttpClientResponse.fromWeb(
             request,
             new Response(JSON.stringify({ data: matched }), {
@@ -127,6 +131,7 @@ export function createMockHttpClientLayer(mock: MockData) {
           const id = params.get("id");
           const search = params.get("search");
           let matched = arcs;
+
           if (id) {
             matched = arcs.filter(
               (a) => a.id.toLowerCase() === id.toLowerCase(),
@@ -137,6 +142,7 @@ export function createMockHttpClientLayer(mock: MockData) {
               a.name.toLowerCase().replace(/\s/g, "").includes(norm),
             );
           }
+
           return HttpClientResponse.fromWeb(
             request,
             new Response(JSON.stringify({ data: matched }), {

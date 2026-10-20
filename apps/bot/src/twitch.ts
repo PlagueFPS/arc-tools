@@ -12,7 +12,7 @@ import {
 
 import { bindOrigin, runtimeConfig } from "./config.js";
 import { digest } from "./provider-http.js";
-import { makeAccount } from "./twitch-account.js";
+import { AccountService, accountServiceLayer } from "./twitch-account.js";
 import { subscriptionBinding } from "./twitch-binding.js";
 import {
   AccountError,
@@ -21,10 +21,11 @@ import {
   SetupResult,
   TwitchAccount,
 } from "./twitch-contracts.js";
-import { makeProvider, TwitchProvider } from "./twitch-provider.js";
+import { TwitchProvider, providerLayer } from "./twitch-provider.js";
 import { AccountState, AccountStore, emptyState } from "./twitch-state.js";
 
 type NativeStorage = Cloudflare.DurableObjectState["Service"]["storage"];
+
 export type AccountStorage = Pick<
   NativeStorage,
   "getAlarm" | "setAlarm" | "deleteAlarm"
@@ -32,59 +33,73 @@ export type AccountStorage = Pick<
   readonly get: (key: string) => Effect.Effect<unknown, never, RuntimeContext>;
   readonly put: (
     key: string,
-    value: unknown,
+    value: typeof AccountState.Encoded,
   ) => Effect.Effect<void, never, RuntimeContext>;
   readonly transaction: <A, R>(
     effect: Effect.Effect<A, never, R>,
   ) => Effect.Effect<A, unknown, R | RuntimeContext>;
 };
+
 export const makeAccountStorage = Effect.fnUntraced(function* (
   storage: AccountStorage,
 ) {
   const runtime = yield* RuntimeContext;
+
   const provide = <A, E>(effect: Effect.Effect<A, E, RuntimeContext>) =>
     effect.pipe(Effect.provideService(RuntimeContext, runtime), Effect.orDie);
+
   return AccountStore.of({
     update: (f) =>
       provide(
         storage.transaction(
           Effect.gen(function* () {
             const raw = yield* storage.get("account:v1");
+
             const state: AccountState = Predicate.isUndefined(raw)
               ? emptyState("")
               : yield* Schema.decodeUnknownEffect(AccountState)(raw).pipe(
                   Effect.orDie,
                 );
+
             const result = f(state);
+
             const encoded = yield* Schema.encodeEffect(AccountState)(
               state,
             ).pipe(Effect.orDie);
+
             if (
               new TextEncoder().encode(JSON.stringify(encoded)).byteLength >
               120 * 1024
             )
               return yield* Effect.die("Account storage capacity exceeded");
             yield* storage.put("account:v1", encoded);
+
             if ((yield* storage.getAlarm()) !== state.nextCredentialCheck)
               yield* Predicate.isNull(state.nextCredentialCheck)
                 ? storage.deleteAlarm()
                 : storage.setAlarm(state.nextCredentialCheck);
+
             return result;
           }),
         ),
       ),
   });
 });
+
 export const makeAccountRpc = Effect.fnUntraced(function* (
-  config: Parameters<typeof makeAccount>[0],
+  config: Parameters<typeof accountServiceLayer>[0],
   provider: typeof TwitchProvider.Service,
 ) {
   const { storage } = yield* Cloudflare.DurableObjectState;
   const accountStore = yield* makeAccountStorage(storage);
-  const account = yield* makeAccount(config).pipe(
+
+  const account = yield* AccountService.pipe(
+    Effect.provide(accountServiceLayer(config)),
+  ).pipe(
     Effect.provideService(AccountStore, accountStore),
     Effect.provideService(TwitchProvider, provider),
   );
+
   const reply = Effect.fnUntraced(function* <A, I>(
     effect: Effect.Effect<A, AccountError>,
     schema: Schema.Codec<A, I>,
@@ -92,14 +107,15 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
     return yield* effect.pipe(
       Effect.flatMap(Schema.encodeEffect(schema)),
       Effect.map((value) => ({ kind: "success", value }) as const),
-      Effect.catch((error) =>
-        Effect.succeed({
-          kind: "failure",
-          code: error._tag === "AccountError" ? error.code : "input",
-        } as const),
-      ),
+      Effect.catchTags({
+        AccountError: (error) =>
+          Effect.succeed({ kind: "failure", code: error.code } as const),
+        SchemaError: () =>
+          Effect.succeed({ kind: "failure", code: "input" } as const),
+      }),
     );
   });
+
   return {
     dispatch: (input: Parameters<typeof account.service.dispatch>[0]) =>
       reply(account.service.dispatch(input), DispatchOutcome),
@@ -119,6 +135,7 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
     alarm: account.credentialAlarm,
   };
 });
+
 export class AccountEndpoints extends Context.Service<
   AccountEndpoints,
   {
@@ -129,18 +146,21 @@ export class AccountEndpoints extends Context.Service<
     >;
   }
 >()("@arctools/AccountEndpoints") {}
+
 export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()(
   "TwitchAccount",
   Effect.gen(function* () {
     const configuration = yield* runtimeConfig.pipe(Effect.orDie);
     const origin = yield* bindOrigin.pipe(Effect.orDie);
     const endpoints = yield* Effect.serviceOption(AccountEndpoints);
+
     return Effect.gen(function* () {
       const config = {
         ...configuration,
         publicUrl: yield* origin,
         webhookReady: true,
       };
+
       const revision = yield* digest(
         JSON.stringify([
           config.identity,
@@ -150,13 +170,16 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
           Redacted.value(config.twitchSigningSecret),
         ]),
       );
+
       const callback = `${config.publicUrl}/webhooks/twitch`;
       const redirect = `${config.publicUrl}/oauth/twitch/callback`;
+
       const binding = yield* subscriptionBinding({
         callback,
         clientId: config.identity.twitchClientId,
         signingSecret: config.twitchSigningSecret,
       });
+
       return yield* makeAccountRpc(
         {
           ...config,
@@ -165,25 +188,34 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
           redirect,
           subscriptionBinding: binding,
         },
-        makeProvider(
-          {
-            clientId: config.identity.twitchClientId,
-            clientSecret: config.twitchClientSecret,
-            signingSecret: config.twitchSigningSecret,
-            callback,
-            redirect,
-          },
-          Option.isSome(endpoints) ? yield* endpoints.value.resolve : undefined,
+        yield* TwitchProvider.pipe(
+          Effect.provide(
+            providerLayer(
+              {
+                clientId: config.identity.twitchClientId,
+                clientSecret: config.twitchClientSecret,
+                signingSecret: config.twitchSigningSecret,
+                callback,
+                redirect,
+              },
+              Option.isSome(endpoints)
+                ? yield* endpoints.value.resolve
+                : undefined,
+            ),
+          ),
         ),
       );
     });
   }),
 ) {}
+
 export const bindAccount = Effect.gen(function* () {
   const objects = yield* TwitchAccountDO;
+
   return Effect.gen(function* () {
     const runtime = yield* RuntimeContext;
     const object = objects.getByName("environment");
+
     const decode = Effect.fnUntraced(function* <A, I, E>(
       effect: Effect.Effect<unknown, E, RuntimeContext>,
       schema: Schema.Codec<A, I>,
@@ -192,6 +224,7 @@ export const bindAccount = Effect.gen(function* () {
         Effect.provideService(RuntimeContext, runtime),
         Effect.mapError(() => new AccountError({ code: "provider" })),
       );
+
       const response = yield* Schema.decodeUnknownEffect(
         Schema.Union([
           Schema.Struct({ kind: Schema.Literal("success"), value: schema }),
@@ -203,10 +236,13 @@ export const bindAccount = Effect.gen(function* () {
       )(raw).pipe(
         Effect.mapError(() => new AccountError({ code: "provider" })),
       );
+
       if (response.kind === "failure")
         return yield* new AccountError({ code: response.code });
+
       return response.value;
     });
+
     return TwitchAccount.of({
       dispatch: (input) => decode(object.dispatch(input), DispatchOutcome),
       setup: (operator) => decode(object.setup(operator), SetupResult),
@@ -220,5 +256,20 @@ export const bindAccount = Effect.gen(function* () {
     });
   });
 });
+
 export const makeClient = bindAccount.pipe(Effect.flatten);
+
 export const layer = Layer.effect(TwitchAccount, makeClient);
+
+export class AccountRpc extends Context.Service<
+  AccountRpc,
+  Effect.Success<ReturnType<typeof makeAccountRpc>>
+>()("@arctools/AccountRpc") {}
+
+export const accountRpcLayer = (
+  config: Parameters<typeof makeAccountRpc>[0],
+  provider: typeof TwitchProvider.Service,
+) => Layer.effect(AccountRpc, makeAccountRpc(config, provider));
+
+export const accountStorageLayer = (storage: AccountStorage) =>
+  Layer.effect(AccountStore, makeAccountStorage(storage));

@@ -25,6 +25,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
   "Bot",
   Effect.gen(function* () {
     const { stage } = yield* Stack;
+
     return {
       name: `arc-tools-bot-${stage}`,
       main: import.meta.url,
@@ -41,25 +42,30 @@ export class Bot extends Cloudflare.Worker<Bot>()(
     const config = yield* runtimeConfig;
     const { identity, operatorSecret } = config;
     const origin = yield* bindOrigin;
+
     const testComposition =
       identity.kind === "test" && identity.stage.startsWith("test-tenant-")
         ? yield* Effect.promise(
             () => import("../../../tests/cloud/bot-composition.js"),
           )
         : null;
+
     const bindings = testComposition
       ? yield* testComposition.botTestBindings(identity)
       : Layer.empty;
+
     const revision = yield* buildRevision;
     const hash = yield* manifestHash;
     yield* ArcCacheDO.pipe(Effect.provide(bindings));
     const client = yield* bindAccount.pipe(Effect.provide(bindings));
     const tenantClient = yield* bindTenants.pipe(Effect.provide(bindings));
+
     return {
       fetch: Effect.gen(function* () {
         const receivedAt = Date.now();
         const observation = testComposition?.botRequestObservation(identity);
         const account = yield* client;
+
         const tenants = yield* observation
           ? tenantClient.pipe(
               Effect.provideService(
@@ -68,7 +74,9 @@ export class Bot extends Cloudflare.Worker<Bot>()(
               ),
             )
           : tenantClient;
+
         const callback = `${yield* origin}/webhooks/twitch`;
+
         const handler = yield* HttpApiBuilder.layer(BotApi).pipe(
           Layer.provide(
             HttpApiBuilder.group(BotApi, "health", (handlers) =>
@@ -100,6 +108,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
           Layer.provide(HttpServer.layerServices),
           HttpRouter.toHttpEffect,
         );
+
         return yield* handler.pipe(
           Effect.map((response) =>
             observation

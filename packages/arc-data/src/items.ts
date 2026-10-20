@@ -9,5 +9,6 @@ export const getItem = Effect.fn("ArcData.getItem")(function* (
 ) {
   const data = yield* ArcData;
   const result = yield* data.items(params);
+
   return Arr.head(result.value);
 });

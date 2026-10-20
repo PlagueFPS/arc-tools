@@ -9,5 +9,6 @@ export const fetchArc = Effect.fn("ArcData.fetchArc")(function* (
 ) {
   const data = yield* ArcData;
   const result = yield* data.arcs(params);
+
   return Arr.head(result.value);
 });

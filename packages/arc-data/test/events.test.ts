@@ -30,6 +30,7 @@ describe("selectEvent", () => {
     "prefers active event over upcoming",
     Effect.gen(function* () {
       yield* TestClock.setTime(1500);
+
       const result = yield* selectEvent(
         [
           event({ name: "A", startTime: 0, endTime: 1000 }),
@@ -38,6 +39,7 @@ describe("selectEvent", () => {
         ],
         "a",
       );
+
       const match = Option.getOrThrow(result);
       expect(match.startTime).toBe(1000);
     }).pipe(Effect.provide(TestClock.layer())),
@@ -47,6 +49,7 @@ describe("selectEvent", () => {
     "returns nearest upcoming when none active",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* selectEvent(
         [
           event({ name: "E", startTime: 5000, endTime: 6000 }),
@@ -55,6 +58,7 @@ describe("selectEvent", () => {
         ],
         "e",
       );
+
       const match = Option.getOrThrow(result);
       expect(match.startTime).toBe(1000);
     }).pipe(Effect.provide(TestClock.layer())),
@@ -64,6 +68,7 @@ describe("selectEvent", () => {
     "matches by name only (not map)",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
+
       const result = yield* selectEvent(
         [
           event({
@@ -75,6 +80,7 @@ describe("selectEvent", () => {
         ],
         "harvester",
       );
+
       const match = Option.getOrThrow(result);
       expect(match.name).toBe("Harvester");
     }).pipe(Effect.provide(TestClock.layer())),
@@ -84,10 +90,12 @@ describe("selectEvent", () => {
     "exact boundary - event at startTime is active",
     Effect.gen(function* () {
       yield* TestClock.setTime(1000);
+
       const result = yield* selectEvent(
         [event({ startTime: 1000, endTime: 2000 })],
         "prospecting",
       );
+
       expect(Option.isSome(result)).toBeTrue();
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -96,6 +104,7 @@ describe("selectEvent", () => {
     "exact boundary - event at endTime hands off to next same event",
     Effect.gen(function* () {
       yield* TestClock.setTime(2000);
+
       const result = yield* selectEvent(
         [
           event({ name: "A", map: "Dam", startTime: 1000, endTime: 2000 }),
@@ -108,6 +117,7 @@ describe("selectEvent", () => {
         ],
         "a",
       );
+
       const match = Option.getOrThrow(result);
       expect(match.startTime).toBe(2000);
     }).pipe(Effect.provide(TestClock.layer())),

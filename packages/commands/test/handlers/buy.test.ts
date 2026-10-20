@@ -39,6 +39,7 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("power-cell");
+
       expect(result).toBe(
         "Power Cell can be purchased from Lance for 50 coins",
       );
@@ -63,6 +64,7 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("sensors");
+
       expect(result).toBe(
         "Advanced Sensors can be purchased from Shani for 100 cred.",
       );
@@ -81,6 +83,7 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("x");
+
       expect(result).toMatch(/cred\./);
     }),
   );
@@ -97,6 +100,7 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("y");
+
       expect(result).toMatch(/seeds/);
     }),
   );
@@ -113,6 +117,7 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("z");
+
       expect(result).toMatch(/coins/);
     }),
   );
@@ -129,6 +134,7 @@ describe("buyHandler", () => {
           TianWen: [],
         },
       })("item");
+
       expect(result).toContain("Apollo");
       expect(result).toContain("Lance");
       expect(result).toContain("coins");

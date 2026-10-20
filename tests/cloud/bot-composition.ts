@@ -1,5 +1,5 @@
 import * as Cloudflare from "alchemy/Cloudflare";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 
 import type { EnvironmentConfig } from "../../apps/bot/src/config.js";
 import type {
@@ -22,6 +22,7 @@ export function botRequestObservation(identity: EnvironmentConfig) {
   let lookups = 0;
   let rpcs = 0;
   let trace: TenantTrace | null = null;
+
   const observer: typeof TenantBoundaryObserver.Service = {
     lookup: () => {
       lookups++;
@@ -33,21 +34,26 @@ export function botRequestObservation(identity: EnvironmentConfig) {
       trace = value;
     },
   };
+
   return {
     observer,
-    headers: (): Record<string, string> => ({
-      "x-arc-tenant-lookups": String(lookups),
-      "x-arc-tenant-rpcs": String(rpcs),
-      ...(trace === null
-        ? {}
-        : {
-            "x-arc-tenant-phase": trace.phase,
-            "x-arc-tenant-code": trace.code,
-            "x-arc-admission-delta-ms": String(trace.admissionDeltaMs),
-            "x-arc-tenant-cutoff": String(trace.cutoff),
-            "x-arc-tenant-activation": trace.activation,
-          }),
-    }),
+    headers: () => {
+      const headers = {
+        "x-arc-tenant-lookups": String(lookups),
+        "x-arc-tenant-rpcs": String(rpcs),
+      };
+
+      if (trace === null) return headers;
+
+      return {
+        ...headers,
+        "x-arc-tenant-phase": trace.phase,
+        "x-arc-tenant-code": trace.code,
+        "x-arc-admission-delta-ms": String(trace.admissionDeltaMs),
+        "x-arc-tenant-cutoff": String(trace.cutoff),
+        "x-arc-tenant-activation": trace.activation,
+      };
+    },
   };
 }
 
@@ -59,26 +65,39 @@ export const botTestBindings = Effect.fnUntraced(function* (
       "Bot fixtures require an isolated synthetic tenant test stage",
     );
   const source = yield* Cloudflare.Worker(MetaforgeWorker.LogicalId, {});
+
   const provider = yield* Cloudflare.Worker(
     TwitchProviderFixture.LogicalId,
     {},
   );
+
   const sourceUrl = yield* source.url;
   const providerUrl = yield* provider.url;
+
   return Layer.merge(
     Layer.succeed(CacheSource, {
       options: Effect.gen(function* () {
         const baseUrl = yield* sourceUrl;
-        if (typeof baseUrl !== "string" || !baseUrl.startsWith("https://"))
+
+        if (
+          !Schema.is(Schema.String)(baseUrl) ||
+          !baseUrl.startsWith("https://")
+        )
           return yield* Effect.die("Synthetic source URL unavailable");
+
         return { baseUrl };
       }),
     }),
     Layer.succeed(AccountEndpoints, {
       resolve: Effect.gen(function* () {
         const baseUrl = yield* providerUrl;
-        if (typeof baseUrl !== "string" || !baseUrl.startsWith("https://"))
+
+        if (
+          !Schema.is(Schema.String)(baseUrl) ||
+          !baseUrl.startsWith("https://")
+        )
           return yield* Effect.die("Synthetic provider URL unavailable");
+
         return { api: `${baseUrl}/helix`, oauth: `${baseUrl}/oauth` };
       }),
     }),

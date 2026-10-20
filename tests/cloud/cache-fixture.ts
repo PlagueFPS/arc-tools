@@ -10,7 +10,10 @@ import {
 } from "effect/http-api";
 
 import { CacheRow } from "../../packages/arc-data/src/cache.js";
-import { makeCacheRpc } from "../../packages/arc-data/src/cloudflare.js";
+import {
+  CacheRpc,
+  cacheRpcLayer,
+} from "../../packages/arc-data/src/cloudflare.js";
 import { ResourceQuery } from "../../packages/arc-data/src/data-service.js";
 import { cachePolicy } from "../../packages/arc-data/src/source.js";
 import {
@@ -23,26 +26,34 @@ export const CacheSnapshot = Schema.Struct({
   instance: Schema.String,
   rows: Schema.Record(Schema.String, CacheRow),
 });
+
 export class CacheFixtureObject extends Cloudflare.DurableObject<CacheFixtureObject>()(
   "CacheFixture",
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
     const source = yield* Cloudflare.Worker(MetaforgeWorker.LogicalId, {});
     const sourceUrl = yield* source.url;
+
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
       const baseUrl = yield* sourceUrl;
-      if (typeof baseUrl !== "string")
+
+      if (!Schema.is(Schema.String)(baseUrl))
         return yield* Effect.die("Metaforge fixture URL is unavailable");
+
       const options = {
         baseUrl,
         policy: { ...cachePolicy, sourceTimeoutMs: 15_000 },
       };
-      let cache = yield* makeCacheRpc(options);
+
+      let cache = yield* CacheRpc.pipe(Effect.provide(cacheRpcLayer(options)));
       const clock = yield* Clock.Clock;
+
       const read = Effect.fnUntraced(function* (query: ResourceQuery) {
         const time = yield* state.storage.get<number>("fixtureTime");
+
         if (time === undefined) return yield* cache.read(query);
+
         return yield* cache.read(query).pipe(
           Effect.provideService(Clock.Clock, {
             currentTimeMillis: Effect.succeed(time),
@@ -55,14 +66,15 @@ export class CacheFixtureObject extends Cloudflare.DurableObject<CacheFixtureObj
           }),
         );
       });
+
       return {
         read,
         time: (time: number) => state.storage.put("fixtureTime", time),
         clear: Effect.fnUntraced(function* () {
           yield* cache.reset;
-          cache = yield* makeCacheRpc(options).pipe(
-            Effect.provideService(Cloudflare.DurableObjectState, state),
-          );
+          cache = yield* CacheRpc.pipe(
+            Effect.provide(cacheRpcLayer(options)),
+          ).pipe(Effect.provideService(Cloudflare.DurableObjectState, state));
         }),
         snapshot: Effect.fnUntraced(function* () {
           return {
@@ -80,6 +92,7 @@ export class CacheFixtureObject extends Cloudflare.DurableObject<CacheFixtureObj
     });
   }),
 ) {}
+
 class CacheApi extends HttpApi.make("cache-fixture").add(
   HttpApiGroup.make("cache").add(
     HttpApiEndpoint.post("read", "/read"),
@@ -89,10 +102,12 @@ class CacheApi extends HttpApi.make("cache-fixture").add(
     HttpApiEndpoint.get("snapshot", "/snapshot"),
   ),
 ) {}
+
 export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
   "CacheFixtureWorker",
   Effect.gen(function* () {
     const { stage } = yield* Stack;
+
     return {
       name: `arc-tools-cache-${stage}`,
       main: import.meta.url,
@@ -103,6 +118,7 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
   Effect.gen(function* () {
     const objects = yield* CacheFixtureObject;
     const object = () => objects.getByName("environment");
+
     const handlers = HttpApiBuilder.group(CacheApi, "cache", (handlers) =>
       handlers
         .handleRaw("read", ({ request }) =>
@@ -111,6 +127,7 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
               Effect.flatMap(Schema.decodeUnknownEffect(ResourceQuery)),
               Effect.orDie,
             );
+
             return yield* object()
               .read(query)
               .pipe(
@@ -132,7 +149,9 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
               Effect.flatMap(Schema.decodeUnknownEffect(Schema.Number)),
               Effect.orDie,
             );
+
             yield* object().time(time);
+
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
@@ -163,6 +182,7 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
             ),
         ),
     );
+
     return {
       fetch: HttpApiBuilder.layer(CacheApi).pipe(
         Layer.provide(handlers),
@@ -175,4 +195,5 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
     };
   }),
 ) {}
+
 export default CacheFixtureWorker;

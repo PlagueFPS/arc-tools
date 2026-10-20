@@ -38,6 +38,7 @@ export class Arc extends Schema.Class<Arc>("Arc")({
   name: Schema.String,
   loot: Schema.OptionFromOptionalNullOr(Schema.Array(ArcLootSchema)),
 }) {}
+
 export class ArcsAPIResponse extends Schema.Class<ArcsAPIResponse>(
   "ArcsAPIResponse",
 )({
@@ -89,6 +90,7 @@ export class Event extends Schema.Class<Event>("Event")({
   startTime: Schema.Number,
   endTime: Schema.Number,
 }) {}
+
 export class EventAPIResponse extends Schema.Class<EventAPIResponse>(
   "EventAPIResponse",
 )({

@@ -22,7 +22,9 @@ export const TenantTrace = Schema.Struct({
   cutoff: Schema.Number,
   activation: Schema.String,
 });
+
 export type TenantTrace = typeof TenantTrace.Type;
+
 export const TenantDiagnostic = Context.Reference<{
   readonly admission: (trace: TenantTrace) => void;
   readonly decision: (

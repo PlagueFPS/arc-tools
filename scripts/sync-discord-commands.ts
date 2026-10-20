@@ -17,11 +17,15 @@ try {
       wait: { type: "boolean" },
     },
   });
+
   const stage = Schema.decodeUnknownSync(Stage)(values.stage);
+
   const revision = Schema.decodeUnknownSync(Schema.NonEmptyString)(
     values.revision,
   );
+
   const endpoint = new URL(values.endpoint ?? "");
+
   if (
     endpoint.protocol !== "https:" ||
     endpoint.username ||
@@ -31,27 +35,32 @@ try {
     endpoint.pathname !== "/"
   )
     throw new Error("endpoint");
+
   const applicationId = Schema.decodeUnknownSync(Schema.NonEmptyString)(
     process.env.DISCORD_APPLICATION_ID,
   );
+
   const token = Redacted.make(
     Schema.decodeUnknownSync(Schema.NonEmptyString)(
       process.env.DISCORD_BOT_TOKEN,
     ),
   );
+
   await Effect.runPromise(
     Effect.gen(function* () {
       const hash = yield* manifestHash;
       let ready = false;
+
       for (let attempt = 0; attempt < (values.wait ? 60 : 1); attempt++) {
         const health = yield* request(`${endpoint.origin}/health`, {}).pipe(
           Effect.flatMap((response) =>
             response.status === 200
-              ? decodeBody(ReleaseHealth, response.body)
+              ? decodeBody(ReleaseHealth)(response.body)
               : Effect.succeed(null),
           ),
           Effect.catch(() => Effect.succeed(null)),
         );
+
         if (
           health?.stage === stage &&
           health.revision === revision &&
@@ -60,9 +69,12 @@ try {
           ready = true;
           break;
         }
+
         if (values.wait && attempt < 59) yield* Effect.sleep(1000);
       }
+
       if (!ready) return yield* Effect.fail("deployed revision mismatch");
+
       const result = yield* syncCommands({
         stage,
         revision,
@@ -70,6 +82,7 @@ try {
         applicationId,
         token,
       });
+
       console.info(JSON.stringify({ stage, revision, ...result }));
     }),
   );

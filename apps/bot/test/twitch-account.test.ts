@@ -63,9 +63,11 @@ test(
       yield* h.authorize();
       h.control.sendGate = yield* Deferred.make<void>();
       h.control.result = { kind: "unauthorized" };
+
       const send = yield* h.account
         .dispatch(h.send("overlapping-401"))
         .pipe(Effect.forkChild);
+
       for (let i = 0; i < 100 && h.control.sends === 0; i++)
         yield* Effect.yieldNow;
       expect(h.control.sends).toBe(1);
@@ -73,6 +75,7 @@ test(
       h.control.validationGate = yield* Deferred.make<void>();
       const before = h.control.validations;
       const checking = yield* h.alarm().pipe(Effect.forkChild);
+
       for (let i = 0; i < 100 && h.control.validations === before; i++)
         yield* Effect.yieldNow;
       expect(h.control.validations).toBe(before + 1);
@@ -100,6 +103,7 @@ test(
     const h = yield* harness();
     yield* Effect.gen(function* () {
       yield* h.authorize();
+
       for (const binding of ["binding-b", "binding-c"]) {
         h.control.binding = binding;
         h.control.failCreate = true;
@@ -113,6 +117,7 @@ test(
           ),
         ).toBeTrue();
       }
+
       h.control.binding = "binding-d";
       h.control.failCreate = false;
       const final = yield* h.construct("binding-d", "binding-d");
@@ -187,9 +192,11 @@ test(
       h.control.usersFailure = "client";
       h.control.usersGate = yield* Deferred.make<void>();
       const users = h.control.usersTokens.length;
+
       const setup = yield* h.account
         .setup("operator-digest")
         .pipe(Effect.flip, Effect.forkChild);
+
       for (let i = 0; i < 100 && h.control.usersTokens.length === users; i++)
         yield* Effect.yieldNow;
       expect(h.control.usersTokens.length).toBe(users + 1);
@@ -226,9 +233,11 @@ test(
       yield* h.authorize();
       h.control.sendGate = yield* Deferred.make<void>();
       h.control.result = { kind: "unauthorized" };
+
       const send = yield* h.account
         .dispatch(h.send("late-send-401"))
         .pipe(Effect.forkChild);
+
       for (let i = 0; i < 100 && h.control.sends === 0; i++)
         yield* Effect.yieldNow;
       expect(h.control.sends).toBe(1);
@@ -257,6 +266,7 @@ test(
         (_, i) => `fixture_channel_${i}`,
       ),
     });
+
     const h = yield* harness(identity);
     yield* Effect.gen(function* () {
       for (let repeat = 0; repeat < 4; repeat++) {
@@ -273,6 +283,7 @@ test(
           ),
         ).toBeTrue();
       }
+
       h.time(initial + 600_000);
       const recovered = yield* h.construct();
       expect(
@@ -299,6 +310,7 @@ test(
     const h = yield* harness();
     yield* Effect.gen(function* () {
       const initialSetup = yield* h.account.setup("operator-digest");
+
       for (const auth of initialSetup.authorizations.slice(0, 2)) {
         const params = new URL(auth.url).searchParams;
         h.control.grantUser = auth.login === "fixture_sender" ? "100" : "200";
@@ -310,7 +322,9 @@ test(
           operator: "operator-digest",
         });
       }
+
       let latest = "";
+
       for (let i = 0; i < 32; i++) {
         const setup = yield* h.account.setup("operator-digest");
         expect(setup.authorizations.length).toBe(1);
@@ -319,6 +333,7 @@ test(
             "state",
           ) ?? "";
       }
+
       h.control.grantUser = "300";
       h.control.grantLogin = "fixture_other";
       h.control.grantScopes = ["channel:bot"];
@@ -330,9 +345,11 @@ test(
       expect((yield* h.account.setup("operator-digest")).status.setup).toBe(
         "ready",
       );
+
       const subscription = h.control.remote.find(
         (sub) => sub.condition.broadcaster_user_id === "200",
       );
+
       if (!subscription)
         return yield* Effect.die("Missing revoked subscription");
       yield* h.account.observeSubscription({
@@ -383,6 +400,7 @@ for (const [name, change, code] of [
     Effect.gen(function* () {
       const h = yield* harness();
       const setup = yield* h.account.setup("operator-digest");
+
       const input = {
         state:
           new URL(setup.authorizations[0]?.url ?? "").searchParams.get(
@@ -391,6 +409,7 @@ for (const [name, change, code] of [
         code: "code",
         operator: "operator-digest",
       };
+
       change(h.control);
       const result = yield* h.account.completeOAuth(input).pipe(Effect.flip);
       expect(result.code).toBe(code);
@@ -408,9 +427,11 @@ test(
     const h = yield* harness();
     yield* Effect.gen(function* () {
       const first = yield* h.account.setup("operator-digest");
+
       const state =
         new URL(first.authorizations[0]?.url ?? "").searchParams.get("state") ??
         "";
+
       h.time(initial + 600_000);
       expect(
         (yield* h.account
@@ -419,19 +440,23 @@ test(
       ).toBe("state");
       h.time(initial);
       const second = yield* h.account.setup("operator-digest");
+
       const other =
         new URL(second.authorizations[0]?.url ?? "").searchParams.get(
           "state",
         ) ?? "";
+
       expect(
         (yield* h.account
           .completeOAuth({ state: other, code: "code", operator: "wrong" })
           .pipe(Effect.flip)).code,
       ).toBe("state");
       const third = yield* h.account.setup("operator-digest");
+
       const old =
         new URL(third.authorizations[0]?.url ?? "").searchParams.get("state") ??
         "";
+
       const replacement = yield* h.construct("revision-two");
       expect(
         (yield* replacement.service
@@ -458,6 +483,7 @@ test(
       senderLogin: "personal",
       channelLogins: ["personal"],
     });
+
     const h = yield* harness(personal, false);
     const first = yield* h.account.setup("operator-digest");
     expect(first.authorizations.length).toBe(1);
@@ -483,6 +509,7 @@ test(
       yield* h.account.setup("operator-digest");
       expect(h.control.creates).toBe(2);
       const original = h.control.remote[0];
+
       if (!original) return yield* Effect.die("missing fixture subscription");
       yield* h.account.observeSubscription({
         id: original.id,
@@ -546,6 +573,7 @@ test(
       const retry = h.send("second");
       const waiting = yield* h.account.dispatch(retry);
       expect(waiting.kind).toBe("retryable");
+
       if (waiting.kind === "retryable")
         expect(Number(waiting.retryAt)).toBe(initial + 1000);
       expect((yield* h.account.dispatch(h.send("other", "300"))).kind).toBe(
@@ -553,12 +581,14 @@ test(
       );
       h.time(initial + 1000);
       expect((yield* h.account.dispatch(retry)).kind).toBe("sent");
+
       for (let i = 2; i < 19; i++) {
         h.time(initial + i * 1000);
         expect((yield* h.account.dispatch(h.send(`budget-${i}`))).kind).toBe(
           "sent",
         );
       }
+
       expect(h.control.sends).toBe(20);
       expect(
         yield* h.account.dispatch(h.send("global", "300", initial + 28_000)),
@@ -607,6 +637,7 @@ test(
       const input = h.send("interrupted");
       const fiber = yield* h.account.dispatch(input).pipe(Effect.forkChild);
       yield* Effect.yieldNow;
+
       while (h.control.sends === 0) yield* Effect.yieldNow;
       const reconstructed = yield* h.construct();
       expect(yield* reconstructed.service.dispatch(input)).toEqual({
@@ -657,12 +688,14 @@ test(
       yield* h.authorize();
       const first = h.send("retained-original");
       yield* h.account.dispatch(first);
+
       for (let index = 1; index < 64; index++) {
         h.time(initial + index * 30_000);
         expect(
           (yield* h.account.dispatch(h.send(`retained-${index}`))).kind,
         ).toBe("sent");
       }
+
       const status = yield* h.account.status();
       expect(status.attempts).toBeLessThanOrEqual(21);
       expect(yield* h.account.dispatch(first)).toEqual({ kind: "expired" });
@@ -691,16 +724,19 @@ test(
     const h = yield* harness();
     yield* Effect.gen(function* () {
       const pending = yield* h.account.setup("operator-digest");
+
       const state =
         new URL(pending.authorizations[0]?.url ?? "").searchParams.get(
           "state",
         ) ?? "";
+
       yield* h.authorize();
       h.control.grantUser = "100";
       h.control.grantLogin = "fixture_sender";
       h.control.grantScopes = [...senderScopes];
       h.control.exchangeGate = yield* Deferred.make<void>();
       const before = h.control.exchanges;
+
       const completing = yield* h.account
         .completeOAuth({
           state,
@@ -708,6 +744,7 @@ test(
           operator: "operator-digest",
         })
         .pipe(Effect.exit, Effect.forkChild);
+
       for (
         let index = 0;
         index < 100 && h.control.exchanges === before;
@@ -716,6 +753,7 @@ test(
         yield* Effect.yieldNow;
       expect(h.control.exchanges).toBe(before + 1);
       const subscription = h.control.remote[0];
+
       if (!subscription)
         return yield* Effect.die("missing fixture subscription");
       yield* h.account.observeSubscription({
@@ -741,10 +779,12 @@ test(
     yield* Effect.gen(function* () {
       yield* h.authorize();
       expect(h.control.creates).toBe(2);
+
       const replacement = yield* h.construct(
         "new-config",
         "new-signing-binding",
       );
+
       expect((yield* h.authorize(replacement.service)).status.setup).toBe(
         "ready",
       );
@@ -761,12 +801,14 @@ test(
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const subscription = h.control.remote[0];
+
       if (!subscription)
         return yield* Effect.die("missing fixture subscription");
       h.control.remote = h.control.remote.map((sub) => ({
         ...sub,
         status: "webhook_callback_verification_pending",
       }));
+
       for (const sub of h.control.remote)
         yield* h.account.observeSubscription({
           id: sub.id,

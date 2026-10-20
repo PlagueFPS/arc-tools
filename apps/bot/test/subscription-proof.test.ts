@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Fiber, Layer, Redacted, Schema } from "effect";
+import { Match, Effect, Fiber, Layer, Redacted, Schema } from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
 import type { AccountConfig } from "../src/twitch-account.js";
@@ -28,6 +28,7 @@ test(
     const c = yield* f.construct("secret-C");
     yield* f.grants(c.service);
     const conflict = yield* c.service.setup("operator");
+
     const afterConflict = {
       setup: conflict.status.setup,
       binding: f.snapshot().subscriptions["200"]?.binding ?? null,
@@ -35,6 +36,7 @@ test(
       outcome: (yield* f.send(c.service, "after-conflict")).kind,
       ...f.control.calls,
     };
+
     yield* c.service.setup("operator");
     yield* c.service.setup("operator");
     expect(afterConflict).toEqual({
@@ -98,6 +100,7 @@ test(
     const a = yield* f.construct("secret-A");
     yield* f.grants(a.service);
     f.control.conflictOnly = true;
+
     for (let turn = 1; turn <= 3; turn++) {
       expect((yield* a.service.setup("operator")).status.setup).toBe("pending");
       expect(f.control.calls).toEqual({
@@ -109,6 +112,7 @@ test(
       });
       expect(f.snapshot().subscriptions).toEqual({});
     }
+
     f.control.conflictOnly = false;
     expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
     expect(f.control.calls.post).toBe(4);
@@ -200,9 +204,11 @@ test(
     yield* f.grants(b.service);
     const gate = responseGate();
     f.control.createGate = gate;
+
     const creating = yield* b.service
       .setup("operator")
       .pipe(Effect.exit, Effect.forkChild);
+
     yield* Effect.promise(() => gate.entered.promise);
     expect(f.snapshot().subscriptions).toEqual({});
     const c = yield* f.construct("secret-C");
@@ -236,17 +242,22 @@ for (const change of ["sender", "callback", "binding", "ingress"]) {
       const a = yield* f.construct("secret-A");
       yield* f.grants(a.service);
       yield* a.service.setup("operator");
+
       if (change === "sender") f.control.senderId = "101";
-      const overrides: Partial<AccountConfig> =
-        change === "callback"
-          ? { callback: "https://replacement.invalid/webhooks/twitch" }
-          : change === "ingress"
-            ? { webhookReady: false }
-            : {};
+
+      const overrides: Partial<AccountConfig> = Match.value(change).pipe(
+        Match.when("callback", () => ({
+          callback: "https://replacement.invalid/webhooks/twitch",
+        })),
+        Match.when("ingress", () => ({ webhookReady: false })),
+        Match.orElse(() => ({})),
+      );
+
       const b = yield* f.construct(
         change === "binding" ? "secret-B" : "secret-A",
         { ...overrides, revision: `rotated-${change}` },
       );
+
       yield* f.grants(b.service);
       expect((yield* b.service.status()).setup).toBe(
         change === "ingress" ? "ingress-required" : "repair-required",
@@ -256,6 +267,7 @@ for (const change of ["sender", "callback", "binding", "ingress"]) {
       });
       expect(f.control.calls.send).toBe(0);
       expect(f.control.secrets.get("created-1")).toBe("secret-A");
+
       if (change !== "ingress") {
         expect((yield* b.service.setup("operator")).status.setup).toBe("ready");
         expect(f.control.calls.delete).toBe(1);
@@ -292,10 +304,12 @@ test(
       ),
     );
     expect((yield* a.service.status()).setup).toBe("pending");
+
     const oldBinding = {
       ...observation(a.config, "created-1", "enabled"),
       binding: "old-ingress-binding",
     };
+
     yield* a.service.observeSubscription(oldBinding);
     yield* a.service.observeSubscription({
       ...observation(a.config, "created-1", "enabled"),
@@ -328,9 +342,11 @@ test(
     yield* f.grants(a.service);
     const gate = responseGate();
     f.control.createGate = gate;
+
     const creating = yield* a.service
       .setup("operator")
       .pipe(Effect.exit, Effect.forkChild);
+
     yield* Effect.promise(() => gate.entered.promise);
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "authorization_revoked"),
@@ -409,9 +425,11 @@ test(
     yield* f.grants(a.service);
     const gate = responseGate();
     f.control.createGate = gate;
+
     const creating = yield* a.service
       .setup("operator")
       .pipe(Effect.exit, Effect.forkChild);
+
     yield* Effect.promise(() => gate.entered.promise);
     yield* f.store.update((state) => {
       if (state.setupLease)
@@ -423,9 +441,11 @@ test(
     expect(f.snapshot().subscriptions).toEqual({});
     const listGate = responseGate();
     f.control.listGate = listGate;
+
     const listing = yield* a.service
       .setup("operator")
       .pipe(Effect.exit, Effect.forkChild);
+
     yield* Effect.promise(() => listGate.entered.promise);
     yield* f.store.update((state) => {
       if (state.setupLease)
@@ -457,6 +477,7 @@ test(
   "cleanup leaves unrelated EventSub types, versions and transports untouched",
   Effect.gen(function* () {
     const f = yield* fixture();
+
     const base: Subscription = {
       id: "other-type",
       type: "channel.follow",
@@ -465,6 +486,7 @@ test(
       condition: { broadcaster_user_id: "200", user_id: "100" },
       transport: { method: "webhook", callback },
     };
+
     const unrelated = [
       base,
       {
@@ -480,6 +502,7 @@ test(
         transport: { method: "websocket" },
       },
     ];
+
     for (const sub of unrelated) f.control.remote.set(sub.id, sub);
     const a = yield* f.construct("secret-A");
     yield* f.grants(a.service);
@@ -506,9 +529,11 @@ test(
   "only a fully matched single 202 receipt proves the exact request binding",
   Effect.gen(function* () {
     const f = yield* fixture();
+
     const a = yield* f.construct("secret-A", {
       subscriptionBinding: "account-stamp-must-not-be-used",
     });
+
     const receipt = {
       id: "created-1",
       status: "webhook_callback_verification_pending",
@@ -517,6 +542,7 @@ test(
       condition: { broadcaster_user_id: "200", user_id: "100" },
       transport: { method: "webhook", callback },
     };
+
     f.control.phase = receipt.status;
     f.control.response = { status: 202, body: { data: [receipt] } };
     const created = yield* a.provider.create("app-token", "200", "100");
@@ -536,6 +562,7 @@ test(
       },
     });
     expect(f.control.secrets.get("created-1")).toBe("secret-A");
+
     const malformed = [
       {},
       { data: [] },
@@ -581,6 +608,7 @@ test(
       { data: [{ ...receipt, id: "x".repeat(129) }] },
       { data: [receipt], padding: "x".repeat(256 * 1024) },
     ];
+
     for (const body of malformed) {
       f.control.remote.clear();
       f.control.response = { status: 202, body };
@@ -588,6 +616,7 @@ test(
         kind: "unknown",
       });
     }
+
     f.control.remote.clear();
     f.control.malformed = true;
     expect(yield* a.provider.create("app-token", "200", "100")).toEqual({
@@ -614,12 +643,14 @@ test(
       (yield* a.provider.create("app-token", "200", "100").pipe(Effect.flip))
         .code,
     ).toBe("client");
+
     for (const status of [200, 201, 403, 429, 500]) {
       f.control.response = { status, body: {} };
       expect(yield* a.provider.create("app-token", "200", "100")).toEqual({
         kind: "unknown",
       });
     }
+
     f.control.response = null;
     f.control.disconnect = true;
     expect(yield* a.provider.create("app-token", "200", "100")).toEqual({
@@ -702,14 +733,17 @@ test(
   "multiple missing channels perform one create each per turn even when every POST conflicts",
   Effect.gen(function* () {
     const f = yield* fixture();
+
     const a = yield* f.construct("secret-A", {
       identity: Schema.decodeUnknownSync(EnvironmentConfig)({
         ...identity,
         channelLogins: ["fixture_channel", "fixture_other"],
       }),
     });
+
     yield* f.grants(a.service);
     f.control.conflictOnly = true;
+
     for (let turn = 1; turn <= 2; turn++) {
       expect((yield* a.service.setup("operator")).status.setup).toBe("pending");
       expect(f.control.calls).toEqual({
@@ -721,6 +755,7 @@ test(
       });
       expect(f.snapshot().subscriptions).toEqual({});
     }
+
     f.control.conflictOnly = false;
     expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
     expect(f.control.calls).toEqual({

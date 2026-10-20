@@ -7,8 +7,11 @@ export const BASE_API_URL = "https://metaforge.app/api/arc-raiders";
  */
 export const parseMessageParams = (params: string[]) =>
   params
-    .map((param) => param.trim())
-    .filter(Boolean)
+    .flatMap((param) => {
+      const trimmed = param.trim();
+
+      return trimmed ? [trimmed] : [];
+    })
     .join(" ");
 
 /**
@@ -16,9 +19,11 @@ export const parseMessageParams = (params: string[]) =>
  */
 export const formatMinutes = (ms: number): string => {
   const minutes = Math.floor(ms / 60_000);
+
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
+
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 };
 

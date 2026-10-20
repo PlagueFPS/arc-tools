@@ -13,6 +13,7 @@ export const recycleToHandler = Effect.fn("Command.recycleToHandler")(
     }
 
     const item = yield* resolveItem(search, { includeComponents: true });
+
     if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }

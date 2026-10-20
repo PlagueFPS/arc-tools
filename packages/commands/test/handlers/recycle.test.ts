@@ -34,6 +34,7 @@ describe("recycleHandler", () => {
       const result = yield* run({
         items: [item({ recycle_components: null })],
       })("item");
+
       expect(result).toBe("[Warn] recycle data not found for Item");
     }),
   );
@@ -44,6 +45,7 @@ describe("recycleHandler", () => {
       const result = yield* run({
         items: [item({ recycle_components: [] })],
       })("item");
+
       expect(result).toBe("No items granted for recycling Item");
     }),
   );
@@ -62,6 +64,7 @@ describe("recycleHandler", () => {
           }),
         ],
       })("item");
+
       expect(result).toBe(
         "These items are granted for recycling Item: B (x3), C (x2), A (x1)",
       );

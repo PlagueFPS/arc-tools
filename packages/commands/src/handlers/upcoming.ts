@@ -9,6 +9,7 @@ export const upcomingHandler = Effect.fn("Command.upcomingHandler")(
     const events = yield* getEvents();
     const now = yield* Clock.currentTimeMillis;
     const twoHoursFromNow = now + Duration.hours(2).pipe(Duration.toMillis);
+
     const upcoming = events
       .filter((e) => e.startTime > now && e.startTime <= twoHoursFromNow)
       .sort((a, b) => a.startTime - b.startTime);
@@ -23,6 +24,7 @@ export const upcomingHandler = Effect.fn("Command.upcomingHandler")(
           `${e.name} on ${e.map} (starts in ${formatMinutes(e.startTime - now)})`,
       )
       .join(", ");
+
     return yield* Effect.succeed(response);
   },
   (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),

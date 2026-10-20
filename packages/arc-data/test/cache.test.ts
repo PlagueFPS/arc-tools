@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { Predicate, Deferred, Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import { dataFromReader } from "../src/cache.js";
@@ -10,13 +10,17 @@ import { cacheKey, cachePolicy } from "../src/source.js";
 import { makeFixture } from "./cache-fixture.js";
 
 const { test: effectTest } = Test.make({ providers: Layer.empty });
+
 const test = <E>(name: string, effect: Effect.Effect<void, E>) =>
   effectTest(name, effect.pipe(Effect.provide(TestClock.layer())));
+
 const itemQuery = { resource: "items", params: { id: "sensors" } } as const;
+
 const changed = {
   data: [{ id: "sensors", name: "New sensors", value: 20, future: "accepted" }],
   future: {},
 };
+
 const day = 86_400_000;
 
 describe("persistent cache policy", () => {
@@ -60,6 +64,7 @@ describe("persistent cache policy", () => {
       Effect.gen(function* () {
         const fixture = yield* makeFixture();
         const original = yield* fixture.cache.read(itemQuery);
+
         if (name === "parse")
           fixture.respond(() => Effect.succeed(new Response("not JSON")));
         else fixture.body(body, status);
@@ -80,11 +85,14 @@ describe("persistent cache policy", () => {
         yield* TestClock.setTime(7 * day);
         expect(yield* reconstructed.read(itemQuery)).toEqual(fallback);
         yield* TestClock.setTime(7 * day + 1);
+
         const failure = yield* reconstructed
           .read(itemQuery)
           .pipe(Effect.result);
+
         expect(failure._tag).toBe("Failure");
-        if (failure._tag === "Failure")
+
+        if (Predicate.isTagged(failure, "Failure"))
           expect(failure.failure.message).toBe(
             "Game data is temporarily unavailable. Please try again shortly.",
           );
@@ -105,7 +113,8 @@ describe("persistent cache policy", () => {
       );
       const result = yield* fixture.cache.read(itemQuery).pipe(Effect.result);
       expect(result._tag).toBe("Failure");
-      if (result._tag === "Failure")
+
+      if (Predicate.isTagged(result, "Failure"))
         expect(result.failure.reason).toBe("source");
       const reconstructed = yield* fixture.reconstruct;
       expect(
@@ -137,15 +146,19 @@ describe("persistent cache policy", () => {
           { id: "b", name: "B", value: 0, loot_area: "Industrial" },
         ],
       });
+
       const original = yield* fixture.data.items({
         id: "a",
         includeComponents: true,
       });
+
       const reconstructed = dataFromReader((yield* fixture.reconstruct).read);
+
       const result = yield* reconstructed.items({
         includeComponents: true,
         id: "a",
       });
+
       expect(result).toEqual(original);
       expect(result.value[0]?.workbench).toEqual(Option.none());
       expect(result.value[0]?.components).toEqual(
@@ -175,6 +188,7 @@ describe("persistent cache policy", () => {
     "endpoint, ID, search, flags, limit and encoding version distinguish canonical keys",
     Effect.gen(function* () {
       const fixture = yield* makeFixture();
+
       const queries = [
         itemQuery,
         { resource: "items", params: { search: "sensors" } },
@@ -193,6 +207,7 @@ describe("persistent cache policy", () => {
         { resource: "arcs", params: { id: "sensors", includeLoot: true } },
         { resource: "arcs", params: { id: "sensors", includeLoot: false } },
       ] as const;
+
       expect(new Set(queries.map(cacheKey)).size).toBe(queries.length);
       expect(cacheKey(itemQuery)).toBe("v1:json:/items?id=sensors");
       expect(
@@ -201,6 +216,7 @@ describe("persistent cache policy", () => {
           params: { minimal: true, id: "sensors" },
         }),
       ).toBe(cacheKey(queries[4]));
+
       for (const query of queries.slice(0, 8)) yield* fixture.cache.read(query);
       expect(fixture.calls).toHaveLength(8);
     }),
@@ -217,6 +233,7 @@ describe("persistent cache policy", () => {
           maxEntryBytes: 256,
         },
       });
+
       const original = yield* fixture.cache.read(itemQuery);
       expect(
         (yield* fixture.cache
@@ -259,19 +276,23 @@ describe("persistent cache policy", () => {
           ? Effect.gen(function* () {
               yield* Deferred.succeed(started, undefined);
               yield* Deferred.await(release);
+
               return Response.json(changed);
             })
           : Effect.succeed(Response.json(changed)),
       );
       const first = yield* fixture.cache.read(itemQuery).pipe(Effect.forkChild);
       yield* Deferred.await(started);
+
       const second = yield* fixture.cache
         .read(itemQuery)
         .pipe(Effect.forkChild);
+
       const independent = yield* fixture.cache.read({
         resource: "items",
         params: { id: "other" },
       });
+
       expect(independent.provenance.freshness).toBe("fresh");
       expect(fixture.calls).toHaveLength(2);
       yield* Deferred.succeed(release, undefined);
@@ -290,14 +311,17 @@ describe("persistent cache policy", () => {
         Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined);
           yield* Deferred.await(release);
+
           return Response.json({
             data: [{ id: "sensors", name: "Old", value: 1 }],
           });
         }),
       );
+
       const first = yield* fixture.cache
         .read(itemQuery)
         .pipe(Effect.result, Effect.forkChild);
+
       yield* Deferred.await(started);
       yield* fixture.cache.reset;
       fixture.body(changed);
@@ -306,7 +330,8 @@ describe("persistent cache policy", () => {
       yield* Deferred.succeed(release, undefined);
       const late = yield* Fiber.join(first);
       expect(late._tag).toBe("Failure");
-      if (late._tag === "Failure")
+
+      if (Predicate.isTagged(late, "Failure"))
         expect(late.failure.reason).toBe("superseded");
       expect(yield* reconstructed.read(itemQuery)).toEqual(newer);
       expect(JSON.parse(newer.body).data[0].name).toBe("New sensors");
@@ -344,6 +369,7 @@ describe("persistent cache policy", () => {
       const fixture = yield* makeFixture({
         policy: { ...cachePolicy, maxBodyBytes: 256 },
       });
+
       const original = yield* fixture.cache.read(itemQuery);
       yield* TestClock.setTime(day);
       fixture.body({
@@ -362,6 +388,7 @@ describe("persistent cache policy", () => {
       const fixture = yield* makeFixture({
         policy: { ...cachePolicy, maxCacheBytes: 100 },
       });
+
       const original = yield* fixture.cache.read(itemQuery);
       expect(
         (yield* fixture.cache
@@ -383,19 +410,23 @@ describe("persistent cache policy", () => {
         Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined);
           yield* Deferred.await(release);
+
           return Response.json({
             data: [{ id: "sensors", name: "Interrupted", value: 1 }],
           });
         }),
       );
+
       const first = yield* fixture.cache
         .read(itemQuery)
         .pipe(Effect.result, Effect.forkChild);
+
       yield* Deferred.await(started);
       const reconstructed = yield* fixture.reconstruct;
       const busy = yield* reconstructed.read(itemQuery).pipe(Effect.result);
       expect(busy._tag).toBe("Failure");
-      if (busy._tag === "Failure")
+
+      if (Predicate.isTagged(busy, "Failure"))
         expect(busy.failure.reason).toBe("refreshing");
       expect(fixture.calls).toHaveLength(1);
       yield* Fiber.interrupt(first);
@@ -416,12 +447,15 @@ describe("persistent cache policy", () => {
       fixture.respond(() =>
         Effect.gen(function* () {
           yield* Deferred.succeed(started, undefined);
+
           return yield* Effect.never;
         }),
       );
+
       const refresh = yield* fixture.cache
         .read(itemQuery)
         .pipe(Effect.forkChild);
+
       yield* Deferred.await(started);
       yield* TestClock.adjust(cachePolicy.sourceTimeoutMs);
       const stale = yield* Fiber.join(refresh);

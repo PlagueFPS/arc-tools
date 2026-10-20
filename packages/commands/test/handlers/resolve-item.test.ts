@@ -26,6 +26,7 @@ describe("resolveItem", () => {
       const result = yield* runWithMock({
         items: [item({ id: "power-cell", name: "Power Cell" })],
       })("power-cell", { minimal: true });
+
       const resolved = Option.getOrThrow(result);
       expect(resolved.id).toBe("power-cell");
     }),
@@ -37,6 +38,7 @@ describe("resolveItem", () => {
       const result = yield* runWithMock({
         items: [item({ id: "power-cell", name: "Power Cell" })],
       })("cell", { minimal: true });
+
       const resolved = Option.getOrThrow(result);
       expect(resolved.name).toBe("Power Cell");
     }),
@@ -62,6 +64,7 @@ describe("resolveItem", () => {
           }),
         ],
       })("x", { includeComponents: true });
+
       const resolved = Option.getOrThrow(result);
       expect(Option.isSome(resolved.components)).toBeTrue();
     }),

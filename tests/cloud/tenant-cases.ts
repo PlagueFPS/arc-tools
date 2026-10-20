@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
 
-import { Effect, Exit, Fiber, Schedule, Schema } from "effect";
+import { Predicate, Effect, Exit, Fiber, Schedule, Schema } from "effect";
 
 import { discordResponse } from "../../apps/bot/src/presentation.js";
 import {
@@ -31,10 +31,12 @@ import { TenantSnapshot } from "./tenant-fixture.js";
 import { ProviderSnapshot } from "./twitch-provider-fixture.js";
 
 const settings = cloudSettings(process.env);
-const encode = (value: unknown) =>
+
+const encode = (value: Schema.Json) =>
   new TextEncoder().encode(
-    typeof value === "string" ? value : JSON.stringify(value),
+    Schema.is(Schema.String)(value) ? value : JSON.stringify(value),
   );
+
 const samples: {
   scenario: string;
   reply: unknown;
@@ -51,16 +53,19 @@ const samples: {
   cutoff: number | null;
   activation: string | null;
 }[] = [];
+
 const twitchSamples: {
   scenario: string;
   workerAckMs: number;
   clientAckMs: number;
   observedDeliveryClientMs: number;
 }[] = [];
+
 const pendingTwitchSamples = new Map<
   string,
   { start: number; workerAckMs: number; clientAckMs: number }
 >();
+
 const recordSamples = () =>
   Effect.promise(() =>
     writeFile(
@@ -83,14 +88,16 @@ const recordSamples = () =>
       ),
     ),
   );
+
 const rejected = Effect.fnUntraced(function* <A, E>(
   effect: Effect.Effect<A, E>,
   status: number,
 ) {
   const result = yield* effect.pipe(Effect.result);
   expect(result._tag).toBe("Failure");
+
   if (
-    result._tag !== "Failure" ||
+    !Predicate.isTagged(result, "Failure") ||
     !(result.failure instanceof FixtureHttpError)
   )
     return yield* Effect.die("Expected a terminal HTTP rejection");
@@ -98,9 +105,12 @@ const rejected = Effect.fnUntraced(function* <A, E>(
   expect(result.failure.diagnostic.tenant?.lookups).toBe("0");
   expect(result.failure.diagnostic.tenant?.rpcs).toBe("0");
 });
+
 const snapshot = (url: string, key: string) =>
   get(`${url}/snapshot?key=${key}`, TenantSnapshot);
+
 const provider = (url: string) => get(`${url}/snapshot`, ProviderSnapshot);
+
 const waitMessages = (url: string, parent: string) =>
   provider(url).pipe(
     Effect.repeat({
@@ -112,13 +122,15 @@ const waitMessages = (url: string, parent: string) =>
       schedule: Schedule.spaced(250),
     }),
   );
+
 const sourceControl = (
   url: string,
   key: string,
-  body: unknown,
+  body: Schema.Json,
   delayMs = 0,
   status = 200,
 ) => post(`${url}/control`, { key, body, delayMs, status });
+
 const receipt = (id: string, receivedAt = Date.now()) => ({
   id,
   receivedAt,
@@ -135,8 +147,10 @@ export function registerTenantTests({
 }: Pick<typeof Foundation, "stack" | "test" | "beforeAll">) {
   const urls = Effect.gen(function* () {
     const deployed = yield* stack;
+
     if (!deployed.tenantUrl || !deployed.sourceUrl || !deployed.providerUrl)
       return yield* Effect.die("Missing tenant fixture URLs");
+
     return {
       bot: deployed.url,
       tenant: deployed.tenantUrl,
@@ -145,9 +159,10 @@ export function registerTenantTests({
       workerName: deployed.workerName,
     };
   });
+
   const signedDiscord = Effect.fnUntraced(function* (
     bot: string,
-    value: unknown,
+    value: Schema.Json,
     scenario = "",
     at = Date.now(),
     enforceBudget = true,
@@ -155,11 +170,13 @@ export function registerTenantTests({
     const bytes = encode(value);
     const headers = yield* signDiscord(bytes, at);
     const start = performance.now();
+
     const response = yield* request(`${bot}/interactions/discord`, {
       method: "POST",
       headers,
       body: bytes,
     });
+
     if (scenario) {
       const reply = yield* json(
         response,
@@ -175,11 +192,14 @@ export function registerTenantTests({
           }),
         }),
       );
+
       const elapsed = performance.now() - start;
       const stamp = response.headers.get("x-arc-ingress-ms");
+
       if (!stamp || !/^\d+$/.test(stamp))
         return yield* Effect.die("Missing ingress timing stamp");
       const workerMs = Number(stamp);
+
       const sample = {
         scenario,
         reply,
@@ -200,6 +220,7 @@ export function registerTenantTests({
           : null,
         activation: response.headers.get("x-arc-tenant-activation"),
       };
+
       samples.push(sample);
       console.info(
         JSON.stringify({
@@ -215,18 +236,22 @@ export function registerTenantTests({
         }),
       );
       yield* recordSamples();
+
       if (enforceBudget) {
         expect(workerMs).toBeGreaterThanOrEqual(0);
         expect(workerMs).toBeLessThan(3000);
         expect(elapsed).toBeLessThan(3000);
       }
+
       return { response, reply, sample };
     }
+
     return { response, reply: null, sample: null };
   });
+
   const signedTwitch = Effect.fnUntraced(function* (
     bot: string,
-    event: unknown,
+    event: Schema.Json,
     id: string,
     type = "notification",
     at = Date.now(),
@@ -234,19 +259,23 @@ export function registerTenantTests({
     const bytes = encode(event);
     const headers = yield* signTwitch(bytes, id, at, type);
     const start = performance.now();
+
     const response = yield* request(`${bot}/webhooks/twitch`, {
       method: "POST",
       body: bytes,
       headers,
     });
+
     if (id.startsWith("notification-"))
       pendingTwitchSamples.set(id, {
         start,
         workerAckMs: Number(response.headers.get("x-arc-ingress-ms")),
         clientAckMs: performance.now() - start,
       });
+
     return response;
   });
+
   const setup = Effect.fnUntraced(function* (bot: string) {
     return yield* request(`${bot}/ops/setup`, {
       method: "POST",
@@ -257,6 +286,7 @@ export function registerTenantTests({
       body: JSON.stringify({ stage: settings.stage }),
     }).pipe(Effect.flatMap((response) => json(response, SetupResult)));
   });
+
   const status = Effect.fnUntraced(function* (bot: string) {
     return yield* request(`${bot}/ops/status`, {
       method: "POST",
@@ -267,6 +297,7 @@ export function registerTenantTests({
       body: JSON.stringify({ stage: settings.stage }),
     }).pipe(Effect.flatMap((response) => json(response, AccountStatus)));
   });
+
   const noTenant = (response: Response) => {
     expect(response.headers.get("x-arc-tenant-lookups")).toBe("0");
     expect(response.headers.get("x-arc-tenant-rpcs")).toBe("0");
@@ -275,6 +306,7 @@ export function registerTenantTests({
   const firstCold = beforeAll(
     Effect.gen(function* () {
       const u = yield* urls;
+
       return yield* signedDiscord(
         u.bot,
         discordCommand(
@@ -296,16 +328,19 @@ export function registerTenantTests({
     Effect.gen(function* () {
       const result = yield* firstCold;
       expect(result._tag).toBe("Success");
-      if (result._tag !== "Success")
+
+      if (!Predicate.isTagged(result, "Success"))
         return yield* Effect.die(
           "First Bot HTTP request failed; retained HTTP diagnostic identifies the failure",
         );
       expect(result.success.reply).toEqual(
         discordResponse("Sensors can be sold for 10 coins each"),
       );
+
       const sample = samples.find(
         (sample) => sample.scenario === "first-http-cold-worker-tenant-cache",
       );
+
       if (!sample) return yield* Effect.die("First Bot HTTP sample missing");
       expect(sample.workerMs).toBeLessThan(3000);
       expect(sample.clientMs).toBeLessThan(3000);
@@ -323,15 +358,19 @@ export function registerTenantTests({
     "actual Bot verifies raw signatures, freshness, bounds and Discord context without allocating tenants",
     Effect.gen(function* () {
       const u = yield* urls;
+
       const ping = encode(
         ' {"application_id":"fixture-discord", "type":1}\r\n',
       );
+
       const headers = yield* signDiscord(ping);
+
       const pong = yield* request(`${u.bot}/interactions/discord`, {
         method: "POST",
         headers,
         body: ping,
       });
+
       noTenant(pong);
       expect(
         yield* json(pong, Schema.Struct({ type: Schema.Literal(1) })),
@@ -374,6 +413,7 @@ export function registerTenantTests({
         }),
         413,
       );
+
       for (const extra of [
         { application_id: "other" },
         { context: 1 },
@@ -384,10 +424,14 @@ export function registerTenantTests({
         { data: { name: "sell", type: 1, options: [] } },
         { data: { name: "sell", type: 2 } },
       ]) {
-        const response = (yield* signedDiscord(u.bot, {
-          ...discordCommand("wrong"),
-          ...extra,
-        })).response;
+        const response = (yield* signedDiscord(
+          u.bot,
+          JSON.stringify({
+            ...discordCommand("wrong"),
+            ...extra,
+          }),
+        )).response;
+
         noTenant(response);
         expect(
           yield* json(
@@ -399,6 +443,7 @@ export function registerTenantTests({
           ),
         ).toMatchObject({ type: 4, data: { flags: 64 } });
       }
+
       yield* rejected(
         request(`${u.bot}/webhooks/twitch`, {
           method: "POST",
@@ -406,6 +451,7 @@ export function registerTenantTests({
         }),
         401,
       );
+
       for (const stamp of [
         Date.now() - 601000,
         negativeFutureStamp(Date.now()),
@@ -424,13 +470,16 @@ export function registerTenantTests({
           ),
           401,
         );
+
       for (const value of ["{", { subscription: {} }])
         yield* rejected(signedTwitch(u.bot, value, "invalid-twitch-body"), 400);
+
       const context = twitchEvent(
         "wrong-context",
         "!sell sensors",
         `${u.bot}/webhooks/twitch`,
       );
+
       yield* rejected(
         signedTwitch(
           u.bot,
@@ -442,17 +491,20 @@ export function registerTenantTests({
         ),
         400,
       );
+
       const valid = discordCommand(
         "allocation-positive",
         "sell",
         "initial-cold",
         "allocation-guild",
       );
+
       const positive = yield* signedDiscord(
         u.bot,
         valid,
         "allocation-positive",
       );
+
       expect(positive.reply).toEqual(
         discordResponse("Sensors can be sold for 10 coins each"),
       );
@@ -464,11 +516,13 @@ export function registerTenantTests({
       expect(positive.response.headers.get("x-arc-tenant-code")).toBe(
         "success",
       );
+
       const duplicate = yield* signedDiscord(
         u.bot,
         valid,
         "allocation-stored-duplicate",
       );
+
       expect(duplicate.reply).toEqual(positive.reply);
       expect(duplicate.response.headers.get("x-arc-tenant-phase")).toBe(
         "committed",
@@ -502,11 +556,13 @@ export function registerTenantTests({
         ],
       });
       const before = yield* get(`${u.source}/observations`, Observations);
+
       const cold = yield* signedDiscord(
         u.bot,
         discordCommand("cold", "sell", "sensors", "cold-guild"),
         "cold-cache-cold-tenant",
       );
+
       expect(cold.reply).toEqual(
         discordResponse("Sensors can be sold for 10 coins each"),
       );
@@ -514,6 +570,7 @@ export function registerTenantTests({
       expect(loaded["/items?id=sensors&minimal=true"]).toBe(
         (before["/items?id=sensors&minimal=true"] ?? 0) + 1,
       );
+
       for (let n = 0; n < 3; n++)
         expect(
           (yield* signedDiscord(
@@ -548,6 +605,7 @@ export function registerTenantTests({
       });
       const first = yield* setup(u.bot);
       expect(first.authorizations.length).toBeGreaterThan(0);
+
       for (const authorization of first.authorizations) {
         const params = new URL(authorization.url).searchParams;
         expect(params.get("redirect_uri")).toBe(
@@ -566,12 +624,16 @@ export function registerTenantTests({
         );
         expect((yield* request(callback.toString())).status).toBe(200);
       }
+
       const pending = yield* setup(u.bot);
       expect(pending.status.setup).toBe("pending");
+
       const remote = (yield* provider(u.provider)).remote.find(
         (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
       );
+
       if (!remote) return yield* Effect.die("Actual Bot subscription missing");
+
       const challenge = {
         subscription: {
           ...remote,
@@ -579,17 +641,20 @@ export function registerTenantTests({
         },
         challenge: "exact-challenge-👋",
       };
+
       const challenged = yield* signedTwitch(
         u.bot,
         challenge,
         "challenge",
         "webhook_callback_verification",
       );
+
       expect(challenged.status).toBe(200);
       expect(yield* Effect.promise(() => challenged.text())).toBe(
         "exact-challenge-👋",
       );
       expect((yield* status(u.bot)).setup).toBe("pending");
+
       for (const text of ["hello", "!unknown sensors", "ARC: !sell sensors"]) {
         const event = twitchEvent(text, text, `${u.bot}/webhooks/twitch`);
         event.subscription.id = remote.id;
@@ -597,6 +662,7 @@ export function registerTenantTests({
         expect(ignored.status).toBe(204);
         noTenant(ignored);
       }
+
       expect((yield* status(u.bot)).setup).toBe("ready");
       expect((yield* provider(u.provider)).messages).toEqual([]);
     }),
@@ -658,6 +724,7 @@ export function registerTenantTests({
           },
         ],
       });
+
       const cases = [
         ["buy", "sensors", "Sensors can be purchased from Shani for 100 cred."],
         ["loot", "bastion", "Bastions drop the following items: Sensors"],
@@ -670,10 +737,13 @@ export function registerTenantTests({
         ["active", "", "Harvester on Dam (ends in 1m)"],
         ["upcoming", "", "Harvester on Spaceport (starts in 1m)"],
       ] as const;
+
       const remote = (yield* provider(u.provider)).remote.find(
         (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
       );
+
       if (!remote) return yield* Effect.die("Subscription missing");
+
       for (const [command, input, text] of cases) {
         expect(
           (yield* signedDiscord(
@@ -682,25 +752,32 @@ export function registerTenantTests({
             `command-${command}`,
           )).reply,
         ).toEqual(discordResponse(text));
+
         const event = twitchEvent(
           `all-${command}`,
           `!${command} ${input}`,
           `${u.bot}/webhooks/twitch`,
         );
+
         event.subscription.id = remote.id;
+
         const afterDiscord = yield* get(
           `${u.source}/observations`,
           Observations,
         );
+
         const receivedAt = Date.now();
+
         const admitted = yield* signedTwitch(
           u.bot,
           event,
           `notification-${command}`,
         );
+
         expect(admitted.status).toBe(204);
         expect(admitted.headers.get("x-arc-tenant-lookups")).toBe("1");
         expect(admitted.headers.get("x-arc-tenant-rpcs")).toBe("1");
+
         const sent = (yield* waitMessages(
           u.provider,
           `all-${command}`,
@@ -708,14 +785,18 @@ export function registerTenantTests({
           (message) =>
             message.body.reply_parent_message_id === `all-${command}`,
         );
+
         const timing = pendingTwitchSamples.get(`notification-${command}`);
+
         if (!timing) return yield* Effect.die("Missing Twitch timing");
+
         const sample = {
           scenario: command,
           workerAckMs: timing.workerAckMs,
           clientAckMs: timing.clientAckMs,
           observedDeliveryClientMs: performance.now() - timing.start,
         };
+
         twitchSamples.push(sample);
         console.info(JSON.stringify({ twitchTiming: sample }));
         yield* recordSamples();
@@ -734,13 +815,16 @@ export function registerTenantTests({
           ),
         ).toHaveLength(1);
       }
+
       const generated =
         (yield* provider(u.provider)).messages[0]?.body.message ?? "";
+
       const echo = twitchEvent(
         "generated",
         generated,
         `${u.bot}/webhooks/twitch`,
       );
+
       echo.subscription.id = remote.id;
       expect((yield* signedTwitch(u.bot, echo, "echo")).status).toBe(204);
       expect((yield* provider(u.provider)).messages).toHaveLength(10);
@@ -752,6 +836,7 @@ export function registerTenantTests({
     "slow, missing and malformed data return private initial responses with measured headroom and no late reply",
     Effect.gen(function* () {
       const u = yield* urls;
+
       for (const [name, body, delayMs, statusCode] of [
         [
           "slow",
@@ -770,18 +855,22 @@ export function registerTenantTests({
           statusCode,
         );
         const before = yield* get(`${u.source}/observations`, Observations);
+
         const { sample } = yield* signedDiscord(
           u.bot,
           discordCommand(name, "sell", name, `${name}-guild`),
           name,
         );
+
         const after = yield* get(`${u.source}/observations`, Observations);
         expect(after[`/items?id=${name}&minimal=true`]).toBe(
           (before[`/items?id=${name}&minimal=true`] ?? 0) + 1,
         );
+
         if (!sample) return yield* Effect.die("Data failure sample missing");
         expectDataFailure(name, sample);
       }
+
       const observed = yield* provider(u.provider);
       expect(
         observed.logs.some((entry) => /interaction|webhook/.test(entry)),
@@ -803,23 +892,28 @@ export function registerTenantTests({
         { data: [{ id: "concurrent", name: "Concurrent", value: 11 }] },
         1100,
       );
+
       const invocation = discordCommand(
         "concurrent",
         "sell",
         "concurrent",
         "duplicate-guild",
       );
+
       const first = yield* signedDiscord(
         u.bot,
         invocation,
         "concurrent-original",
       ).pipe(Effect.forkChild);
+
       yield* Effect.sleep(100);
+
       const second = yield* signedDiscord(
         u.bot,
         invocation,
         "concurrent-duplicate",
       ).pipe(Effect.forkChild);
+
       const a = yield* Fiber.join(first);
       const b = yield* Fiber.join(second);
       expect(a.reply).toEqual(
@@ -854,12 +948,15 @@ export function registerTenantTests({
       expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
         204,
       );
+
       const rebuilt = yield* reconstructedSnapshot(
         snapshot(u.tenant, key),
         admitted.instance,
       );
+
       expect(rebuilt.state).toEqual(admitted.state);
       expect(rebuilt.alarm).toBe(admitted.alarm);
+
       const completed = yield* snapshot(u.tenant, key).pipe(
         Effect.repeat({
           until: (value) =>
@@ -868,6 +965,7 @@ export function registerTenantTests({
           schedule: Schedule.spaced(250),
         }),
       );
+
       expect(completed.state?.works["native-alarm"]).toMatchObject({
         kind: "terminal",
         outcome: "sent",
@@ -902,6 +1000,7 @@ export function registerTenantTests({
       expect(
         (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
       ).toBe(204);
+
       const completed = yield* snapshot(u.tenant, key).pipe(
         Effect.repeat({
           until: (value) => value.state?.works["lost-rpc"]?.kind === "terminal",
@@ -909,6 +1008,7 @@ export function registerTenantTests({
           schedule: Schedule.spaced(250),
         }),
       );
+
       expect(completed.state?.works["lost-rpc"]).toMatchObject({
         kind: "terminal",
         outcome: "sent",
@@ -944,10 +1044,12 @@ export function registerTenantTests({
           key,
           control: { immediate: true },
         });
+
         const input = {
           ...receipt(key),
           invocation: { command: "sell", input: "slowparts" },
         };
+
         expect(
           (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
         ).toBe(204);
@@ -959,8 +1061,10 @@ export function registerTenantTests({
         ).toHaveLength(1);
         const sending = yield* snapshot(u.tenant, key);
         const work = sending.state?.works[key];
+
         if (work?.kind !== "delivering")
           return yield* Effect.die("Expected a live delivering claim");
+
         const alarm = yield* snapshot(u.tenant, key).pipe(
           Effect.repeat({
             until: (value) =>
@@ -969,9 +1073,11 @@ export function registerTenantTests({
             schedule: Schedule.spaced(75),
           }),
         );
+
         expect(alarm.alarmRuns).toBeGreaterThan(0);
         expect(alarm.state?.works[key]?.kind).toBe("delivering");
         yield* post(`${u.provider}/control`, { holdSend: false });
+
         const terminal = yield* snapshot(u.tenant, key).pipe(
           Effect.repeat({
             until: (value) => value.state?.works[key]?.kind === "terminal",
@@ -979,6 +1085,7 @@ export function registerTenantTests({
             schedule: Schedule.spaced(100),
           }),
         );
+
         expect(terminal.state?.works[key]).toMatchObject({
           kind: "terminal",
           outcome: "sent",
@@ -1010,6 +1117,7 @@ export function registerTenantTests({
         { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
         1500,
       );
+
       const input = {
         id: "interrupt",
         guildId: "native-guild",
@@ -1018,6 +1126,7 @@ export function registerTenantTests({
         invocation: { command: "sell", input: "interrupt" },
         token: "CANARY-INTERACTION-TOKEN",
       };
+
       const original = yield* post(`${u.tenant}/discord`, {
         key,
         receipt: input,
@@ -1030,28 +1139,29 @@ export function registerTenantTests({
               reasons: exit.cause.reasons.map((reason) => reason._tag),
             });
           const result = exit.value;
+
           return Effect.logInfo("discord-interruption-request", {
             observedAt: Date.now(),
             elapsedMs: Date.now() - input.receivedAt,
-            result:
-              result._tag === "Success"
-                ? { kind: "response", status: result.success.status }
-                : result.failure instanceof FixtureHttpError
-                  ? {
-                      kind: "http-failure",
-                      diagnostic: result.failure.diagnostic,
-                    }
-                  : {
-                      kind: "request-failure",
-                      errorType:
-                        result.failure instanceof Error
-                          ? result.failure.name
-                          : typeof result.failure,
-                    },
+            result: Predicate.isTagged(result, "Success")
+              ? { kind: "response", status: result.success.status }
+              : result.failure instanceof FixtureHttpError
+                ? {
+                    kind: "http-failure",
+                    diagnostic: result.failure.diagnostic,
+                  }
+                : {
+                    kind: "request-failure",
+                    errorType:
+                      result.failure instanceof Error
+                        ? result.failure.name
+                        : "non-error",
+                  },
           });
         }),
         Effect.forkChild,
       );
+
       const admitted = yield* snapshot(u.tenant, key).pipe(
         Effect.repeat({
           until: (value) => value.state?.works.interrupt?.kind === "computing",
@@ -1059,6 +1169,7 @@ export function registerTenantTests({
           schedule: Schedule.spaced(25),
         }),
       );
+
       yield* Effect.logInfo("discord-interruption-admission", {
         observedAt: Date.now(),
         elapsedMs: Date.now() - input.receivedAt,
@@ -1085,11 +1196,14 @@ export function registerTenantTests({
       expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
         204,
       );
+
       const rebuilt = yield* reconstructedSnapshot(
         snapshot(u.tenant, key),
         admitted.instance,
       );
+
       expect(rebuilt.instance).not.toBe(admitted.instance);
+
       const reply = yield* post(`${u.tenant}/discord`, {
         key,
         receipt: { ...input, receivedAt: Date.now() },
@@ -1107,6 +1221,7 @@ export function registerTenantTests({
           ),
         ),
       );
+
       expect(reply.data.content).toBe(
         "I couldn't finish that command in time. Please try again.",
       );
@@ -1119,8 +1234,10 @@ export function registerTenantTests({
       expect(JSON.stringify(terminal.state)).not.toContain("CANARY");
       expect(JSON.stringify(terminal.state)).not.toContain("invocation");
       const interrupted = yield* Fiber.join(original);
-      if (interrupted._tag === "Failure") {
+
+      if (Predicate.isTagged(interrupted, "Failure")) {
         expect(interrupted.failure instanceof FixtureHttpError).toBeTrue();
+
         if (interrupted.failure instanceof FixtureHttpError)
           expect(interrupted.failure.diagnostic.status).toBe(500);
       } else
@@ -1147,15 +1264,19 @@ export function registerTenantTests({
         sendStatus: 200,
         sendBody: { data: [{ is_sent: "invalid", message_id: "" }] },
       });
+
       const remote = (yield* provider(u.provider)).remote.find(
         (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
       );
+
       if (!remote) return yield* Effect.die("Subscription missing");
+
       const event = twitchEvent(
         "ambiguous-parts",
         "!sell long",
         `${u.bot}/webhooks/twitch`,
       );
+
       event.subscription.id = remote.id;
       const started = Date.now();
       expect(
@@ -1197,9 +1318,11 @@ export function registerTenantTests({
     "verified revocation is durable before acknowledgement and blocks the actual account",
     Effect.gen(function* () {
       const u = yield* urls;
+
       const remote = (yield* provider(u.provider)).remote.find(
         (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
       );
+
       if (!remote) return yield* Effect.die("Subscription missing");
       expect(
         (yield* signedTwitch(
@@ -1234,28 +1357,36 @@ export function registerTenantTests({
         const observed = samples.filter(
           (sample) => sample.scenario === `command-${command}`,
         );
+
         expect(observed).toHaveLength(1);
         expect(observed[0]?.flags).toBe(0);
         expect(observed[0]?.fallback).toBeNull();
         expect(observed[0]?.tenantPhase).toBe("committed");
       }
+
       const warm = samples.filter(
         (sample) => sample.scenario === "warm-cache-warm-tenant",
       );
+
       expect(warm).toHaveLength(3);
+
       for (const sample of warm) {
         expect(sample.flags).toBe(0);
         expect(sample.fallback).toBeNull();
       }
+
       for (const scenario of ["slow", "missing", "malformed"] as const) {
         const observed = samples.filter(
           (sample) => sample.scenario === scenario,
         );
+
         expect(observed).toHaveLength(1);
         const sample = observed[0];
+
         if (!sample) return yield* Effect.die("Data failure sample missing");
         expectDataFailure(scenario, sample);
       }
+
       expect(samples).toHaveLength(22);
       expect(twitchSamples).toHaveLength(10);
       yield* recordSamples();

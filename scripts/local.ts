@@ -10,13 +10,16 @@ import { ConfigProvider, Effect, Schema } from "effect";
 import { publicOrigin, runtimeConfig } from "../apps/bot/src/config.js";
 
 const LocalAction = Schema.Literals(["dev", "setup", "status", "sync"]);
+
 export type LocalAction = typeof LocalAction.Type;
+
 const LocalSettings = Schema.Struct({
   stage: Schema.String.check(Schema.isPattern(/^local-[a-z0-9-]+$/)),
   endpoint: Schema.String.check(
     Schema.makeFilter((value) => {
       try {
         publicOrigin("local-", "", value);
+
         return true;
       } catch {
         return false;
@@ -26,7 +29,9 @@ const LocalSettings = Schema.Struct({
   revision: Schema.String.check(Schema.isPattern(/\S/)),
   profile: Schema.optionalKey(Schema.NonEmptyString),
 });
+
 export type LocalSettings = typeof LocalSettings.Type;
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 export function localAction(args: readonly string[]): LocalAction {
@@ -44,6 +49,7 @@ export async function localSettings(
   inherited: NodeJS.ProcessEnv = process.env,
 ): Promise<{ settings: LocalSettings; env: NodeJS.ProcessEnv }> {
   let contents: string;
+
   try {
     contents = await readFile(envFile, "utf8");
   } catch {
@@ -51,9 +57,12 @@ export async function localSettings(
       "Cannot read .env.local. Create a protected local environment file at the repository root.",
     );
   }
+
   const env = { ...inherited };
+
   try {
     Object.assign(env, parseEnv(contents));
+
     const config = await Effect.runPromise(
       runtimeConfig.pipe(
         Effect.provideService(
@@ -62,21 +71,28 @@ export async function localSettings(
         ),
       ),
     );
-    const decoded = Schema.decodeUnknownSync(LocalSettings)({
+
+    const input = {
       stage: config.identity.stage,
       endpoint: env.ARC_PUBLIC_URL,
       revision: env.ARC_BUILD_REVISION ?? "unreleased",
-      ...(env.ALCHEMY_PROFILE === undefined
-        ? {}
-        : { profile: env.ALCHEMY_PROFILE }),
-    });
+    };
+
+    const decoded = Schema.decodeUnknownSync(LocalSettings)(
+      env.ALCHEMY_PROFILE === undefined
+        ? input
+        : { ...input, profile: env.ALCHEMY_PROFILE },
+    );
+
     const settings = {
       ...decoded,
       endpoint: publicOrigin(decoded.stage, "", decoded.endpoint),
     };
+
     env.ARC_PUBLIC_URL = settings.endpoint;
     env.ARC_BUILD_REVISION = settings.revision;
     env.PATH = `${dirname(process.execPath)}${delimiter}${env.PATH ?? ""}`;
+
     return { settings, env };
   } catch {
     throw new Error(
@@ -88,6 +104,7 @@ export async function localSettings(
 export function plan(action: LocalAction, settings: LocalSettings): string[][] {
   const target = ["--stage", settings.stage, "--endpoint", settings.endpoint];
   const revision = ["--revision", settings.revision];
+
   const sync = [
     process.execPath,
     join(root, "scripts/sync-discord-commands.ts"),
@@ -95,7 +112,9 @@ export function plan(action: LocalAction, settings: LocalSettings): string[][] {
     ...revision,
     "--wait",
   ];
+
   const ops = [process.execPath, join(root, "scripts/ops.ts")];
+
   switch (action) {
     case "dev":
       return [
@@ -128,8 +147,10 @@ export async function runPlan(
   let active: ChildProcess | undefined;
   let interrupted = 0;
   let force: ReturnType<typeof setTimeout> | undefined;
+
   const kill = (signal: NodeJS.Signals) => {
     if (!active?.pid) return;
+
     try {
       if (process.platform === "win32") active.kill(signal);
       else process.kill(-active.pid, signal);
@@ -140,35 +161,43 @@ export async function runPlan(
         throw error;
     }
   };
+
   const stop = (signal: "SIGINT" | "SIGTERM") => {
     if (interrupted) return;
     interrupted = signal === "SIGINT" ? 130 : 143;
     kill(signal);
     force = setTimeout(() => kill("SIGKILL"), 5000);
   };
+
   const interrupt = () => stop("SIGINT");
   const terminate = () => stop("SIGTERM");
   process.on("SIGINT", interrupt);
   process.on("SIGTERM", terminate);
+
   try {
     for (const [command, ...args] of commands) {
       if (interrupted) return interrupted;
+
       if (!command) throw new Error("Empty local command.");
       active = spawn(command, args, {
         ...options,
         stdio: "inherit",
         detached: process.platform !== "win32",
       });
+
       const code = await new Promise<number>((resolve, reject) => {
         active?.once("error", reject);
         active?.once("exit", (code, signal) =>
           resolve(code ?? (signal ? 128 + constants.signals[signal] : 1)),
         );
       });
+
       if (interrupted) kill("SIGKILL");
       active = undefined;
+
       if (interrupted || code !== 0) return interrupted || code;
     }
+
     return 0;
   } finally {
     if (force) clearTimeout(force);
@@ -182,11 +211,13 @@ if (import.meta.main) {
     const action = localAction(process.argv.slice(2));
     const { settings, env } = await localSettings();
     const commands = plan(action, settings);
+
     if (action === "dev") {
       console.info(
         `Set the portal applications manually if the tunnel host changed:\nDiscord interactions endpoint: ${settings.endpoint}/interactions/discord\nTwitch EventSub callback: ${settings.endpoint}/webhooks/twitch\nTwitch OAuth redirect: ${settings.endpoint}/oauth/twitch/callback`,
       );
     }
+
     process.exitCode = await runPlan(commands, { cwd: root, env });
   } catch (error) {
     console.error(

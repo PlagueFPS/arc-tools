@@ -7,13 +7,17 @@ import type {
 import { stableRunKey } from "./alarm-attribution.js";
 
 type AccountJournal = typeof AccountAttribution.Type;
+
 type ProviderJournal = typeof ProviderAttribution.Type;
+
 type CompletedRun = typeof CompletedAlarmRun.Type;
+
 export interface CompletedRunEvidence {
   readonly account: AccountJournal;
   readonly provider: ProviderJournal;
   readonly runKey: string;
 }
+
 export interface CompletedRecoveryEvidence {
   readonly account: AccountJournal;
   readonly provider: ProviderJournal;
@@ -22,25 +26,29 @@ export interface CompletedRecoveryEvidence {
   readonly preparedInstance: string;
   readonly leaseUntil: number;
 }
+
 function requireEvidence(
-  condition: unknown,
+  condition: boolean,
   reason: string,
 ): asserts condition {
   if (!condition)
     throw new Error(`Completed alarm evidence rejected: ${reason}`);
 }
+
 export function selectCompletedRun(
   account: AccountJournal,
   key: string,
 ): CompletedRun {
   const selected = account.completedRuns.filter((run) => run.key === key);
   requireEvidence(
-    selected.length === 1 && selected[0],
+    selected.length === 1 && selected[0] !== undefined,
     "missing or ambiguous completed run",
   );
   requireEvidence(stableRunKey(selected[0]) === key, "inconsistent run key");
+
   return selected[0];
 }
+
 export function completedRunKey(
   account: AccountJournal,
   alarmRun: number,
@@ -48,12 +56,15 @@ export function completedRunKey(
   const selected = account.completedRuns.filter(
     (run) => run.alarmRun === alarmRun,
   );
+
   requireEvidence(
-    selected.length === 1 && selected[0],
+    selected.length === 1 && selected[0] !== undefined,
     "missing or ambiguous durable alarm ordinal",
   );
+
   return selected[0].key;
 }
+
 function checkIntegrity(account: AccountJournal, provider: ProviderJournal) {
   requireEvidence(
     account.eventsDropped === 0 &&
@@ -83,13 +94,18 @@ function checkIntegrity(account: AccountJournal, provider: ProviderJournal) {
     "duplicate HTTP event UUID",
   );
 }
+
 function runTraffic(
   run: CompletedRun,
   account: AccountJournal,
   provider: ProviderJournal,
   expected: 0 | 1,
 ) {
-  requireEvidence(run.credential, "missing completed credential fingerprint");
+  requireEvidence(
+    run.credential !== null,
+    "missing completed credential fingerprint",
+  );
+
   for (const kind of ["alarm-entry", "alarm-complete"] as const)
     requireEvidence(
       account.events.filter(
@@ -100,12 +116,14 @@ function runTraffic(
       ).length === 1,
       "missing or ambiguous alarm lifecycle",
     );
+
   const invocations = account.invocations.filter(
     (record) =>
       record.instance === run.instance &&
       record.origin.operation === "alarm" &&
       record.origin.alarmRun === run.alarmRun,
   );
+
   requireEvidence(
     invocations.length === expected &&
       run.validationInvocationIds.length === expected,
@@ -125,8 +143,10 @@ function runTraffic(
     ),
     "uncorrelated HTTP for completed credential",
   );
+
   const events = provider.events.filter((event) => {
     const correlation = event.correlation;
+
     return (
       correlation !== null &&
       ((correlation.instance === run.instance &&
@@ -135,12 +155,14 @@ function runTraffic(
         run.validationInvocationIds.includes(correlation.invocationId))
     );
   });
+
   requireEvidence(events.length === expected, "wrong actual HTTP count");
+
   if (expected === 0) return null;
   const invocation = invocations[0];
   const event = events[0];
   requireEvidence(
-    invocation && event?.correlation,
+    invocation !== undefined && event?.correlation != null,
     "missing invocation or HTTP event",
   );
   requireEvidence(
@@ -156,19 +178,23 @@ function runTraffic(
       event.credentialFingerprint === invocation.credentialFingerprint,
     "HTTP UUID, fingerprint, or run mismatch",
   );
+
   return {
     runKey: run.key,
     invocationId: invocation.id,
     httpEventId: event.id,
   };
 }
+
 export function verifyCompletedValidation(evidence: CompletedRunEvidence) {
   checkIntegrity(evidence.account, evidence.provider);
   const run = selectCompletedRun(evidence.account, evidence.runKey);
   const result = runTraffic(run, evidence.account, evidence.provider, 1);
-  requireEvidence(result, "missing successful validation");
+  requireEvidence(result !== null, "missing successful validation");
+
   return result;
 }
+
 export function verifyCompletedRecovery(evidence: CompletedRecoveryEvidence) {
   const { account, provider, leaseUntil, preparedInstance } = evidence;
   checkIntegrity(account, provider);
@@ -195,7 +221,7 @@ export function verifyCompletedRecovery(evidence: CompletedRecoveryEvidence) {
     recovery.entryAlarm === null &&
       recovery.lease === null &&
       recovery.accountTime >= leaseUntil &&
-      recovery.credential &&
+      recovery.credential !== null &&
       recovery.intended !== null &&
       recovery.intended > recovery.accountTime &&
       recovery.native === recovery.intended,
@@ -215,6 +241,7 @@ export function verifyCompletedRecovery(evidence: CompletedRecoveryEvidence) {
   );
   runTraffic(early, account, provider, 0);
   const result = runTraffic(recovery, account, provider, 1);
-  requireEvidence(result, "missing successful recovery");
+  requireEvidence(result !== null, "missing successful recovery");
+
   return { earlyRunKey: early.key, ...result };
 }

@@ -13,6 +13,7 @@ export const lootHandler = Effect.fn("Command.lootHandler")(
     }
 
     const potentialId = query.toLowerCase().replace(/ /g, "-");
+
     const arc = yield* Effect.filterOrElse(
       fetchArc({ id: potentialId }),
       (result) => Option.isSome(result),

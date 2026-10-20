@@ -9,6 +9,7 @@ import { EnvironmentConfig, runtimeConfig } from "../src/config.js";
 import { CommandInput, GuildId, tenantName } from "../src/contracts.js";
 
 const stage = "test-foundation-0123456789ab";
+
 const fixture = {
   stage,
   applicationStage: stage,
@@ -19,6 +20,7 @@ const fixture = {
   twitchClientId: "fixture-twitch",
   discordApplicationId: "fixture-discord",
 } as const satisfies typeof EnvironmentConfig.Type;
+
 const decode = Schema.decodeUnknownSync(EnvironmentConfig);
 
 test("personal environments subscribe only to the sender channel", () => {
@@ -31,6 +33,7 @@ test("personal environments subscribe only to the sender channel", () => {
     senderLogin: "personal",
     channelLogins: ["personal"],
   };
+
   expect(decode(personal).channelLogins).toEqual(["personal"]);
   expect(() => decode({ ...personal, channelLogins: ["other"] })).toThrow();
   expect(() =>
@@ -48,6 +51,7 @@ test("production requires a dedicated bot and a configured channel set", () => {
     senderKind: "bot",
     channelLogins: ["channel_one", "channel_two"],
   };
+
   expect(decode(production).channelLogins).toEqual([
     "channel_one",
     "channel_two",
@@ -58,6 +62,7 @@ test("production requires a dedicated bot and a configured channel set", () => {
 
 test("synthetic test identities cannot select live apps or stages", () => {
   expect(decode(fixture).stage).toBe(stage);
+
   for (const overrides of [
     { stage: "prod" },
     { applicationStage: "prod" },
@@ -72,6 +77,7 @@ test("synthetic test identities cannot select live apps or stages", () => {
 test("cloud settings reject local emulation, stage aliases and missing run identity", () => {
   const env = { ARC_CLOUD_STAGE: stage, ARC_CLOUD_RUN: "0123456789ab" };
   expect(cloudSettings(env).stage).toBe(stage);
+
   for (const overrides of [
     { ALCHEMY_DEV: "1" },
     { ALCHEMY_TEST_DEV: "yes" },
@@ -113,6 +119,7 @@ test("request observers are isolated and reject personal or production compositi
   const next = botRequestObservation(synthetic);
   expect(next.headers()["x-arc-tenant-lookups"]).toBe("0");
   expect(next.headers()["x-arc-tenant-rpcs"]).toBe("0");
+
   for (const identity of [
     decode({
       ...fixture,
@@ -137,6 +144,7 @@ test("request observers are isolated and reject personal or production compositi
 });
 
 const effects = Test.make({ providers: Layer.empty });
+
 effects.test(
   "runtime configuration resolves declared bindings without provider I/O",
   Effect.gen(function* () {
@@ -161,6 +169,7 @@ effects.test(
         }),
       ),
     );
+
     expect(config.identity).toEqual(fixture);
   }),
 );

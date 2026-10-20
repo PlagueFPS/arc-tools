@@ -1,4 +1,4 @@
-import { Crypto, Effect, Schema, Stream } from "effect";
+import { flow, Crypto, Effect, Schema, Stream } from "effect";
 import { Hex } from "effect/encoding";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
@@ -8,16 +8,20 @@ export class ProviderError extends Schema.TaggedError<ProviderError>()(
     kind: Schema.Literals(["network", "body", "deadline"]),
   },
 ) {}
+
 export const request = Effect.fn("Provider.request")(
   function* (url: string, init: RequestInit, _timeoutMs = 4_000) {
     const client = HttpClient.withScope(yield* HttpClient.HttpClient);
+
     const outgoing = yield* Effect.try(() =>
       HttpClientRequest.fromWeb(
         new Request(url, { ...init, signal: undefined }),
       ),
     );
+
     const response = yield* client.execute(outgoing);
     const headers = new Headers(response.headers);
+
     if (
       (response.status < 200 || response.status >= 300) &&
       response.status !== 429
@@ -34,6 +38,7 @@ export const request = Effect.fn("Provider.request")(
       Stream.runForEach(
         Effect.fnUntraced(function* (chunk) {
           size += chunk.byteLength;
+
           if (size > 256 * 1024)
             return yield* new ProviderError({ kind: "network" });
           chunks.push(chunk);
@@ -42,16 +47,19 @@ export const request = Effect.fn("Provider.request")(
     );
     const bytes = new Uint8Array(size);
     let at = 0;
+
     for (const chunk of chunks) {
       bytes.set(chunk, at);
       at += chunk.byteLength;
     }
-    let body: unknown = null;
-    if (size > 0) {
-      body = yield* Effect.try(() =>
-        JSON.parse(new TextDecoder().decode(bytes)),
-      );
-    }
+
+    const body =
+      size > 0
+        ? yield* Schema.decodeUnknownEffect(
+            Schema.fromJsonString(Schema.Unknown),
+          )(new TextDecoder().decode(bytes))
+        : null;
+
     return { status: response.status, headers, body };
   },
   (effect, _url, init, timeoutMs = 4_000) =>
@@ -66,14 +74,13 @@ export const request = Effect.fn("Provider.request")(
       Effect.mapError(() => new ProviderError({ kind: "network" })),
     ),
 );
-export const decodeBody = Effect.fnUntraced(function* <A, I>(
-  schema: Schema.Codec<A, I>,
-  body: unknown,
-) {
-  return yield* Schema.decodeUnknownEffect(schema)(body).pipe(
+
+export const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
+  flow(
+    Schema.decodeUnknownEffect(schema),
     Effect.mapError(() => new ProviderError({ kind: "body" })),
   );
-});
+
 const webCrypto = Crypto.make({
   randomBytes: (size) => crypto.getRandomValues(new Uint8Array(size)),
   digest: (algorithm, bytes) =>
@@ -84,6 +91,7 @@ const webCrypto = Crypto.make({
         ),
     ),
 });
+
 export const digest = (value: string) =>
   webCrypto
     .digest("SHA-256", new TextEncoder().encode(value))

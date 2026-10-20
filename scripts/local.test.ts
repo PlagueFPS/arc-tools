@@ -16,7 +16,9 @@ import { fileURLToPath } from "node:url";
 import { localAction, localSettings, plan, runPlan } from "./local.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+
 const directories: string[] = [];
+
 const fixtureEnv = {
   ARC_STAGE: "local-fixture",
   APPLICATION_STAGE: "local-fixture",
@@ -52,6 +54,7 @@ describe("local settings", () => {
       envFile,
       `${dotenv(fixtureEnv)}\nARC_PUBLIC_URL='https://quoted.invalid' # public\nEXTRA_SECRET="fixture-file-secret"\nEXTRA_SECRET_999999="fixture-numbered-secret"\nEMPTY_SECRET=\n`,
     );
+
     const { settings, env } = await localSettings(envFile, {
       ...fixtureEnv,
       ARC_STAGE: "prod",
@@ -65,6 +68,7 @@ describe("local settings", () => {
       CLOUDFLARE_API_TOKEN: "fixture-shell-token",
       UNRELATED: "fixture-unrelated",
     });
+
     expect(settings).toEqual({
       stage: "local-fixture",
       endpoint: "https://quoted.invalid",
@@ -89,11 +93,13 @@ describe("local settings", () => {
   test("only an absent revision defaults and an absent profile leaves Alchemy's selection alone", async () => {
     const directory = await temporary();
     const envFile = join(directory, ".env.local");
+
     const {
       ARC_BUILD_REVISION: _revision,
       ALCHEMY_PROFILE: _profile,
       ...env
     } = fixtureEnv;
+
     await writeFile(envFile, dotenv(env));
     const resolved = await localSettings(envFile, {});
     expect(resolved.settings.revision).toBe("unreleased");
@@ -109,6 +115,7 @@ describe("local settings", () => {
 describe("local package aliases", () => {
   test("changing only the file twice updates every child, setup orders sync before private OAuth output, and all aliases work", async () => {
     const fixture = await launcherFixture();
+
     const stale = {
       ...fixtureEnv,
       ARC_STAGE: "prod",
@@ -119,11 +126,13 @@ describe("local package aliases", () => {
       OPERATOR_SECRET: "stale-operator",
       DISCORD_BOT_TOKEN: "stale-token",
     };
+
     for (const origin of ["https://first.invalid", "https://second.invalid"]) {
       await writeFile(
         join(fixture.directory, ".env.local"),
         dotenv({ ...fixtureEnv, ARC_PUBLIC_URL: origin }),
       );
+
       for (const alias of [
         "dev:local",
         "setup:local",
@@ -133,15 +142,18 @@ describe("local package aliases", () => {
         const result = await fixture.run(alias, stale);
         expect(result.code).toBe(0);
         expect(result.output).not.toContain("fixture-operator");
+
         if (alias === "dev:local") {
           expect(result.output).toContain(`${origin}/interactions/discord`);
           expect(result.output).toContain(`${origin}/oauth/twitch/callback`);
         }
+
         if (alias === "setup:local")
           expect(
             result.output.trim().endsWith("fixture-private-oauth-link"),
           ).toBeTrue();
       }
+
       const calls = await fixture.calls();
       const latest = calls.slice(-5);
       expect(latest.map((call) => call.kind)).toEqual([
@@ -151,6 +163,7 @@ describe("local package aliases", () => {
         "ops",
         "sync",
       ]);
+
       for (const call of latest) {
         expect(call.env).toEqual({ ...fixtureEnv, ARC_PUBLIC_URL: origin });
         expect(call.cwd).toBe(fixture.directory);
@@ -158,6 +171,7 @@ describe("local package aliases", () => {
         expect(call.args).not.toContain("fixture-operator");
         expect(call.args).toContain("local-fixture");
       }
+
       expect(latest[0]?.args).toEqual([
         "dev",
         "--stage",
@@ -206,6 +220,7 @@ describe("local package aliases", () => {
 
   test("invalid config, missing file, unknown actions, and extra args run no children and hide values", async () => {
     const fixture = await launcherFixture();
+
     const changes = [
       {
         ARC_STAGE: "prod",
@@ -235,6 +250,7 @@ describe("local package aliases", () => {
       { ALCHEMY_PROFILE: "" },
       { DISCORD_PUBLIC_KEY: "CANARY-BAD-KEY" },
     ];
+
     for (const change of changes) {
       await writeFile(
         join(fixture.directory, ".env.local"),
@@ -246,10 +262,12 @@ describe("local package aliases", () => {
       expect(result.output).not.toContain("CANARY");
       expect(result.output).not.toContain("fixture-secret");
     }
+
     await rm(join(fixture.directory, ".env.local"));
     const missing = await fixture.run("setup:local");
     expect(missing.code).toBe(1);
     expect(missing.output).toContain("Cannot read .env.local");
+
     for (const args of [
       ["unknown"],
       ["setup", "--stage", "local-fixture"],
@@ -260,6 +278,7 @@ describe("local package aliases", () => {
       expect(result.code).toBe(1);
       expect(result.output).toContain("without extra arguments");
     }
+
     expect(await fixture.calls()).toEqual([]);
   }, 30000);
 });
@@ -268,6 +287,7 @@ describe("sequential local runner", () => {
   test("successful children finish before the next child starts", async () => {
     const directory = await temporary();
     const log = join(directory, "order");
+
     const code = await runPlan(
       [
         [
@@ -285,6 +305,7 @@ describe("sequential local runner", () => {
       ],
       { cwd: directory, env: {} },
     );
+
     expect(code).toBe(0);
     expect(await readFile(log, "utf8")).toBe("second");
   });
@@ -297,6 +318,7 @@ describe("sequential local runner", () => {
   ] as const) {
     test(`${group ? "process group" : "direct"} ${signal} stops a ${hold} child and its descendant, exits, and skips setup's next step`, async () => {
       const fixture = await launcherFixture();
+
       const child = spawn(
         process.execPath,
         ["run", "scripts/local.ts", "setup"],
@@ -311,14 +333,18 @@ describe("sequential local runner", () => {
           detached: true,
         },
       );
+
       const exited = new Promise<number | null>((resolve) =>
         child.once("exit", resolve),
       );
+
       const ready = join(fixture.directory, "ready");
       let pids: number[] = [];
+
       try {
         await until(async () => Bun.file(ready).exists());
         pids = JSON.parse(await readFile(ready, "utf8"));
+
         if (group && child.pid) process.kill(-child.pid, signal);
         else child.kill(signal);
         expect(await exited).toBe(signal === "SIGINT" ? 130 : 143);
@@ -332,6 +358,7 @@ describe("sequential local runner", () => {
             process.kill(pid, "SIGKILL");
           } catch {}
         }
+
         if (child.exitCode === null) child.kill("SIGKILL");
         await exited;
       }
@@ -342,6 +369,7 @@ describe("sequential local runner", () => {
 async function temporary() {
   const directory = await mkdtemp(join(tmpdir(), "arc-local-"));
   directories.push(directory);
+
   return directory;
 }
 
@@ -375,6 +403,7 @@ async function launcherFixture() {
     JSON.stringify({ type: "module", scripts: pkg.scripts }),
   );
   await writeFile(join(directory, ".env.local"), dotenv(fixtureEnv));
+
   const child = `
 import { appendFile } from 'node:fs/promises';
 const kind = import.meta.path.includes('sync-discord') ? 'sync' : import.meta.path.includes('ops.ts') ? 'ops' : 'dev';
@@ -388,31 +417,35 @@ if (kind === 'sync' && process.env.HOLD_SYNC) {
   setInterval(() => {}, 1000);
 } else if (kind === 'ops' && process.argv[2] === 'setup') console.info('fixture-private-oauth-link');
 `;
+
   for (const path of [
     "scripts/ops.ts",
     "scripts/sync-discord-commands.ts",
     "node_modules/alchemy/bin/cli.js",
   ])
     await writeFile(join(directory, path), child);
+
   return {
     directory,
     capture,
     async run(action: string | string[], env: NodeJS.ProcessEnv = {}) {
-      const args =
-        typeof action === "string"
-          ? ["run", action]
-          : ["run", "scripts/local.ts", ...action];
+      const args = !Array.isArray(action)
+        ? ["run", action]
+        : ["run", "scripts/local.ts", ...action];
+
       const child = Bun.spawn([process.execPath, ...args], {
         cwd: directory,
         env: { PATH: dirname(process.execPath), CAPTURE: capture, ...env },
         stdout: "pipe",
         stderr: "pipe",
       });
+
       const [code, stdout, stderr] = await Promise.all([
         child.exited,
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
       ]);
+
       return { code, output: stdout + stderr.replace(/^\$ .*\n/gm, "") };
     },
     async calls(): Promise<
@@ -425,6 +458,7 @@ if (kind === 'sync' && process.env.HOLD_SYNC) {
       }[]
     > {
       if (!(await Bun.file(capture).exists())) return [];
+
       return (await readFile(capture, "utf8"))
         .trim()
         .split("\n")
@@ -436,6 +470,7 @@ if (kind === 'sync' && process.env.HOLD_SYNC) {
 function alive(pid: number) {
   try {
     process.kill(pid, 0);
+
     return true;
   } catch {
     return false;
@@ -444,6 +479,7 @@ function alive(pid: number) {
 
 async function until(predicate: () => Promise<boolean>) {
   const deadline = Date.now() + 8000;
+
   while (!(await predicate())) {
     if (Date.now() > deadline)
       throw new Error("Local child did not reach the expected state");

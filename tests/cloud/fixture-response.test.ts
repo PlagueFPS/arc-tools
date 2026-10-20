@@ -7,6 +7,7 @@ import { Cause, Effect, Exit, Layer } from "effect";
 import { acknowledgeReconstruction } from "./fixture-response.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
 const reason = "foundation reconstruction probe";
 
 test(
@@ -19,7 +20,9 @@ test(
       }),
       reason,
     );
+
     expect(response.status).toBe(204);
+
     for (const reset of [
       new Cloudflare.RpcCallError({
         method: "reset",
@@ -31,7 +34,9 @@ test(
       const result = yield* Effect.exit(
         acknowledgeReconstruction(reset, reason),
       );
+
       expect(Exit.isFailure(result)).toBeTrue();
+
       if (Exit.isFailure(result))
         expect(Cause.pretty(result.cause)).not.toContain("204");
     }

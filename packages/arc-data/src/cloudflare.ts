@@ -8,7 +8,8 @@ import {
   type CacheStorage,
   dataFromReader,
   EncodedRead,
-  makeCache,
+  Cache,
+  cacheLayer,
 } from "./cache.js";
 import {
   ArcData,
@@ -23,8 +24,10 @@ export const makeDurableStorage: Effect.Effect<
 > = Effect.gen(function* () {
   const { storage } = yield* Cloudflare.DurableObjectState;
   const runtime = yield* RuntimeContext;
+
   const provide = <A, E>(effect: Effect.Effect<A, E, RuntimeContext>) =>
     effect.pipe(Effect.provideService(RuntimeContext, runtime));
+
   return {
     get: (key) => provide(storage.get(key)),
     put: (key, value) => provide(storage.put(key, value)),
@@ -45,13 +48,16 @@ const CacheReply = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("success"), result: EncodedRead }),
   Schema.Struct({ kind: Schema.Literal("failure"), error: DataUnavailable }),
 ]);
+
 export const makeCacheRpc = Effect.fnUntraced(function* (
-  options: Parameters<typeof makeCache>[1] = {},
+  options: Parameters<typeof cacheLayer>[1] = {},
 ) {
   const storage = yield* makeDurableStorage;
-  const cache = yield* makeCache(storage, options).pipe(
-    Effect.provide(FetchHttpClient.layer),
-  );
+
+  const cache = yield* Cache.pipe(
+    Effect.provide(cacheLayer(storage, options)),
+  ).pipe(Effect.provide(FetchHttpClient.layer));
+
   const read = Effect.fn("ArcCache.rpc")(function* (query: ResourceQuery) {
     return yield* cache.read(query).pipe(
       Effect.match({
@@ -62,6 +68,7 @@ export const makeCacheRpc = Effect.fnUntraced(function* (
       Effect.orDie,
     );
   });
+
   return { read, reset: cache.reset };
 });
 
@@ -80,9 +87,11 @@ export class ArcCacheDO extends Cloudflare.DurableObject<ArcCacheDO>()(
   "ArcCache",
   Effect.gen(function* () {
     const source = yield* Effect.serviceOption(CacheSource);
+
     return Effect.gen(function* () {
       const options = Option.isSome(source) ? yield* source.value.options : {};
       const cache = yield* makeCacheRpc(options);
+
       return { read: cache.read };
     });
   }),
@@ -90,9 +99,11 @@ export class ArcCacheDO extends Cloudflare.DurableObject<ArcCacheDO>()(
 
 export const bindData = Effect.gen(function* () {
   const objects = yield* ArcCacheDO;
+
   return Effect.gen(function* () {
     const runtime = yield* RuntimeContext;
     const object = objects.getByName("environment");
+
     return dataFromReader(
       Effect.fn("ArcData.cached")(function* (query) {
         const raw = yield* object.read(query).pipe(
@@ -105,6 +116,7 @@ export const bindData = Effect.gen(function* () {
               }),
           ),
         );
+
         const reply = yield* Schema.decodeUnknownEffect(CacheReply)(raw).pipe(
           Effect.mapError(
             () =>
@@ -114,10 +126,22 @@ export const bindData = Effect.gen(function* () {
               }),
           ),
         );
+
         if (reply.kind === "failure") return yield* reply.error;
+
         return reply.result;
       }),
     );
   });
 });
+
 export const layer = Layer.effect(ArcData, bindData.pipe(Effect.flatten));
+
+export class CacheRpc extends Context.Service<
+  CacheRpc,
+  Effect.Success<ReturnType<typeof makeCacheRpc>>
+>()("@arctools/CacheRpc") {}
+
+export const cacheRpcLayer = (
+  options: Parameters<typeof makeCacheRpc>[0] = {},
+) => Layer.effect(CacheRpc, makeCacheRpc(options));

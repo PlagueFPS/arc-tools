@@ -1,5 +1,14 @@
 import { BASE_API_URL } from "@arctools/utils";
-import { Clock, Effect, Predicate, Schema, SchemaIssue, Stream } from "effect";
+import {
+  Layer,
+  Context,
+  Clock,
+  Effect,
+  Predicate,
+  Schema,
+  SchemaIssue,
+  Stream,
+} from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import {
@@ -25,10 +34,12 @@ export const cachePolicy = {
   maxCacheBytes: 4 * 1024 * 1024,
   maxBodyBytes: 1024 * 1024,
 } as const;
+
 export type CachePolicy = { readonly [K in keyof typeof cachePolicy]: number };
 
 export function canonicalRequest(query: ResourceQuery) {
   const params = new URLSearchParams();
+
   if (query.resource === "items" || query.resource === "arcs") {
     for (const [key, value] of Object.entries(query.params).sort(([a], [b]) =>
       a.localeCompare(b),
@@ -36,9 +47,12 @@ export function canonicalRequest(query: ResourceQuery) {
       if (Predicate.isNotUndefined(value)) params.set(key, String(value));
     }
   }
+
   const suffix = params.size ? `?${params}` : "";
+
   return `/${query.resource}${suffix}`;
 }
+
 export const cacheKey = (query: ResourceQuery) =>
   `v1:json:${canonicalRequest(query)}`;
 
@@ -46,6 +60,7 @@ export const makeSource = Effect.fnUntraced(function* (
   options: { readonly baseUrl?: string; readonly policy?: CachePolicy } = {},
 ) {
   const policy = options.policy ?? cachePolicy;
+
   const client = (yield* HttpClient.HttpClient).pipe(
     HttpClient.mapRequest((request) =>
       request.pipe(
@@ -55,6 +70,7 @@ export const makeSource = Effect.fnUntraced(function* (
     ),
     HttpClient.filterStatusOk,
   );
+
   const fetch = Effect.fn("ArcData.source")(
     function* <A, I>(query: ResourceQuery, schema: Schema.Codec<A, I>) {
       const path = canonicalRequest(query);
@@ -65,6 +81,7 @@ export const makeSource = Effect.fnUntraced(function* (
         Stream.runForEach(
           Effect.fnUntraced(function* (chunk) {
             size += chunk.byteLength;
+
             if (size > policy.maxBodyBytes)
               return yield* new DataUnavailable({
                 resource: query.resource,
@@ -76,10 +93,12 @@ export const makeSource = Effect.fnUntraced(function* (
       );
       const bytes = new Uint8Array(size);
       let offset = 0;
+
       for (const chunk of chunks) {
         bytes.set(chunk, offset);
         offset += chunk.byteLength;
       }
+
       return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(
         new TextDecoder().decode(bytes),
       ).pipe(
@@ -104,16 +123,19 @@ export const makeSource = Effect.fnUntraced(function* (
         ),
       ),
   );
+
   return { fetch };
 });
 
 export const makeUncachedData = Effect.gen(function* () {
   const source = yield* makeSource();
+
   const read = Effect.fnUntraced(function* <A, I>(
     query: ResourceQuery,
     schema: Schema.Codec<A, I>,
   ) {
     const response = yield* source.fetch(query, schema);
+
     return {
       value: response,
       provenance: {
@@ -122,12 +144,14 @@ export const makeUncachedData = Effect.gen(function* () {
       },
     };
   });
+
   return ArcData.of({
     items: Effect.fnUntraced(function* (params) {
       const result = yield* read(
         { resource: "items", params },
         ItemAPIResponse,
       );
+
       return { ...result, value: result.value.data };
     }),
     arcs: Effect.fnUntraced(function* (params) {
@@ -135,10 +159,12 @@ export const makeUncachedData = Effect.gen(function* () {
         { resource: "arcs", params: { includeLoot: true, ...params } },
         ArcsAPIResponse,
       );
+
       return { ...result, value: result.value.data };
     }),
     traders: Effect.fnUntraced(function* () {
       const result = yield* read({ resource: "traders" }, TradersAPIResponse);
+
       return { ...result, value: result.value.data };
     }),
     events: Effect.fnUntraced(function* () {
@@ -146,7 +172,18 @@ export const makeUncachedData = Effect.gen(function* () {
         { resource: "events-schedule" },
         EventAPIResponse,
       );
+
       return { ...result, value: result.value.data };
     }),
   });
 });
+
+export class Source extends Context.Service<
+  Source,
+  Effect.Success<ReturnType<typeof makeSource>>
+>()("@arctools/Source") {}
+
+export const sourceLayer = (options: Parameters<typeof makeSource>[0] = {}) =>
+  Layer.effect(Source, makeSource(options));
+
+export const layerUncached = Layer.effect(ArcData, makeUncachedData);

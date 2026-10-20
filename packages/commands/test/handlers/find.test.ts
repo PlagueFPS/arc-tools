@@ -34,6 +34,7 @@ describe("findHandler", () => {
       const result = yield* run({
         items: [item({ loot_area: "Cargo Bay" })],
       })("item");
+
       expect(result).toBe("Item can be found in Cargo Bay areas.");
     }),
   );
@@ -51,6 +52,7 @@ describe("findHandler", () => {
           }),
         ],
       })("item");
+
       expect(result).toBe("Item can be dropped by Arc One, Arc Two.");
     }),
   );
@@ -66,6 +68,7 @@ describe("findHandler", () => {
           }),
         ],
       })("item");
+
       expect(result).toBe(
         "Item can be found in Cargo areas and can be dropped by Bastion.",
       );
@@ -78,6 +81,7 @@ describe("findHandler", () => {
       const result = yield* run({
         items: [item({ loot_area: null, dropped_by: null })],
       })("item");
+
       expect(result).toBe(
         "[Warn] loot area or dropped by data not found for Item",
       );
@@ -90,6 +94,7 @@ describe("findHandler", () => {
       const result = yield* run({
         items: [item({ loot_area: null, dropped_by: [] })],
       })("item");
+
       expect(result).toBe(
         "[Warn] loot area or dropped by data not found for Item",
       );

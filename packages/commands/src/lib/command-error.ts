@@ -13,6 +13,7 @@ export class CommandError extends Schema.TaggedError<CommandError>()(
       this.cause instanceof DataUnavailable
         ? this.cause.message
         : "Something went wrong while executing your command!";
+
     return this.stale ? `${message} [Using cached data]` : message;
   }
 }

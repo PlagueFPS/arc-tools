@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import { Result, Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 
 import { AttemptId, Deadline } from "../src/contracts.js";
@@ -17,6 +17,7 @@ import {
 } from "./tenant-fixture.js";
 
 const { test: effectTest } = Test.make({ providers: Layer.empty });
+
 const test = <E>(name: string, effect: Effect.Effect<void, E>) =>
   effectTest(name, effect.pipe(Effect.provide(TestClock.layer())));
 
@@ -29,8 +30,10 @@ for (const [activation, at] of [
     `fresh Discord admission reconciles eight abandoned claims at ${at} in ${activation} activation`,
     Effect.gen(function* () {
       const f = yield* tenantFixture();
+
       for (let i = 0; i < 8; i++) {
         const entered = yield* Deferred.make<void>();
+
         const tenant = yield* f.construct("first", {
           ...f.source.data,
           items: () =>
@@ -38,12 +41,15 @@ for (const [activation, at] of [
               Effect.andThen(Effect.never),
             ),
         });
+
         const running = yield* tenant
           .respondDiscord(discordReceipt(`old-${i}`))
           .pipe(Effect.forkChild);
+
         yield* Deferred.await(entered);
         yield* Fiber.interrupt(running);
       }
+
       const before = f.snapshot();
       expect(f.alarm()).toBeNull();
       yield* TestClock.setTime(at);
@@ -51,6 +57,7 @@ for (const [activation, at] of [
       expect(yield* tenant.respondDiscord(discordReceipt("fresh", at))).toEqual(
         discordResponse("Sensors can be sold for 10 coins each"),
       );
+
       for (let i = 0; i < 8; i++) {
         const id = `old-${i}`;
         expect(f.snapshot().works[id]).toMatchObject({
@@ -66,6 +73,7 @@ for (const [activation, at] of [
         );
         expect(f.snapshot().works[id]?.retainUntil).toBe(603000);
       }
+
       expect(Object.keys(f.snapshot().works)).toHaveLength(9);
       expect(f.alarm()).toBeNull();
     }),
@@ -77,8 +85,10 @@ test(
     const f = yield* tenantFixture();
     const release = yield* Deferred.make<void>();
     const running = [];
+
     for (let i = 0; i < 8; i++) {
       const entered = yield* Deferred.make<void>();
+
       const tenant = yield* f.construct("first", {
         ...f.source.data,
         items: (params) =>
@@ -87,6 +97,7 @@ test(
             Effect.andThen(f.source.data.items(params)),
           ),
       });
+
       running.push(
         yield* tenant
           .respondDiscord(discordReceipt(`live-${i}`))
@@ -94,18 +105,20 @@ test(
       );
       yield* Deferred.await(entered);
     }
+
     const tenant = yield* f.construct();
     expect(
       yield* tenant
         .respondDiscord(discordReceipt("overflow"))
         .pipe(Effect.result),
-    ).toMatchObject({ _tag: "Failure", failure: { code: "capacity" } });
+    ).toMatchObject(Result.fail({ code: "capacity" }));
     expect(
       Object.values(f.snapshot().works).every(
         (work) => work.kind === "computing",
       ),
     ).toBeTrue();
     yield* Deferred.succeed(release, undefined);
+
     for (const fiber of running)
       expect((yield* Fiber.join(fiber)).data.flags).toBe(0);
   }),
@@ -121,6 +134,7 @@ for (const retryAt of [100, 200])
         Effect.gen(function* () {
           f.sent.push(input);
           yield* TestClock.setTime(200);
+
           return {
             kind: "retryable",
             retryAt: Deadline.make(retryAt),
@@ -138,6 +152,7 @@ for (const retryAt of [100, 200])
       f.dispatch((input) =>
         Effect.sync(() => {
           f.sent.push(input);
+
           return { kind: "sent", messageId: "sent" };
         }),
       );
@@ -164,6 +179,7 @@ for (const [retryAt, completed] of [
         Effect.gen(function* () {
           f.sent.push(input);
           yield* TestClock.setTime(completed);
+
           return {
             kind: "retryable",
             retryAt: Deadline.make(retryAt),
@@ -197,10 +213,12 @@ test(
     const bodies: unknown[] = [];
     a.control.responses.set("POST /chat/messages", async (request) => {
       bodies.push(await request.json());
+
       if (bodies.length === 1) {
         gate.entered.resolve();
         await gate.release.promise;
       }
+
       return Response.json({
         data: [{ is_sent: true, message_id: `part-${bodies.length}` }],
       });
@@ -246,10 +264,12 @@ for (const transport of ["discord", "twitch"] as const)
     `unexpected ${transport} command defect stores a friendly terminal result and frees capacity`,
     Effect.gen(function* () {
       const f = yield* tenantFixture();
+
       const tenant = yield* f.construct("first", {
         ...f.source.data,
         items: () => Effect.die("CANARY-RAW-CAUSE"),
       });
+
       if (transport === "discord") {
         expect(yield* tenant.respondDiscord(discordReceipt())).toEqual(
           discordResponse(friendlyFailure, true),
@@ -259,9 +279,11 @@ for (const transport of ["discord", "twitch"] as const)
         yield* f.drain;
         expect(f.sent.map((send) => send.text)).toEqual([friendlyFailure]);
       }
+
       expect(f.snapshot().works.work?.kind).toBe("terminal");
       expect(JSON.stringify(f.snapshot())).not.toContain("CANARY");
       const next = yield* f.construct();
+
       if (transport === "discord")
         expect(
           (yield* next.respondDiscord(discordReceipt("fresh"))).data.flags,
@@ -271,6 +293,7 @@ for (const transport of ["discord", "twitch"] as const)
         yield* f.drain;
         expect(f.sent).toHaveLength(2);
       }
+
       expect(f.alarm()).toBeNull();
     }),
   );
@@ -280,6 +303,7 @@ test(
   Effect.gen(function* () {
     const f = yield* tenantFixture();
     const first = yield* f.construct();
+
     for (let i = 0; i < 8; i++)
       yield* first.acceptTwitch(twitchReceipt(`batch-${i}`));
     const restored = yield* f.construct("new");
@@ -305,14 +329,17 @@ test(
   Effect.gen(function* () {
     const f = yield* tenantFixture();
     const entered = yield* Deferred.make<void>();
+
     const tenant = yield* f.construct("first", {
       ...f.source.data,
       items: () =>
         Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
     });
+
     const running = yield* tenant
       .respondDiscord(discordReceipt())
       .pipe(Effect.forkChild);
+
     yield* Deferred.await(entered);
     yield* Fiber.interrupt(running);
     expect(f.snapshot().works.work?.kind).toBe("computing");
@@ -335,6 +362,7 @@ test(
     const f = yield* tenantFixture();
     const entered = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
+
     const tenant = yield* f.construct("first", {
       ...f.source.data,
       items: (params) =>
@@ -344,9 +372,11 @@ test(
           Effect.uninterruptible,
         ),
     });
+
     const original = yield* tenant
       .respondDiscord(discordReceipt())
       .pipe(Effect.forkChild);
+
     yield* Deferred.await(entered);
     yield* TestClock.adjust(2350);
     const timeout = yield* tenant.respondDiscord(discordReceipt());
@@ -366,6 +396,7 @@ test(
   Effect.gen(function* () {
     const f = yield* tenantFixture();
     let writes = 0;
+
     const storage = {
       read: f.store.read,
       update: <A>(change: Parameters<typeof f.store.update<A>>[0]) =>
@@ -375,10 +406,13 @@ test(
             : f.store.update(change),
         ),
     };
+
     const discord = yield* f.construct("first", f.source.data, storage);
+
     const brokenWrite = yield* discord
       .respondDiscord(discordReceipt())
       .pipe(Effect.exit);
+
     expect(
       Exit.isFailure(brokenWrite) && Cause.hasDies(brokenWrite.cause),
     ).toBeTrue();
@@ -407,6 +441,7 @@ test(
     const bodies: unknown[] = [];
     a.control.responses.set("POST /chat/messages", async (request) => {
       bodies.push(await request.json());
+
       return bodies.length === 1
         ? Response.json({}, { status: 429 })
         : Response.json({
@@ -418,8 +453,10 @@ test(
       Effect.gen(function* () {
         f.sent.push(input);
         const outcome = yield* account.service.dispatch(input);
+
         if (outcome.kind === "retryable")
           yield* TestClock.setTime(start + 1500);
+
         return outcome;
       }),
     );

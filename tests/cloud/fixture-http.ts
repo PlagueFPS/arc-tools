@@ -1,9 +1,12 @@
 import { Effect, Schedule, Schema } from "effect";
 
 export const fixtureHeader = "x-arc-cloud-fixture";
+
 export const fixtureRequestMs = 20000;
+
 const placeholderSha256 =
   "2000e6b28a1517ba1268e1649cd3163326ef839492edfdba31e8959830580976";
+
 const Diagnostic = Schema.Struct({
   method: Schema.String,
   route: Schema.String,
@@ -28,10 +31,12 @@ const Diagnostic = Schema.Struct({
     }),
   ),
 });
+
 export class FixtureHttpError extends Schema.TaggedError<FixtureHttpError>()(
   "FixtureHttpError",
   { message: Schema.String, diagnostic: Diagnostic },
 ) {}
+
 class FixtureRouteNotReady extends Schema.TaggedError<FixtureRouteNotReady>()(
   "FixtureRouteNotReady",
   { diagnostic: Diagnostic },
@@ -56,6 +61,7 @@ export const makeFixtureHttp = (
       const parsed = new URL(url);
       const method = init.method ?? "GET";
       const route = `${parsed.hostname}${parsed.pathname}`;
+
       const response = yield* Effect.tryPromise({
         try: (signal) => fetcher(url, { ...init, redirect: "manual", signal }),
         catch: () =>
@@ -63,6 +69,7 @@ export const makeFixtureHttp = (
             `Fixture transport failed for ${method} ${route}; execution unknown, not retried`,
           ),
       });
+
       const body = yield* Effect.tryPromise({
         try: () => response.clone().arrayBuffer(),
         catch: () =>
@@ -70,9 +77,11 @@ export const makeFixtureHttp = (
             `Fixture body read failed for ${method} ${route}; execution unknown, not retried`,
           ),
       });
+
       const digest = yield* Effect.promise(() =>
         crypto.subtle.digest("SHA-256", body),
       );
+
       const diagnostic = {
         method,
         route,
@@ -97,6 +106,7 @@ export const makeFixtureHttp = (
           fallbackCode: response.headers.get("x-arc-command-code"),
         },
       };
+
       const routeNotReady = isRouteNotReady(parsed, diagnostic);
       console.info(
         JSON.stringify({
@@ -104,12 +114,15 @@ export const makeFixtureHttp = (
           ...diagnostic,
         }),
       );
+
       if (routeNotReady) return yield* new FixtureRouteNotReady({ diagnostic });
+
       if (!response.ok)
         return yield* new FixtureHttpError({
           message: "Unexpected fixture HTTP status; not retried",
           diagnostic,
         });
+
       return response;
     },
     (effect) =>
@@ -122,12 +135,14 @@ export const makeFixtureHttp = (
         Effect.timeout(fixtureRequestMs),
       ),
   );
-  const post = (url: string, body?: unknown) =>
+
+  const post = (url: string, body?: Schema.Json) =>
     request(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+
   const json = Effect.fnUntraced(function* <A, I>(
     response: Response,
     schema: Schema.Codec<A, I>,
@@ -139,6 +154,7 @@ export const makeFixtureHttp = (
         ),
       );
     }
+
     if (
       response.headers.get("content-type")?.split(";")[0] !== "application/json"
     ) {
@@ -148,21 +164,25 @@ export const makeFixtureHttp = (
         ),
       );
     }
-    const value: unknown = yield* Effect.tryPromise({
+
+    const value: Schema.Json = yield* Effect.tryPromise({
       try: () => response.json(),
       catch: () =>
         new Error(
           `Malformed fixture JSON at status ${response.status}; body omitted, not retried`,
         ),
     });
+
     return yield* Schema.decodeUnknownEffect(schema)(value);
   });
+
   const get = Effect.fnUntraced(function* <A, I>(
     url: string,
     schema: Schema.Codec<A, I>,
   ) {
     return yield* json(yield* request(url), schema);
   });
+
   return { request, post, get, json };
 };
 
@@ -190,11 +210,13 @@ export const reconstructedSnapshot = Effect.fnUntraced(function* <
     }),
     Effect.timeout("5 seconds"),
   );
+
   if (result.instance === previous)
     return yield* Effect.fail(
       new Error(
         `Reconstruction not observed after 21 snapshots of ${previous}`,
       ),
     );
+
   return result;
 });

@@ -36,6 +36,7 @@ describe("lootHandler", () => {
           arc({ id: "bastion", loot: [{ item: { id: "a", name: "A" } }] }),
         ],
       })("bastion");
+
       expect(result).toBe("Bastions drop the following items: A");
     }),
   );
@@ -52,6 +53,7 @@ describe("lootHandler", () => {
           }),
         ],
       })("three word arc");
+
       expect(result).toBe(
         "Three Word Arcs drop the following items: Loot Item",
       );
@@ -64,6 +66,7 @@ describe("lootHandler", () => {
       const result = yield* run({
         arcs: [arc({ loot: null })],
       })("bastion");
+
       expect(result).toBe("[Warn] loot data not found for Bastion");
     }),
   );
@@ -74,6 +77,7 @@ describe("lootHandler", () => {
       const result = yield* run({
         arcs: [arc({ loot: [] })],
       })("bastion");
+
       expect(result).toBe("No loot found for Bastion");
     }),
   );
@@ -91,6 +95,7 @@ describe("lootHandler", () => {
           }),
         ],
       })("bastion");
+
       expect(result).toBe("Bastions drop the following items: A, B");
     }),
   );

@@ -13,6 +13,7 @@ export const eventHandler = Effect.fn("Command.eventHandler")(
     }
 
     let normalizedSearch = normalize(search);
+
     if (normalizedSearch.includes("queen")) {
       normalizedSearch = "harvester";
     }
@@ -20,6 +21,7 @@ export const eventHandler = Effect.fn("Command.eventHandler")(
     const match = yield* getEvents().pipe(
       Effect.flatMap((events) => selectEvent(events, normalizedSearch)),
     );
+
     if (Option.isNone(match)) {
       return yield* Effect.succeed(
         `[Warn] No event or map found matching: ${normalizedSearch}`,
@@ -31,12 +33,14 @@ export const eventHandler = Effect.fn("Command.eventHandler")(
 
     if (match.value.startTime <= now && now <= match.value.endTime) {
       const remaining = match.value.endTime - now;
+
       return yield* Effect.succeed(
         `${base} is active now (ends in ${formatMinutes(remaining)})`,
       );
     }
 
     const startsIn = match.value.startTime - now;
+
     return yield* Effect.succeed(
       `${base} starts in ${formatMinutes(startsIn)}`,
     );

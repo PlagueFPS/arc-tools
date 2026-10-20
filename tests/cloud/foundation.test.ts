@@ -23,12 +23,14 @@ import {
 import { ProbeSnapshot } from "./probe.js";
 
 const settings = cloudSettings(process.env);
+
 const options = {
   providers: Cloudflare.providers(),
   state: Cloudflare.state(),
   stage: settings.stage,
   profile: settings.profile,
 };
+
 export const { test, beforeAll, afterAll, deploy, destroy } =
   Test.make(options);
 
@@ -62,9 +64,11 @@ beforeAll(
   Effect.gen(function* () {
     const deployed = yield* stack;
     yield* get(`${deployed.probeUrl}/snapshot`, ProbeSnapshot);
+
     const namespaces = yield* Core.withProviders(
       Effect.gen(function* () {
         const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
+
         return yield* DurableObjects.listNamespaces
           .items({ accountId })
           .pipe(Stream.runCollect);
@@ -72,11 +76,14 @@ beforeAll(
       options,
       Stack.stackName,
     );
+
     const probeNamespaces = namespaces.filter(
       (namespace) => namespace.script === deployed.probeWorkerName,
     );
+
     expect(probeNamespaces.length).toBe(1);
     expect(probeNamespaces[0]?.useSqlite).toBeTrue();
+
     const workerNames = [
       deployed.workerName,
       deployed.probeWorkerName,
@@ -88,32 +95,38 @@ beforeAll(
         deployed.tenantWorkerName,
       ].filter((name) => name !== undefined),
     ];
+
     const stackNamespaces = namespaces.filter((namespace) =>
       workerNames.includes(namespace.script ?? ""),
     );
+
     if (settings.stage.startsWith("test-cache-")) {
       expect(stackNamespaces.length).toBe(6);
       expect(
         stackNamespaces.every((namespace) => namespace.useSqlite),
       ).toBeTrue();
     }
+
     if (settings.stage.startsWith("test-account-")) {
       expect(stackNamespaces.length).toBe(8);
       expect(
         stackNamespaces.every((namespace) => namespace.useSqlite),
       ).toBeTrue();
     }
+
     if (settings.stage.startsWith("test-tenant-")) {
       expect(stackNamespaces.length).toBe(10);
       expect(
         stackNamespaces.every((namespace) => namespace.useSqlite),
       ).toBeTrue();
     }
+
     const evidence = yield* Schema.decodeUnknownEffect(CloudResourceEvidence)({
       stage: settings.stage,
       workers: workerNames,
       namespaces: stackNamespaces.map((namespace) => namespace.id),
     });
+
     yield* Effect.promise(() =>
       writeFile(
         new URL(
@@ -145,13 +158,16 @@ test(
       revision: "unreleased",
       manifestHash: yield* manifestHash,
     });
+
     const bytes = new Uint8Array([
       0, 255, 13, 10, 32, 123, 34, 120, 34, 58, 49, 125, 10,
     ]);
+
     const response = yield* request(`${url}/raw`, {
       method: "POST",
       body: bytes,
     });
+
     expect(response.status).toBe(200);
     expect(
       new Uint8Array(yield* Effect.promise(() => response.arrayBuffer())),
@@ -166,6 +182,7 @@ test(
     const { probeUrl: url } = yield* stack;
     const response = yield* post(`${url}/prepare`);
     expect(response.status).toBe(200);
+
     const result = yield* json(
       response,
       Schema.Struct({
@@ -174,15 +191,18 @@ test(
         snapshot: ProbeSnapshot,
       }),
     );
+
     expect(result.rolledBack).toBeTrue();
     expect(result.snapshot.value).toBe("committed");
     expect(result.snapshot.attempts).toBe(0);
     expect(result.snapshot.alarm).toBe(result.before);
     expect((yield* post(`${url}/reset`)).status).toBe(204);
+
     const reconstructed = yield* reconstructedSnapshot(
       snapshot(url),
       result.snapshot.instance,
     );
+
     expect(reconstructed.instance).not.toBe(result.snapshot.instance);
     expect(reconstructed.value).toBe("committed");
     expect(reconstructed.attempts).toBe(0);
@@ -202,11 +222,14 @@ test(
     expect(armed.completed).toBeFalse();
     expect(armed.alarm).toBeNumber();
     expect((yield* post(`${url}/reset`)).status).toBe(204);
+
     const reconstructed = yield* reconstructedSnapshot(
       snapshot(url),
       armed.instance,
     );
+
     expect(reconstructed.instance).not.toBe(armed.instance);
+
     const completed = yield* snapshot(url).pipe(
       Effect.repeat({
         until: (value) => value.completed,
@@ -214,6 +237,7 @@ test(
         schedule: Schedule.spaced("1 second"),
       }),
     );
+
     yield* Effect.logInfo("alarm-retry-observation", {
       observedAt: Date.now(),
       armed,
@@ -236,6 +260,7 @@ if (
   const { registerCacheTests } = await import("./cache-cases.js");
   registerCacheTests({ stack, test });
 }
+
 if (
   settings.stage.startsWith("test-account-") ||
   settings.stage.startsWith("test-tenant-")

@@ -12,6 +12,7 @@ export const sellHandler = Effect.fn("Command.sellHandler")(
     }
 
     const item = yield* resolveItem(search, { minimal: true });
+
     if (Option.isNone(item)) {
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }

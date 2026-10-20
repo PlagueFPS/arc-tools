@@ -4,6 +4,7 @@ import { Schema } from "effect";
 import { digest } from "./provider-http.js";
 
 const locales = Schema.NullOr(Schema.Record(Schema.String, Schema.String));
+
 const Option = Schema.Struct({
   type: Schema.Int,
   name: Schema.String,
@@ -24,6 +25,7 @@ const Option = Schema.Struct({
   min_length: Schema.optional(Schema.Number),
   max_length: Schema.optional(Schema.Number),
 });
+
 export const RemoteCommands = Schema.Array(
   Schema.Struct({
     type: Schema.optional(Schema.Int),
@@ -38,7 +40,9 @@ export const RemoteCommands = Schema.Array(
     description_localizations: Schema.optional(locales),
   }),
 );
+
 export type RemoteCommands = typeof RemoteCommands.Type;
+
 const localizations = (
   value: Readonly<Record<string, string>> | null | undefined,
 ) =>
@@ -47,6 +51,7 @@ const localizations = (
         Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
       )
     : null;
+
 export function normalizeManifest(input: RemoteCommands) {
   return input
     .map((command) => ({
@@ -81,6 +86,7 @@ export function normalizeManifest(input: RemoteCommands) {
     }))
     .sort((a, b) => a.type - b.type || a.name.localeCompare(b.name));
 }
+
 export const commandManifest = commands.map((command) => ({
   type: 1,
   name: command.name,
@@ -102,6 +108,8 @@ export const commandManifest = commands.map((command) => ({
     description_localizations: null,
   })),
 })) satisfies RemoteCommands;
+
 export const canonicalManifest = (input: RemoteCommands) =>
   JSON.stringify(normalizeManifest(input));
+
 export const manifestHash = digest(canonicalManifest(commandManifest));

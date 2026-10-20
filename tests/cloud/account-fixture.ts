@@ -16,9 +16,12 @@ import {
   OAuthCompletion,
   SubscriptionObservation,
 } from "../../apps/bot/src/twitch-contracts.js";
-import { makeProvider } from "../../apps/bot/src/twitch-provider.js";
+import {
+  TwitchProvider,
+  providerLayer,
+} from "../../apps/bot/src/twitch-provider.js";
 import { AccountState, policy } from "../../apps/bot/src/twitch-state.js";
-import { makeAccountRpc } from "../../apps/bot/src/twitch.js";
+import { AccountRpc, accountRpcLayer } from "../../apps/bot/src/twitch.js";
 import {
   CurrentValidationOrigin,
   observeValidations,
@@ -37,24 +40,31 @@ const Configure = Schema.Struct({
   revision: Schema.String,
   channels: Schema.NonEmptyArray(Schema.String),
 });
+
 export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtureObject>()(
   "AccountFixture",
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
+
     const source = yield* Cloudflare.Worker(
       TwitchProviderFixture.LogicalId,
       {},
     );
+
     const sourceUrl = yield* source.url;
     const config = yield* runtimeConfig.pipe(Effect.orDie);
+
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
+
       const event = (
         kind: Parameters<typeof recordActivation>[1]["kind"],
         alarmRun: number | null = null,
       ) => recordActivation(state.storage, { kind, instance, alarmRun });
+
       yield* event("activation");
       const logs: string[] = [];
+
       const logger = Logger.make((options) => {
         logs.push(
           JSON.stringify({
@@ -62,17 +72,24 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
             cause: Cause.pretty(options.cause),
           }),
         );
+
         if (logs.length > 128) logs.shift();
       });
+
       const baseUrl = yield* sourceUrl;
-      if (typeof baseUrl !== "string")
+
+      if (!Schema.is(Schema.String)(baseUrl))
         return yield* Effect.die("Provider fixture URL unavailable");
       const realClock = yield* Clock.Clock;
+
       let time =
         (yield* state.storage.get<number>("fixtureTime")) ?? Date.now();
+
       let realtime =
         (yield* state.storage.get<boolean>("fixtureRealtime")) ?? false;
+
       const now = () => (realtime ? Date.now() : time);
+
       const clock: Clock.Clock = {
         currentTimeMillis: Effect.sync(now),
         currentTimeMillisUnsafe: now,
@@ -82,49 +99,66 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         monotonicTimeNanosUnsafe: () => realClock.monotonicTimeNanosUnsafe(),
         sleep: (duration) => realClock.sleep(duration),
       };
+
       const build = Effect.fnUntraced(function* () {
         yield* event("build");
+
         const override = (yield* state.storage.get<typeof Configure.Type>(
           "fixtureConfig",
         )) ?? {
           revision: "fixture-revision",
           channels: ["fixture_channel", "fixture_other"],
         };
+
         const identity = yield* Schema.decodeUnknownEffect(EnvironmentConfig)({
           ...config.identity,
           channelLogins: override.channels,
         }).pipe(Effect.orDie);
+
         const callback = "https://fixture.invalid/webhooks/twitch";
         const redirect = "https://fixture.invalid/oauth/twitch/callback";
+
         const providerFor = (
           correlation: Parameters<typeof validationEndpoints>[1],
         ) =>
-          makeProvider(
-            {
-              clientId: identity.twitchClientId,
-              clientSecret: Redacted.make("CANARY-CLIENT-SECRET"),
-              signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
-              callback,
-              redirect,
-            },
-            validationEndpoints(baseUrl, correlation),
+          Effect.runSync(
+            TwitchProvider.pipe(
+              Effect.provide(
+                providerLayer(
+                  {
+                    clientId: identity.twitchClientId,
+                    clientSecret: Redacted.make("CANARY-CLIENT-SECRET"),
+                    signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+                    callback,
+                    redirect,
+                  },
+                  validationEndpoints(baseUrl, correlation),
+                ),
+              ),
+            ),
           );
-        return yield* makeAccountRpc(
-          {
-            identity,
-            revision: override.revision,
-            callback,
-            redirect,
-            webhookReady: true,
-            subscriptionBinding: yield* subscriptionBinding({
-              callback,
-              clientId: identity.twitchClientId,
-              signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
-            }),
-          },
-          yield* observeValidations(providerFor, state.storage, instance),
+
+        return yield* AccountRpc.pipe(
+          Effect.provide(
+            accountRpcLayer(
+              {
+                identity,
+                revision: override.revision,
+                callback,
+                redirect,
+                webhookReady: true,
+                subscriptionBinding: yield* subscriptionBinding({
+                  callback,
+                  clientId: identity.twitchClientId,
+                  signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+                }),
+              },
+              yield* observeValidations(providerFor, state.storage, instance),
+            ),
+          ),
         );
       });
+
       let account = yield* build().pipe(
         Effect.provideService(Clock.Clock, clock),
         Effect.provideService(CurrentValidationOrigin, {
@@ -132,11 +166,13 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           alarmRun: null,
         }),
       );
+
       const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         effect.pipe(
           Effect.provideService(Clock.Clock, clock),
           Effect.provideService(Logger.CurrentLoggers, new Set([logger])),
         );
+
       return {
         setup: () => run(account.setup("fixture-operator-digest")),
         status: () => run(account.status()),
@@ -153,8 +189,10 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           ),
         alarm: Effect.fnUntraced(function* () {
           const entryAlarm = yield* state.storage.getAlarm();
+
           const runs =
             ((yield* state.storage.get<number>("fixtureAlarmRuns")) ?? 0) + 1;
+
           yield* state.storage.put("fixtureAlarmRuns", runs);
           yield* event("alarm-entry", runs);
           yield* run(account.alarm()).pipe(
@@ -174,6 +212,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           realtime = true;
           yield* state.storage.put("fixtureRealtime", true);
           const setup = yield* run(account.setup("fixture-operator-digest"));
+
           if (setup.kind !== "success")
             return yield* Effect.die("Native alarm setup failed");
           const until = Date.now() + policy.tokenLeaseMs;
@@ -181,9 +220,11 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
             .transaction(
               Effect.gen(function* () {
                 const raw = yield* state.storage.get<unknown>("account:v1");
+
                 const record = yield* Schema.decodeUnknownEffect(AccountState)(
                   raw,
                 ).pipe(Effect.orDie);
+
                 const intended = Date.now() + 1_500;
                 yield* state.storage.put("account:v1", {
                   ...record,
@@ -194,6 +235,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
               }),
             )
             .pipe(Effect.orDie);
+
           return { instance, until };
         }),
         nativeAlarmSnapshot: Effect.fnUntraced(function* () {
@@ -201,9 +243,11 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
             .transaction(
               Effect.gen(function* () {
                 const raw = yield* state.storage.get<unknown>("account:v1");
+
                 const record = yield* Schema.decodeUnknownEffect(AccountState)(
                   raw,
                 ).pipe(Effect.orDie);
+
                 return {
                   instance,
                   capturedAt: Date.now(),
@@ -244,6 +288,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         snapshot: Effect.fnUntraced(function* () {
           const raw = yield* state.storage.get<unknown>("account:v1");
           const serialized = JSON.stringify(raw);
+
           return {
             instance,
             time,
@@ -264,6 +309,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
     });
   }),
 ) {}
+
 class AccountApi extends HttpApi.make("account-fixture").add(
   HttpApiGroup.make("account").add(
     HttpApiEndpoint.post("setup", "/setup"),
@@ -282,10 +328,12 @@ class AccountApi extends HttpApi.make("account-fixture").add(
     HttpApiEndpoint.get("nativeSnapshot", "/native-alarm/snapshot"),
   ),
 ) {}
+
 export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker>()(
   "AccountFixtureWorker",
   Effect.gen(function* () {
     const { stage } = yield* Stack;
+
     return {
       name: `arc-tools-account-${stage}`,
       main: import.meta.url,
@@ -297,8 +345,10 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
     const objects = yield* AccountFixtureObject;
     const object = () => objects.getByName("environment");
     const nativeObject = () => objects.getByName("native-alarm");
+
     const json = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(Effect.map(HttpServerResponse.jsonUnsafe));
+
     const input = Effect.fnUntraced(function* <A, I>(
       request: import("effect/http/HttpServerRequest").HttpServerRequest,
       schema: Schema.Codec<A, I>,
@@ -308,6 +358,7 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
         Effect.orDie,
       );
     });
+
     const handlers = HttpApiBuilder.group(AccountApi, "account", (handlers) =>
       handlers
         .handleRaw("setup", () => json(object().setup()))
@@ -372,6 +423,7 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
           ),
         ),
     );
+
     return {
       fetch: HttpApiBuilder.layer(AccountApi).pipe(
         Layer.provide(handlers),
@@ -384,4 +436,5 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
     };
   }),
 ) {}
+
 export default AccountFixtureWorker;

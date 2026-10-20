@@ -1,7 +1,7 @@
 import { Stack } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
-import { Deferred, Effect, Layer, Redacted, Schema } from "effect";
+import { Match, Deferred, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -36,6 +36,7 @@ const Grant = Schema.Struct({
   scopes: Schema.Array(Schema.String),
   clientId: Schema.String,
 });
+
 export const ProviderControl = Schema.Struct({
   createStatus: Schema.optional(
     Schema.Literals(["enabled", "webhook_callback_verification_pending"]),
@@ -54,6 +55,7 @@ export const ProviderControl = Schema.Struct({
   badDiscordReadback: Schema.optional(Schema.Boolean),
   changeReleaseAfterWrite: Schema.optional(Schema.Boolean),
 });
+
 export const ProviderSnapshot = Schema.Struct({
   messages: Schema.Array(
     Schema.Struct({
@@ -72,6 +74,7 @@ export const ProviderSnapshot = Schema.Struct({
   bindings: Schema.Record(Schema.String, Schema.String),
   logs: Schema.Array(Schema.String),
 });
+
 export const makeProviderFixture = (
   storage: AttributionStorage & {
     readonly list: <T = unknown>(options: {
@@ -82,6 +85,7 @@ export const makeProviderFixture = (
 ) =>
   Effect.sync(() => {
     const gates = new Map<string, Deferred.Deferred<void>>();
+
     const observation = Effect.fnUntraced(function* (
       key: string,
       fingerprint: string | null = null,
@@ -95,19 +99,24 @@ export const makeProviderFixture = (
           Effect.gen(function* () {
             const n = ((yield* storage.get<number>(`call:${key}`)) ?? 0) + 1;
             yield* storage.put(`call:${key}`, n);
+
             if (fingerprint !== null)
               yield* recordProviderValidation(storage, fingerprint, n, scope);
             const logs = (yield* storage.get<string[]>("logs")) ?? [];
             yield* storage.put("logs", [...logs.slice(-255), key]);
+
             return n;
           }),
         )
         .pipe(Effect.orDie);
     });
+
     const wait = Effect.fnUntraced(function* (key: string) {
       const gate = gates.get(key);
+
       if (gate) yield* Deferred.await(gate);
     });
+
     return {
       control: Effect.fnUntraced(function* (
         input: typeof ProviderControl.Type,
@@ -118,17 +127,24 @@ export const makeProviderFixture = (
           [input.holdMint, "mint"],
         ] as const) {
           if (field) gates.set(key, yield* Deferred.make<void>());
+
           if (field === false) {
             const gate = gates.get(key);
+
             if (gate) yield* Deferred.succeed(gate, undefined);
             gates.delete(key);
           }
         }
+
         const previous =
           (yield* storage.get<typeof ProviderControl.Type>("control")) ?? {};
+
         yield* storage.put("control", { ...previous, ...input });
+
         if (input.resetMessages) yield* storage.put("messages", []);
+
         if (input.remote) yield* storage.put("remote", input.remote);
+
         if (input.commands) yield* storage.put("discord", input.commands);
       }),
       snapshot: Effect.fnUntraced(function* () {
@@ -165,16 +181,20 @@ export const makeProviderFixture = (
         const parsed = parseValidationPath(path);
         url.pathname = parsed.path;
         const key = `${method} ${url.pathname}`;
+
         const fingerprint =
           url.pathname === "/oauth/validate"
             ? yield* credentialFingerprint(authorization.replace(/^OAuth /, ""))
             : null;
+
         const count = yield* observation(key, fingerprint, {
           correlation: parsed.correlation,
           correlationError: parsed.correlationError,
         });
+
         const control =
           (yield* storage.get<typeof ProviderControl.Type>("control")) ?? {};
+
         if (url.pathname === "/health")
           return {
             status: 200,
@@ -185,25 +205,32 @@ export const makeProviderFixture = (
               manifestHash: yield* manifestHash,
             },
           };
+
         if (url.pathname === "/applications/fixture-discord/commands") {
           if (method === "PUT") {
             const commands = yield* Schema.decodeUnknownEffect(
               Schema.fromJsonString(RemoteCommands),
             )(body).pipe(Effect.orDie);
+
             yield* storage.put("discord", commands);
+
             if (control.changeReleaseAfterWrite)
               yield* storage.put("control", {
                 ...control,
                 releaseRevision: "newer-release",
               });
+
             return { status: 200, body: commands };
           }
+
           const full = url.searchParams.get("with_localizations") === "true";
           yield* observation(
             full ? "discord-full-read" : "discord-partial-read",
           );
+
           const commands =
             (yield* storage.get<RemoteCommands>("discord")) ?? [];
+
           return {
             status: 200,
             body: control.badDiscordReadback
@@ -226,11 +253,14 @@ export const makeProviderFixture = (
                   })),
           };
         }
+
         if (url.pathname === "/oauth/token") {
           const form = new URLSearchParams(body);
+
           if (form.get("grant_type") === "client_credentials") {
             yield* observation("mint");
             yield* wait("mint");
+
             return {
               status: 200,
               body: {
@@ -240,9 +270,11 @@ export const makeProviderFixture = (
               },
             };
           }
+
           const grant = yield* Schema.decodeUnknownEffect(
             Schema.fromJsonString(Grant),
           )(form.get("code")).pipe(Effect.orDie);
+
           return {
             status: 200,
             body: {
@@ -253,8 +285,10 @@ export const makeProviderFixture = (
             },
           };
         }
+
         if (url.pathname === "/oauth/validate") {
           const token = authorization.replace(/^OAuth /, "");
+
           if (token.startsWith("synthetic-app-"))
             return {
               status: 200,
@@ -264,9 +298,11 @@ export const makeProviderFixture = (
                 scopes: [],
               },
             };
+
           const grant = yield* Schema.decodeUnknownEffect(
             Schema.fromJsonString(Grant),
           )(token).pipe(Effect.orDie);
+
           return {
             status: 200,
             body: {
@@ -278,25 +314,27 @@ export const makeProviderFixture = (
             },
           };
         }
+
         if (url.pathname === "/helix/users")
           return {
             status: 200,
             body: {
               data: url.searchParams.getAll("login").map((login) => ({
                 login,
-                id:
-                  login === "fixture_sender"
-                    ? "100"
-                    : login === "fixture_channel"
-                      ? "200"
-                      : "300",
+                id: Match.value(login).pipe(
+                  Match.when("fixture_sender", () => "100"),
+                  Match.when("fixture_channel", () => "200"),
+                  Match.orElse(() => "300"),
+                ),
               })),
             },
           };
+
         if (url.pathname === "/helix/eventsub/subscriptions") {
           if (method === "GET") {
             const remote = (yield* storage.get<Subscription[]>("remote")) ?? [];
             const page = Number(url.searchParams.get("after") ?? 0);
+
             return {
               status: 200,
               body: {
@@ -306,12 +344,14 @@ export const makeProviderFixture = (
               },
             };
           }
+
           if (method === "DELETE") {
             yield* storage
               .transaction(
                 Effect.gen(function* () {
                   const remote =
                     (yield* storage.get<Subscription[]>("remote")) ?? [];
+
                   yield* storage.put(
                     "remote",
                     remote.filter(
@@ -322,8 +362,10 @@ export const makeProviderFixture = (
                 }),
               )
               .pipe(Effect.orDie);
+
             return { status: 204, body: null };
           }
+
           const input = yield* Schema.decodeUnknownEffect(
             Schema.fromJsonString(
               Schema.Struct({
@@ -338,11 +380,13 @@ export const makeProviderFixture = (
               }),
             ),
           )(body).pipe(Effect.orDie);
+
           const result = yield* storage
             .transaction(
               Effect.gen(function* () {
                 const remote =
                   (yield* storage.get<Subscription[]>("remote")) ?? [];
+
                 if (
                   remote.some(
                     (subscription) =>
@@ -357,6 +401,7 @@ export const makeProviderFixture = (
                   )
                 )
                   return { status: 409, body: {} };
+
                 const subscription = {
                   ...input,
                   transport: {
@@ -366,6 +411,7 @@ export const makeProviderFixture = (
                   id: `created-${count}`,
                   status: control.createStatus ?? "enabled",
                 };
+
                 yield* storage.put(
                   `binding:${subscription.id}`,
                   yield* subscriptionBinding({
@@ -375,28 +421,35 @@ export const makeProviderFixture = (
                   }),
                 );
                 yield* storage.put("remote", [...remote, subscription]);
+
                 return { status: 202, body: { data: [subscription] } };
               }),
             )
             .pipe(Effect.orDie);
+
           yield* wait("create");
+
           return result;
         }
+
         if (url.pathname === "/helix/chat/messages") {
           const payload = yield* Schema.decodeUnknownEffect(
             Schema.fromJsonString(
               ProviderSnapshot.fields.messages.value.fields.body,
             ),
           )(body).pipe(Effect.orDie);
+
           const messages =
             (yield* storage.get<(typeof ProviderSnapshot.Type)["messages"]>(
               "messages",
             )) ?? [];
+
           yield* storage.put("messages", [
             ...messages.slice(-127),
             { at: Date.now(), body: payload },
           ]);
           yield* wait("send");
+
           return {
             status: control.sendStatus ?? 200,
             body: control.sendBody ?? {
@@ -404,15 +457,18 @@ export const makeProviderFixture = (
             },
           };
         }
+
         return { status: 404, body: {} };
       }),
     };
   });
+
 export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtureState>()(
   "ProviderFixtureState",
   Effect.gen(function* () {
     const { storage } = yield* Cloudflare.DurableObjectState;
     const { identity } = yield* runtimeConfig.pipe(Effect.orDie);
+
     return makeProviderFixture(storage, identity);
   }),
 ) {}
@@ -443,10 +499,12 @@ class ProviderApi extends HttpApi.make("provider-fixture").add(
     ),
   ),
 ) {}
+
 export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixture>()(
   "TwitchProviderFixture",
   Effect.gen(function* () {
     const { stage } = yield* Stack;
+
     return {
       name: `arc-tools-provider-${stage}`,
       main: import.meta.url,
@@ -457,6 +515,7 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
   Effect.gen(function* () {
     const objects = yield* ProviderFixtureState;
     const object = () => objects.getByName("provider");
+
     const provider = Effect.fnUntraced(function* (
       request: import("effect/http/HttpServerRequest").HttpServerRequest,
     ) {
@@ -466,10 +525,12 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
         yield* request.text.pipe(Effect.orDie),
         request.headers.authorization ?? "",
       );
+
       return result.status === 204
         ? HttpServerResponse.empty({ status: 204 })
         : HttpServerResponse.jsonUnsafe(result.body, { status: result.status });
     });
+
     const handlers = HttpApiBuilder.group(ProviderApi, "fixture", (handlers) =>
       handlers
         .handleRaw("control", ({ request }) =>
@@ -478,7 +539,9 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
               Effect.flatMap(Schema.decodeUnknownEffect(ProviderControl)),
               Effect.orDie,
             );
+
             yield* object().control(control);
+
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
@@ -503,6 +566,7 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
         .handleRaw("discordRead", ({ request }) => provider(request))
         .handleRaw("discordWrite", ({ request }) => provider(request)),
     );
+
     return {
       fetch: HttpApiBuilder.layer(ProviderApi).pipe(
         Layer.provide(handlers),
@@ -515,4 +579,5 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
     };
   }),
 ) {}
+
 export default TwitchProviderFixture;

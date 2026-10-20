@@ -5,13 +5,16 @@ import { BroadcasterId } from "./contracts.js";
 import { bounded, DispatchOutcome } from "./twitch-contracts.js";
 
 const Identity = Schema.Struct({ login: bounded(25), id: bounded(64) });
+
 const Session = Schema.Struct({
   token: bounded(4096),
   expiresAt: Schema.Number,
   validatedAt: Schema.Number,
   generation: Schema.String,
 });
+
 const Lease = Schema.Struct({ owner: Schema.String, until: Schema.Number });
+
 const OAuthState = Schema.Struct({
   digest: Schema.String,
   operator: Schema.String,
@@ -23,6 +26,7 @@ const OAuthState = Schema.Struct({
   scopes: Schema.Array(Schema.String),
   expiresAt: Schema.Number,
 });
+
 const Attempt = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("waiting"),
@@ -48,6 +52,7 @@ const Attempt = Schema.Union([
     privateCode: Schema.NullOr(bounded(128)),
   }),
 ]);
+
 export const AccountState = Schema.Struct({
   revision: Schema.String,
   authGeneration: Schema.Int,
@@ -94,7 +99,9 @@ export const AccountState = Schema.Struct({
   apiBlockedUntil: Schema.Number,
   credentialFailures: Schema.Int,
 });
+
 type Persisted = typeof AccountState.Type;
+
 export type AccountState = {
   -readonly [K in keyof Persisted]: K extends
     | "grants"
@@ -104,6 +111,7 @@ export type AccountState = {
     ? { -readonly [P in keyof Persisted[K]]: Persisted[K][P] }
     : Persisted[K];
 };
+
 export const emptyState = (revision: string): AccountState => ({
   revision,
   authGeneration: 0,
@@ -123,13 +131,17 @@ export const emptyState = (revision: string): AccountState => ({
   apiBlockedUntil: 0,
   credentialFailures: 0,
 });
+
 export interface Store {
   readonly update: <A>(f: (state: AccountState) => A) => Effect.Effect<A>;
 }
+
 export class AccountStore extends Context.Service<AccountStore, Store>()(
   "@arctools/AccountStore",
 ) {}
+
 const maxChannels = 32;
+
 export const policy = {
   maxChannels,
   maxOAuth: maxChannels + 1,
@@ -143,18 +155,22 @@ export const policy = {
   globalMessages: 20,
   channelMs: 1_000,
 };
+
 export function reclaim(state: AccountState, now: number) {
   state.oauth = state.oauth.filter((entry) => entry.expiresAt > now);
   state.reservations = state.reservations.filter(
     (entry) => entry.at + policy.globalWindowMs > now,
   );
+
   for (const [key, attempt] of Object.entries(state.attempts)) {
     if (attempt.retainUntil <= now) delete state.attempts[key];
   }
+
   for (const [key, tombstone] of Object.entries(state.revoked)) {
     if (tombstone.until <= now) delete state.revoked[key];
   }
 }
+
 export function reserveAt(
   state: AccountState,
   channel: string,
@@ -163,9 +179,11 @@ export function reserveAt(
   const recent = state.reservations.filter(
     (entry) => entry.at + policy.globalWindowMs > now,
   );
+
   const oldest = recent[recent.length - policy.globalMessages];
   const global = oldest === undefined ? now : oldest.at + policy.globalWindowMs;
   const last = recent.filter((entry) => entry.channel === channel).at(-1);
+
   return Math.max(
     now,
     global,

@@ -1,4 +1,5 @@
 import {
+  Predicate,
   Clock,
   Duration,
   Effect,
@@ -24,12 +25,14 @@ export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
   ]),
   phase: Schema.Literals(["before", "overwrite", "after"]),
 }) {}
+
 export const ReleaseHealth = Schema.Struct({
   status: Schema.Literal("ready"),
   stage: Schema.String,
   revision: Schema.String,
   manifestHash: Schema.String,
 });
+
 export interface Release {
   readonly stage: string;
   readonly revision: string;
@@ -37,6 +40,7 @@ export interface Release {
   readonly applicationId: string;
   readonly token: Redacted.Redacted<string>;
 }
+
 export const RetryAfter = Schema.Number.check(
   Schema.isFinite(),
   Schema.isGreaterThan(0),
@@ -52,6 +56,7 @@ export const RetryAfter = Schema.Number.check(
     }),
   ),
 );
+
 export const syncCommands = Effect.fn("Discord.sync")(function* (
   release: Release,
   options: {
@@ -61,16 +66,20 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
   } = {},
 ) {
   const desired = options.desired ?? commandManifest;
+
   const hash = options.desired
     ? yield* digest(canonicalManifest(desired))
     : yield* manifestHash;
+
   const fence = Effect.fnUntraced(
     function* (phase: "before" | "overwrite" | "after") {
       const result = yield* request(
         `${release.endpoint.replace(/\/$/, "")}/health`,
         {},
       );
-      const health = yield* decodeBody(ReleaseHealth, result.body);
+
+      const health = yield* decodeBody(ReleaseHealth)(result.body);
+
       if (
         result.status !== 200 ||
         health.stage !== release.stage ||
@@ -82,17 +91,20 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
     (effect, phase) =>
       effect.pipe(
         Effect.mapError((error) =>
-          error._tag === "SyncError"
+          Predicate.isTagged(error, "SyncError")
             ? error
             : new SyncError({ code: "provider", phase }),
         ),
       ),
   );
+
   const call = Effect.fnUntraced(
     function* (method: "GET" | "PUT", phase: "before" | "overwrite" | "after") {
       const end = (yield* Clock.currentTimeMillis) + 30_000;
+
       for (let attempt = 0; attempt < 4; attempt++) {
         yield* fence(phase);
+
         const response = yield* request(
           `${options.api ?? "https://discord.com/api/v10"}/applications/${encodeURIComponent(release.applicationId)}/commands${method === "GET" ? "?with_localizations=true" : ""}`,
           {
@@ -101,19 +113,21 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
               Authorization: `Bot ${Redacted.value(release.token)}`,
               "Content-Type": "application/json",
             },
-            ...(method === "PUT" ? { body: JSON.stringify(desired) } : {}),
+            body: method === "PUT" ? JSON.stringify(desired) : undefined,
           },
         );
+
         if (response.status === 429) {
           const retry = yield* decodeBody(
             Schema.Struct({ retry_after: Schema.Number }),
-            response.body,
-          );
+          )(response.body);
+
           const delay = yield* Schema.decodeUnknownEffect(RetryAfter)(
             retry.retry_after,
           ).pipe(
             Effect.mapError(() => new SyncError({ code: "rate-limit", phase })),
           );
+
           if (
             (yield* Clock.currentTimeMillis) + Duration.toMillis(delay) >=
               end ||
@@ -123,30 +137,39 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
           yield* Effect.sleep(delay);
           continue;
         }
+
         if (response.status !== 200)
           return yield* new SyncError({ code: "provider", phase });
-        return yield* decodeBody(RemoteCommands, response.body);
+
+        return yield* decodeBody(RemoteCommands)(response.body);
       }
+
       return yield* new SyncError({ code: "rate-limit", phase });
     },
     (effect, _method, phase) =>
       effect.pipe(
         Effect.mapError((error) =>
-          error._tag === "SyncError"
+          Predicate.isTagged(error, "SyncError")
             ? error
             : new SyncError({ code: "provider", phase }),
         ),
       ),
   );
+
   const remote = yield* call("GET", "before");
   const drift = canonicalManifest(remote) !== canonicalManifest(desired);
+
   if (options.checkOnly) return { changed: false, drift, hash };
+
   if (drift) {
     yield* call("PUT", "overwrite");
     const readback = yield* call("GET", "after");
+
     if (canonicalManifest(readback) !== canonicalManifest(desired))
       return yield* new SyncError({ code: "readback", phase: "after" });
   }
+
   yield* fence("after");
+
   return { changed: drift, drift: false, hash };
 });

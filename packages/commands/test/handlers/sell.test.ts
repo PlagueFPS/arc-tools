@@ -45,6 +45,7 @@ describe("sellHandler", () => {
           },
         ],
       })("sensors");
+
       expect(result).toBe("Sensors can be sold for 25 coins each");
     }),
   );

@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
+import { Result, Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { TestClock } from "effect/testing";
@@ -39,11 +39,14 @@ import { identity } from "./subscription-fixture.js";
 import { tenantFixture } from "./tenant-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
 const callback = "https://bot.invalid/webhooks/twitch";
-const encode = (value: unknown) =>
+
+const encode = (value: Schema.Json) =>
   new TextEncoder().encode(
-    typeof value === "string" ? value : JSON.stringify(value),
+    Schema.is(Schema.String)(value) ? value : JSON.stringify(value),
   );
+
 const fixture = Effect.fnUntraced(function* (
   options: {
     receivedAt?: number;
@@ -57,6 +60,7 @@ const fixture = Effect.fnUntraced(function* (
   const admissions: unknown[] = [];
   const observations: SubscriptionObservation[] = [];
   let reads = 0;
+
   const status = Schema.decodeUnknownSync(AccountStatus)({
     stage: identity.stage,
     revision: "r",
@@ -74,10 +78,12 @@ const fixture = Effect.fnUntraced(function* (
     attempts: 0,
     credentialCheckAt: null,
   });
+
   const account: Account = {
     status: () =>
       Effect.sync(() => {
         reads++;
+
         return status;
       }),
     dispatch: () => Effect.succeed({ kind: "rejected" }),
@@ -88,19 +94,23 @@ const fixture = Effect.fnUntraced(function* (
         observations.push(input);
       }).pipe(Effect.andThen(options.observation?.(input) ?? Effect.void)),
   };
+
   const tenants = Tenants.of({
     acceptTwitch: (receipt) =>
       Effect.sync(() => {
         admissions.push(receipt);
+
         return { kind: "accepted" };
       }),
     respondDiscord: (receipt) =>
       Effect.sync(() => {
         admissions.push(receipt);
+
         return discordResponse("Sensors can be sold for 10 coins each");
       }),
     ...options.tenants,
   });
+
   const handlers = HttpApiBuilder.layer(BotApi).pipe(
     Layer.provide(
       HttpApiBuilder.group(BotApi, "health", (handlers) =>
@@ -128,8 +138,10 @@ const fixture = Effect.fnUntraced(function* (
     Layer.provide(Layer.succeed(Tenants, tenants)),
     Layer.provide(HttpServer.layerServices),
   );
+
   const app = HttpRouter.toWebHandler(handlers, { disableLogger: true });
   yield* Effect.addFinalizer(() => Effect.promise(() => app.dispose()));
+
   const request = (
     path: string,
     body: Uint8Array,
@@ -144,29 +156,34 @@ const fixture = Effect.fnUntraced(function* (
         }),
       ),
     );
+
   const discord = Effect.fnUntraced(function* (
-    value: unknown,
+    value: Schema.Json,
     timestamp = now,
   ) {
     const body = encode(value);
+
     return yield* request(
       "/interactions/discord",
       body,
       yield* signDiscord(body, timestamp),
     );
   });
+
   const twitch = Effect.fnUntraced(function* (
-    value: unknown,
+    value: Schema.Json,
     timestamp = now,
     type = "notification",
   ) {
     const body = encode(value);
+
     return yield* request(
       "/webhooks/twitch",
       body,
       yield* signTwitch(body, "event", timestamp, type),
     );
   });
+
   return {
     receivedAt: now,
     request,
@@ -177,6 +194,7 @@ const fixture = Effect.fnUntraced(function* (
     reads: () => reads,
   };
 });
+
 const json = (response: Response) => Effect.promise(() => response.json());
 
 describe("signed HttpApi ingress", () => {
@@ -185,9 +203,11 @@ describe("signed HttpApi ingress", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const f = yield* fixture();
+
         const body = encode(
           ' { "application_id" : "fixture-discord", "type" : 1 }\r\n',
         );
+
         const signed = yield* signDiscord(body, f.receivedAt);
         expect(
           yield* json(yield* f.request("/interactions/discord", body, signed)),
@@ -261,6 +281,7 @@ describe("signed HttpApi ingress", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const f = yield* fixture();
+
         for (const extra of [
           { application_id: "other" },
           { guild_id: undefined },
@@ -270,10 +291,13 @@ describe("signed HttpApi ingress", () => {
           { data: { name: "sell", type: 2 } },
           { data: { name: "missing", type: 1 } },
         ]) {
-          const response = yield* f.discord({
-            ...discordCommand("id"),
-            ...extra,
-          });
+          const response = yield* f.discord(
+            JSON.stringify({
+              ...discordCommand("id"),
+              ...extra,
+            }),
+          );
+
           expect(response.status).toBe(200);
           expect(yield* json(response)).toMatchObject({
             type: 4,
@@ -283,6 +307,7 @@ describe("signed HttpApi ingress", () => {
             },
           });
         }
+
         expect(f.admissions).toEqual([]);
         expect(yield* json(yield* f.discord(discordCommand("good")))).toEqual(
           discordResponse("Sensors can be sold for 10 coins each"),
@@ -296,11 +321,13 @@ describe("signed HttpApi ingress", () => {
     "slash options trim before empty values are omitted from the invocation",
     Effect.gen(function* () {
       const f = yield* fixture();
+
       const options: ReadonlyArray<readonly [string, string, string]> = [
         ["blank", " \t ", ""],
         ["trimmed", "  sensors\t ", "sensors"],
         ["internal", " heavy  gun parts ", "heavy  gun parts"],
       ];
+
       for (const [id, input, expected] of options) {
         expect(
           (yield* f.discord(discordCommand(id, "sell", input))).status,
@@ -310,6 +337,7 @@ describe("signed HttpApi ingress", () => {
           invocation: { command: "sell", input: expected },
         });
       }
+
       expect(f.admissions).toHaveLength(3);
     }),
   );
@@ -319,6 +347,7 @@ describe("signed HttpApi ingress", () => {
       const f = yield* fixture();
       const body = encode(twitchEvent("headers"));
       const twitch = yield* signTwitch(body, "event", f.receivedAt);
+
       for (const headers of [
         { ...twitch, "twitch-eventsub-message-id": "" },
         { ...twitch, "twitch-eventsub-message-id": "x".repeat(129) },
@@ -333,6 +362,7 @@ describe("signed HttpApi ingress", () => {
         ).toBe(401);
       const discordBody = encode(discordCommand("headers"));
       const discord = yield* signDiscord(discordBody, f.receivedAt);
+
       for (const headers of [
         {},
         { ...discord, "x-signature-timestamp": "" },
@@ -360,6 +390,7 @@ describe("signed HttpApi ingress", () => {
         })).status,
       ).toBe(400);
       expect(f.reads()).toBe(0);
+
       for (const type of ["", "unknown", "Notification"])
         expect(
           (yield* f.request("/webhooks/twitch", body, {
@@ -377,6 +408,7 @@ describe("signed HttpApi ingress", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const f = yield* fixture();
+
         for (const text of ["hello", "!unknown sensors", "ARC: !sell sensors"])
           expect((yield* f.twitch(twitchEvent(text, text))).status).toBe(204);
         expect(f.admissions).toEqual([]);
@@ -403,6 +435,7 @@ describe("signed HttpApi ingress", () => {
       Effect.gen(function* () {
         const f = yield* fixture();
         const event = twitchEvent("message");
+
         for (const value of [
           { ...event, subscription: { ...event.subscription, version: "2" } },
           {
@@ -438,6 +471,7 @@ describe("signed HttpApi ingress", () => {
       Effect.gen(function* () {
         const f = yield* fixture();
         const event = twitchEvent("message");
+
         const challenge = {
           subscription: {
             ...event.subscription,
@@ -445,11 +479,13 @@ describe("signed HttpApi ingress", () => {
           },
           challenge: "challenge-👋",
         };
+
         const response = yield* f.twitch(
           challenge,
           f.receivedAt,
           "webhook_callback_verification",
         );
+
         expect(response.status).toBe(200);
         expect(yield* Effect.promise(() => response.text())).toBe(
           "challenge-👋",
@@ -459,9 +495,11 @@ describe("signed HttpApi ingress", () => {
           callback,
         });
         expect(f.observations[0]?.binding).toHaveLength(64);
+
         const blocked = yield* fixture({
           observation: () => new AccountError({ code: "provider" }),
         });
+
         expect(
           (yield* blocked.twitch(
             {
@@ -487,6 +525,7 @@ describe("signed HttpApi ingress", () => {
             respondDiscord: () => Effect.die("synthetic RPC failure"),
           },
         });
+
         const response = yield* f.discord(discordCommand("id"));
         expect(response.status).toBe(200);
         expect(yield* json(response)).toEqual(
@@ -506,6 +545,7 @@ describe("signed HttpApi ingress", () => {
           respondDiscord: () => new TenantError({ code: "capacity" }),
         },
       });
+
       const response = yield* f.discord(discordCommand("capacity"));
       expect(response.headers.get("x-arc-command-code")).toBe("capacity");
       expect(yield* json(response)).toEqual(
@@ -514,12 +554,18 @@ describe("signed HttpApi ingress", () => {
           true,
         ),
       );
+
       const unknown = yield* fixture({
         tenants: {
           respondDiscord: () =>
-            Effect.die({ _tag: "TenantError", code: "CANARY-SECRET" }),
+            Effect.die(
+              Schema.TaggedStruct("TenantError", { code: Schema.String }).make({
+                code: "CANARY-SECRET",
+              }),
+            ),
         },
       });
+
       const failed = yield* unknown.discord(discordCommand("unknown"));
       expect(failed.headers.get("x-arc-command-code")).toBe("rpc-defect");
       expect(JSON.stringify(yield* json(failed))).not.toContain(
@@ -540,6 +586,7 @@ describe("signed HttpApi ingress", () => {
           "https://tunnel.example",
         ),
       ).toBe("https://tunnel.example");
+
       for (const origin of [
         "http://other.example",
         "https://other.example/path",
@@ -567,21 +614,23 @@ test(
         controller.enqueue(new Uint8Array([123]));
       },
     });
+
     const request = HttpServerRequest.fromWeb(
       new Request("https://bot.invalid/interactions/discord", {
         method: "POST",
         body: stream,
       }),
     );
+
     const result = yield* readBody(request).pipe(
       Effect.result,
       Effect.forkChild,
     );
+
     yield* TestClock.adjust(750);
-    expect(yield* Fiber.join(result)).toMatchObject({
-      _tag: "Failure",
-      failure: { status: 408 },
-    });
+    expect(yield* Fiber.join(result)).toMatchObject(
+      Result.fail({ status: 408 }),
+    );
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
@@ -592,6 +641,7 @@ for (const delta of [-1, -20, 3000])
       const tenant = yield* tenantFixture();
       const service = yield* tenant.construct();
       const clock = yield* Clock.Clock;
+
       const f = yield* fixture({
         tenants: {
           respondDiscord: (receipt) =>
@@ -600,9 +650,11 @@ for (const delta of [-1, -20, 3000])
               .pipe(Effect.provideService(Clock.Clock, clock)),
         },
       });
+
       yield* TestClock.setTime(f.receivedAt + delta);
       const response = yield* f.discord(discordCommand(`clock-${delta}`));
       const reply = yield* json(response);
+
       if (delta < 3000) {
         expect(reply).toEqual(
           discordResponse("Sensors can be sold for 10 coins each"),
@@ -628,6 +680,7 @@ for (const transport of ["discord", "twitch"] as const)
       Effect.gen(function* () {
         const sentAt = Math.floor(Date.now() / 1000) * 1000;
         const f = yield* fixture({ receivedAt: sentAt + 20000 });
+
         const response =
           transport === "discord"
             ? yield* f.discord(
@@ -638,6 +691,7 @@ for (const transport of ["discord", "twitch"] as const)
                 twitchEvent("delayed-future"),
                 negativeFutureStamp(sentAt),
               );
+
         expect(response.status).toBe(401);
         expect(f.admissions).toHaveLength(0);
         expect(f.reads()).toBe(0);

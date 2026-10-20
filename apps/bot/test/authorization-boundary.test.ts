@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Fiber, Layer } from "effect";
+import { Predicate, Effect, Fiber, Layer } from "effect";
 
 import { fixture, observation, responseGate } from "./subscription-fixture.js";
 
@@ -15,6 +15,7 @@ test(
     yield* f.grants(a.service);
     yield* a.service.setup("operator");
     const record = f.control.remote.get("created-1");
+
     if (!record) throw new Error("missing confirmed fixture subscription");
     f.control.remote.set(record.id, {
       ...record,
@@ -27,10 +28,9 @@ test(
     );
     const second = yield* a.service.setup("operator");
     expect({
-      first:
-        first._tag === "Failure"
-          ? first.failure.code
-          : first.success.status.setup,
+      first: Predicate.isTagged(first, "Failure")
+        ? first.failure.code
+        : first.success.status.setup,
       links: second.authorizations.map((entry) => entry.login).sort(),
       sender: second.status.sender?.authorized,
       channel: second.status.channels[0]?.authorized,
@@ -80,12 +80,16 @@ test(
     const generations: (string | undefined)[] = [];
     const codes: string[] = [];
     const credentials: string[] = [];
+
     for (let turn = 0; turn < 2; turn++) {
       generations.push(f.snapshot().session?.generation);
       const result = yield* a.service.setup("operator").pipe(Effect.result);
-      codes.push(result._tag === "Failure" ? result.failure.code : "success");
+      codes.push(
+        Predicate.isTagged(result, "Failure") ? result.failure.code : "success",
+      );
       credentials.push((yield* a.service.status()).credential);
     }
+
     expect({
       codes,
       credentials,
@@ -160,9 +164,11 @@ test(
     yield* a.service.setup("operator");
     const gate = responseGate();
     f.control.listGate = gate;
+
     const settingUp = yield* a.service
       .setup("operator")
       .pipe(Effect.result, Effect.forkChild);
+
     yield* Effect.promise(() => gate.entered.promise);
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "authorization_revoked"),
@@ -171,7 +177,9 @@ test(
     gate.release.resolve();
     const abandoned = yield* Fiber.join(settingUp);
     expect(
-      abandoned._tag === "Failure" ? abandoned.failure.code : "success",
+      Predicate.isTagged(abandoned, "Failure")
+        ? abandoned.failure.code
+        : "success",
     ).toBe("stale");
     const repair = yield* a.service.setup("operator");
     expect(repair.authorizations.length).toBe(2);
@@ -199,6 +207,7 @@ test(
     yield* f.grants(a.service);
     yield* a.service.setup("operator");
     const old = f.control.remote.get("created-1");
+
     if (!old) throw new Error("missing fixture subscription");
     const b = yield* f.construct("secret-B");
     yield* f.grants(b.service);
@@ -280,6 +289,7 @@ test(
     f.control.loseReceipt = true;
     expect((yield* a.service.setup("operator")).status.setup).toBe("pending");
     const remote = f.control.remote.get("created-1");
+
     if (!remote) throw new Error("missing unconfirmed fixture subscription");
     f.control.remote.set(remote.id, {
       ...remote,
@@ -314,15 +324,18 @@ test(
     const initial = yield* a.service.setup("operator");
     yield* f.grants(a.service);
     yield* a.service.setup("operator");
+
     const authorization = initial.authorizations.find(
       (entry) => entry.login === "fixture_sender",
     );
+
     if (!authorization) throw new Error("missing fixture sender authorization");
     const params = new URL(authorization.url).searchParams;
     const gate = responseGate();
     f.control.responses.set("GET /validate", async () => {
       gate.entered.resolve();
       await gate.release.promise;
+
       return Response.json({
         client_id: a.config.identity.twitchClientId,
         expires_in: 3600,
@@ -331,6 +344,7 @@ test(
         login: "fixture_sender",
       });
     });
+
     const completing = yield* a.service
       .completeOAuth({
         operator: "operator",
@@ -338,8 +352,10 @@ test(
         code: "late-grant",
       })
       .pipe(Effect.result, Effect.forkChild);
+
     yield* Effect.promise(() => gate.entered.promise);
     const remote = f.control.remote.get("created-1");
+
     if (!remote) throw new Error("missing confirmed fixture subscription");
     f.control.remote.set(remote.id, {
       ...remote,
@@ -351,9 +367,9 @@ test(
     f.control.responses.delete("GET /validate");
     gate.release.resolve();
     const result = yield* Fiber.join(completing);
-    expect(result._tag === "Failure" ? result.failure.code : "success").toBe(
-      "state",
-    );
+    expect(
+      Predicate.isTagged(result, "Failure") ? result.failure.code : "success",
+    ).toBe("state");
     const repair = yield* a.service.setup("operator");
     expect(repair.status.sender?.authorized).toBeFalse();
     expect(repair.authorizations.length).toBe(2);
@@ -382,15 +398,18 @@ test(
     f.control.responses.set("GET /validate", async () => {
       gate.entered.resolve();
       await gate.release.promise;
+
       return Response.json({
         client_id: a.config.identity.twitchClientId,
         expires_in: 3600,
         scopes: [],
       });
     });
+
     const validating = yield* reconstructed
       .credentialAlarm()
       .pipe(Effect.forkChild);
+
     yield* Effect.promise(() => gate.entered.promise);
     f.control.responses.set(
       "GET /users",
@@ -460,11 +479,14 @@ test(
     f.control.responses.set("GET /users", async () => {
       gate.entered.resolve();
       await gate.release.promise;
+
       return new Response("<html>old token rejected</html>", { status: 401 });
     });
+
     const settingUp = yield* a.service
       .setup("operator")
       .pipe(Effect.result, Effect.forkChild);
+
     yield* Effect.promise(() => gate.entered.promise);
     f.control.responses.set(
       "POST /chat/messages",
@@ -483,9 +505,9 @@ test(
     f.control.responses.delete("GET /users");
     gate.release.resolve();
     const result = yield* Fiber.join(settingUp);
-    expect(result._tag === "Failure" ? result.failure.code : "success").toBe(
-      "client",
-    );
+    expect(
+      Predicate.isTagged(result, "Failure") ? result.failure.code : "success",
+    ).toBe("client");
     expect(f.snapshot().session?.generation).toBe(replacement);
     const ready = yield* a.service.setup("operator");
     expect({
