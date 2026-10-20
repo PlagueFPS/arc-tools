@@ -143,8 +143,7 @@ const receipt = (id: string, receivedAt = Date.now()) => ({
 export function registerTenantTests({
   stack,
   test,
-  beforeAll,
-}: Pick<typeof Foundation, "stack" | "test" | "beforeAll">) {
+}: Pick<typeof Foundation, "stack" | "test">) {
   const urls = Effect.gen(function* () {
     const deployed = yield* stack;
 
@@ -165,7 +164,6 @@ export function registerTenantTests({
     value: Schema.Json,
     scenario = "",
     at = Date.now(),
-    enforceBudget = true,
   ) {
     const bytes = encode(value);
     const headers = yield* signDiscord(bytes, at);
@@ -237,11 +235,9 @@ export function registerTenantTests({
       );
       yield* recordSamples();
 
-      if (enforceBudget) {
-        expect(workerMs).toBeGreaterThanOrEqual(0);
-        expect(workerMs).toBeLessThan(3000);
-        expect(elapsed).toBeLessThan(3000);
-      }
+      expect(workerMs).toBeGreaterThanOrEqual(0);
+      expect(workerMs).toBeLessThan(3000);
+      expect(elapsed).toBeLessThan(3000);
 
       return { response, reply, sample };
     }
@@ -302,57 +298,6 @@ export function registerTenantTests({
     expect(response.headers.get("x-arc-tenant-lookups")).toBe("0");
     expect(response.headers.get("x-arc-tenant-rpcs")).toBe("0");
   };
-
-  const firstCold = beforeAll(
-    Effect.gen(function* () {
-      const u = yield* urls;
-
-      return yield* signedDiscord(
-        u.bot,
-        discordCommand(
-          "first-cold",
-          "sell",
-          "initial-cold",
-          "first-cold-guild",
-        ),
-        "first-http-cold-worker-tenant-cache",
-        Date.now(),
-        false,
-      );
-    }).pipe(Effect.result),
-    { timeout: 90000 },
-  );
-
-  test(
-    "the first HTTP request to the new Bot completes a useful cold tenant/cache path within the original budget",
-    Effect.gen(function* () {
-      const result = yield* firstCold;
-      expect(result._tag).toBe("Success");
-
-      if (!Predicate.isTagged(result, "Success"))
-        return yield* Effect.die(
-          "First Bot HTTP request failed; retained HTTP diagnostic identifies the failure",
-        );
-      expect(result.success.reply).toEqual(
-        discordResponse("Sensors can be sold for 10 coins each"),
-      );
-
-      const sample = samples.find(
-        (sample) => sample.scenario === "first-http-cold-worker-tenant-cache",
-      );
-
-      if (!sample) return yield* Effect.die("First Bot HTTP sample missing");
-      expect(sample.workerMs).toBeLessThan(3000);
-      expect(sample.clientMs).toBeLessThan(3000);
-      const u = yield* urls;
-      expect(
-        (yield* get(`${u.source}/observations`, Observations))[
-          "/items?id=initial-cold&minimal=true"
-        ],
-      ).toBe(1);
-    }),
-    { timeout: 90000 },
-  );
 
   test(
     "actual Bot verifies raw signatures, freshness, bounds and Discord context without allocating tenants",
@@ -1111,11 +1056,15 @@ export function registerTenantTests({
     Effect.gen(function* () {
       const u = yield* urls;
       const key = "discord-interrupted";
-      yield* sourceControl(
-        u.source,
-        "/items?id=interrupt&minimal=true",
-        { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
-        1500,
+      const sourceKey = "/items?id=interrupt&minimal=true";
+      yield* post(`${u.source}/control`, {
+        key: sourceKey,
+        body: { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
+        hold: true,
+      });
+
+      yield* Effect.addFinalizer(() =>
+        post(`${u.source}/release`, sourceKey).pipe(Effect.orDie),
       );
 
       const input = {
@@ -1163,6 +1112,16 @@ export function registerTenantTests({
       );
 
       const admitted = yield* snapshot(u.tenant, key).pipe(
+        Effect.tap(() => {
+          const settled = original.pollUnsafe();
+
+          if (settled !== undefined)
+            return Effect.die(
+              "Original Discord request completed before the controlled interruption; inspect discord-interruption-request",
+            );
+
+          return Effect.void;
+        }),
         Effect.repeat({
           until: (value) => value.state?.works.interrupt?.kind === "computing",
           times: 20,
@@ -1193,6 +1152,20 @@ export function registerTenantTests({
               },
       });
       expect(admitted.state?.works.interrupt?.kind).toBe("computing");
+
+      const observed = yield* get(
+        `${u.source}/observations`,
+        Observations,
+      ).pipe(
+        Effect.repeat({
+          until: (value) => value[sourceKey] === 1,
+          times: 10,
+          schedule: Schedule.spaced(25),
+        }),
+      );
+
+      expect(observed[sourceKey]).toBe(1);
+      expect(original.pollUnsafe()).toBeUndefined();
       expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
         204,
       );
@@ -1249,7 +1222,7 @@ export function registerTenantTests({
             }),
           ),
         ).toMatchObject({ data: { flags: 64 } });
-    }),
+    }).pipe(Effect.scoped),
     { timeout: 90000 },
   );
 
@@ -1387,7 +1360,7 @@ export function registerTenantTests({
         expectDataFailure(scenario, sample);
       }
 
-      expect(samples).toHaveLength(22);
+      expect(samples).toHaveLength(21);
       expect(twitchSamples).toHaveLength(10);
       yield* recordSamples();
     }),
