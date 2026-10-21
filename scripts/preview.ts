@@ -1,20 +1,21 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { Schema } from "effect";
+import { Effect, Redacted, Schema } from "effect";
+import { FetchHttpClient } from "effect/http";
 
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports
+import { makePreviewHttp } from "./preview-http.js";
 import {
   CheckedPreview,
   type PreviewIdentity,
   PreviewOutput,
-  PullRequest,
+  type PullRequest,
   previewAction,
   previewDecision,
   previewIdentity,
 } from "./preview-identity.js";
-
-const marker = "<!-- arc-tools-synthetic-preview -->";
 
 type PreviewRequest =
   | { action: "cleanup"; preview: PreviewIdentity }
@@ -93,20 +94,6 @@ export async function reconcilePreview(
   return "deployed";
 }
 
-const Comments = Schema.Array(
-  Schema.Struct({
-    id: Schema.Number,
-    body: Schema.NullOr(Schema.String),
-    user: Schema.Struct({ login: Schema.String }),
-  }),
-);
-
-const Health = Schema.Struct({
-  status: Schema.Literal("ready"),
-  stage: PreviewOutput.fields.stage,
-  revision: CheckedPreview.fields.revision,
-});
-
 async function main() {
   const { action, number } = previewAction(process.argv.slice(2));
 
@@ -170,29 +157,17 @@ async function main() {
     GH_TOKEN: undefined,
   };
 
-  const api = async (path: string, method = "GET", body?: Schema.Json) => {
-    const response = await fetch(
-      `https://api.github.com/repos/${preview.repository}/${path}`,
-      {
-        method,
-        headers: {
-          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          "Content-Type": "application/json",
-        },
-        // The caller supplies the method; GET calls leave the body undefined.
-        // oxlint-disable-next-line unicorn/no-invalid-fetch-options
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-
-    if (!response.ok)
-      throw new Error(`GitHub ${method} ${path}: HTTP ${response.status}`);
-
-    return response.json();
-  };
+  const http = await Effect.runPromise(
+    makePreviewHttp({
+      preview,
+      token: Redacted.make(process.env.GITHUB_TOKEN ?? ""),
+    }).pipe(
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(FetchHttpClient.RequestInit, {
+        redirect: "follow",
+      }),
+    ),
+  );
 
   const execute = async (script: string, origin = "") => {
     const child = Bun.spawn(
@@ -222,10 +197,7 @@ async function main() {
 
   try {
     result = await reconcilePreview(request, {
-      readPr: async () =>
-        Schema.decodeUnknownSync(PullRequest)(
-          await api(`pulls/${preview.number}`),
-        ),
+      readPr: () => Effect.runPromise(http.readPr()),
       deploy: async (origin) => {
         await execute("preview-cloud.ts", origin);
 
@@ -236,60 +208,8 @@ async function main() {
         );
       },
       cleanup: () => execute("cloud-cleanup.ts"),
-      health: async (url, checked) => {
-        for (let attempt = 0; attempt < 60; attempt++) {
-          try {
-            const response = await fetch(`${url}/health`, {
-              signal: AbortSignal.timeout(10_000),
-            });
-
-            if (response.ok) {
-              const value = Schema.decodeUnknownSync(Health)(
-                await response.json(),
-              );
-
-              if (
-                value.stage === preview.stage &&
-                value.revision === checked.revision
-              )
-                return;
-            }
-          } catch {}
-
-          if (attempt < 59) await Bun.sleep(1000);
-        }
-
-        throw new Error(
-          "Preview health did not match the exact stage and checked merge revision",
-        );
-      },
-      publish: async (body) => {
-        let existing: number | undefined;
-
-        for (let page = 1; ; page++) {
-          const comments = Schema.decodeUnknownSync(Comments)(
-            await api(
-              `issues/${preview.number}/comments?per_page=100&page=${page}`,
-            ),
-          );
-
-          existing = comments.find(
-            (comment) =>
-              comment.user.login === "github-actions[bot]" &&
-              comment.body?.includes(marker),
-          )?.id;
-
-          if (existing || comments.length < 100) break;
-        }
-
-        await api(
-          existing
-            ? `issues/comments/${existing}`
-            : `issues/${preview.number}/comments`,
-          existing ? "PATCH" : "POST",
-          { body: `${marker}\n${body}` },
-        );
-      },
+      health: (url, checked) => Effect.runPromise(http.health(url, checked)),
+      publish: (body) => Effect.runPromise(http.publish(body)),
     });
     console.info(`Preview ${preview.stage}: ${result}`);
   } finally {

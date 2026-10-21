@@ -11,9 +11,22 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { Schema } from "effect";
+import {
+  Cause,
+  Clock,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Match,
+  Schema,
+  Redacted,
+} from "effect";
+import { FetchHttpClient, HttpClient } from "effect/http";
+import { TestClock } from "effect/testing";
 
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
+import { makePreviewHttp } from "./preview-http.js";
 import {
   CheckedPreview,
   PreviewStage,
@@ -329,7 +342,12 @@ async function launcher() {
     join(directory, "node_modules/effect"),
   );
 
-  for (const name of ["preview.ts", "preview-identity.ts", "cloud-settings.ts"])
+  for (const name of [
+    "preview.ts",
+    "preview-http.ts",
+    "preview-identity.ts",
+    "cloud-settings.ts",
+  ])
     await copyFile(
       new URL(name, import.meta.url),
       join(directory, "scripts", name),
@@ -534,3 +552,586 @@ test("closed cleanup works in a fresh checkout with no prior artifact, repeats, 
     action: "cleanup",
   });
 }, 15000);
+
+const makeHttp = (origin: string) =>
+  Effect.runPromise(
+    makePreviewHttp({
+      preview,
+      token: Redacted.make("fixture-github"),
+      githubOrigin: origin,
+    }).pipe(
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(FetchHttpClient.RequestInit, {
+        redirect: "follow",
+      }),
+    ),
+  );
+
+const fastPollingClock = Effect.fnUntraced(function* (sleeps: number[]) {
+  const clock = yield* Clock.clockWith(Effect.succeed);
+
+  return {
+    currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
+    currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+    monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+    currentTimeMillis: clock.currentTimeMillis,
+    currentTimeNanos: clock.currentTimeNanos,
+    monotonicTimeNanos: clock.monotonicTimeNanos,
+    sleep: (duration: Duration.Duration) => {
+      const millis = Duration.toMillis(duration);
+      sleeps.push(millis);
+
+      return millis < 10_000 ? Effect.void : Effect.never;
+    },
+  } satisfies Clock.Clock;
+});
+
+describe("native preview HTTP boundary", () => {
+  for (const existing of [false, true]) {
+    test(`GitHub ${existing ? "PATCH" : "POST"} preserves auth, body, pagination, and PR decoding`, async () => {
+      const requests: Array<{
+        method: string;
+        path: string;
+        headers: Headers;
+        body: string;
+      }> = [];
+
+      const server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          const path =
+            new URL(request.url).pathname + new URL(request.url).search;
+
+          requests.push({
+            method: request.method,
+            path,
+            headers: request.headers,
+            body: await request.text(),
+          });
+
+          if (path.endsWith("/pulls/10")) return Response.json(pr());
+
+          if (request.method !== "GET") return Response.json({ id: 123 });
+
+          if (existing && path.endsWith("page=1"))
+            return Response.json(
+              Array.from({ length: 100 }, (_, id) => ({
+                id: id + 1,
+                body: "unrelated",
+                user: { login: "github-actions[bot]" },
+              })),
+            );
+
+          return Response.json(
+            existing
+              ? [
+                  {
+                    id: 123,
+                    body: "<!-- arc-tools-synthetic-preview -->",
+                    user: { login: "github-actions[bot]" },
+                  },
+                ]
+              : [],
+          );
+        },
+      });
+
+      try {
+        const http = await makeHttp(server.url.origin);
+        expect(await Effect.runPromise(http.readPr())).toEqual(pr());
+        await Effect.runPromise(http.publish("deployment result"));
+        expect(requests.map(({ method, path }) => `${method} ${path}`)).toEqual(
+          [
+            "GET /repos/PlagueFPS/arc-tools/pulls/10",
+            "GET /repos/PlagueFPS/arc-tools/issues/10/comments?per_page=100&page=1",
+            ...(existing
+              ? [
+                  "GET /repos/PlagueFPS/arc-tools/issues/10/comments?per_page=100&page=2",
+                ]
+              : []),
+            existing
+              ? "PATCH /repos/PlagueFPS/arc-tools/issues/comments/123"
+              : "POST /repos/PlagueFPS/arc-tools/issues/10/comments",
+          ],
+        );
+
+        for (const request of requests) {
+          expect(request.headers.get("authorization")).toBe(
+            "Bearer fixture-github",
+          );
+          expect(request.headers.get("accept")).toBe(
+            "application/vnd.github+json",
+          );
+          expect(request.headers.get("x-github-api-version")).toBe(
+            "2022-11-28",
+          );
+          expect(request.headers.get("content-type")).toBe("application/json");
+          expect(request.body).toBe(
+            request.method === "GET"
+              ? ""
+              : JSON.stringify({
+                  body: "<!-- arc-tools-synthetic-preview -->\ndeployment result",
+                }),
+          );
+        }
+      } finally {
+        await server.stop(true);
+      }
+    });
+  }
+
+  test("GitHub status diagnostics omit response bodies and invalid schemas or JSON fail", async () => {
+    let response = new Response("private response", { status: 503 });
+    let calls = 0;
+
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        calls++;
+
+        return response;
+      },
+    });
+
+    try {
+      const http = await makeHttp(server.url.origin);
+      const failed = await Effect.runPromise(Effect.exit(http.readPr()));
+      expect(Exit.isFailure(failed)).toBeTrue();
+
+      if (Exit.isFailure(failed)) {
+        const diagnostic = Cause.pretty(failed.cause);
+        expect(diagnostic).toContain("GitHub GET pulls/10: HTTP 503");
+        expect(diagnostic).not.toContain("private response");
+        expect(diagnostic).not.toContain("fixture-github");
+      }
+
+      for (const invalid of [
+        Response.json({ state: "open" }),
+        new Response("not json"),
+        new Response(""),
+      ]) {
+        response = invalid;
+        await expect(Effect.runPromise(http.readPr())).rejects.toThrow();
+      }
+
+      expect(calls).toBe(4);
+    } finally {
+      await server.stop(true);
+    }
+  });
+
+  for (const existing of [false, true]) {
+    test(`failed GitHub ${existing ? "PATCH" : "POST"} is never retried`, async () => {
+      let mutations = 0;
+
+      const server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(request) {
+          if (request.method === "GET")
+            return Response.json(
+              existing
+                ? [
+                    {
+                      id: 123,
+                      body: "<!-- arc-tools-synthetic-preview -->",
+                      user: { login: "github-actions[bot]" },
+                    },
+                  ]
+                : [],
+            );
+          mutations++;
+
+          return new Response("private provider failure", { status: 503 });
+        },
+      });
+
+      try {
+        const http = await makeHttp(server.url.origin);
+        await expect(Effect.runPromise(http.publish("result"))).rejects.toThrow(
+          existing
+            ? "GitHub PATCH issues/comments/123: HTTP 503"
+            : "GitHub POST issues/10/comments: HTTP 503",
+        );
+        expect(mutations).toBe(1);
+      } finally {
+        await server.stop(true);
+      }
+    });
+  }
+
+  test("health recovers through status, JSON, schema, stage, and exact revision failures without GitHub credentials", async () => {
+    const sleeps: number[] = [];
+
+    const responses = [
+      new Response("unhealthy", { status: 503 }),
+      new Response("not json"),
+      Response.json({ status: "starting" }),
+      Response.json({
+        status: "ready",
+        stage: previewIdentity({ repository: preview.repository, number: 11 })
+          .stage,
+        revision: checked.revision,
+      }),
+      Response.json({
+        status: "ready",
+        stage: preview.stage,
+        revision: checked.head,
+      }),
+      Response.json({
+        status: "ready",
+        stage: preview.stage,
+        revision: checked.revision,
+      }),
+    ];
+
+    const requests: Array<{ path: string; authorized: boolean }> = [];
+
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        requests.push({
+          path: new URL(request.url).pathname,
+          authorized: request.headers.has("authorization"),
+        });
+
+        return (
+          responses.shift() ??
+          new Response("excess health call", { status: 500 })
+        );
+      },
+    });
+
+    try {
+      const http = await makeHttp(server.url.origin);
+      const clock = await Effect.runPromise(fastPollingClock(sleeps));
+      await Effect.runPromise(
+        http
+          .health(server.url.origin, checked)
+          .pipe(Effect.provideService(Clock.Clock, clock)),
+      );
+      expect(requests).toHaveLength(6);
+      expect(sleeps.filter((millis) => millis < 10_000)).toEqual(
+        Array(5).fill(1000),
+      );
+      expect(sleeps.filter((millis) => millis >= 10_000)).toEqual(
+        Array(6).fill(10_000),
+      );
+      expect(
+        requests.every(
+          (request) => request.path === "/health" && !request.authorized,
+        ),
+      ).toBeTrue();
+    } finally {
+      await server.stop(true);
+    }
+  });
+
+  test("health follows redirects and accepts large schema-valid responses", async () => {
+    const paths: string[] = [];
+
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const path = new URL(request.url).pathname;
+        paths.push(path);
+
+        return path === "/health"
+          ? new Response(null, { status: 302, headers: { location: "/ready" } })
+          : Response.json({
+              status: "ready",
+              stage: preview.stage,
+              revision: checked.revision,
+              padding: "x".repeat(2 * 1024 * 1024),
+            });
+      },
+    });
+
+    try {
+      const http = await makeHttp(server.url.origin);
+      await Effect.runPromise(http.health(server.url.origin, checked));
+      expect(paths).toEqual(["/health", "/ready"]);
+    } finally {
+      await server.stop(true);
+    }
+  });
+
+  for (const mismatch of ["stage", "revision"]) {
+    test(`health rejects an exact ${mismatch} mismatch after 60 attempts and only 59 gaps`, async () => {
+      let calls = 0;
+      const sleeps: number[] = [];
+
+      const server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch() {
+          calls++;
+
+          return Response.json({
+            status: "ready",
+            stage:
+              mismatch === "stage"
+                ? previewIdentity({
+                    repository: preview.repository,
+                    number: 11,
+                  }).stage
+                : preview.stage,
+            revision: mismatch === "revision" ? checked.head : checked.revision,
+          });
+        },
+      });
+
+      try {
+        const http = await makeHttp(server.url.origin);
+        const clock = await Effect.runPromise(fastPollingClock(sleeps));
+        await expect(
+          Effect.runPromise(
+            http
+              .health(server.url.origin, checked)
+              .pipe(Effect.provideService(Clock.Clock, clock)),
+          ),
+        ).rejects.toThrow(
+          "Preview health did not match the exact stage and checked merge revision",
+        );
+        expect(calls).toBe(60);
+        expect(sleeps.filter((millis) => millis < 10_000)).toEqual(
+          Array(59).fill(1000),
+        );
+        expect(sleeps.filter((millis) => millis >= 10_000)).toEqual(
+          Array(60).fill(10_000),
+        );
+      } finally {
+        await server.stop(true);
+      }
+    });
+  }
+});
+
+for (const target of ["github", "health", "post", "patch"]) {
+  test(`${target} timeout encloses body consumption and aborts the response before recovery`, async () => {
+    const headers = Promise.withResolvers<void>();
+    const aborted = Promise.withResolvers<void>();
+    let calls = 0;
+
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        if (
+          (target === "post" || target === "patch") &&
+          request.method === "GET"
+        )
+          return Response.json(
+            target === "patch"
+              ? [
+                  {
+                    id: 123,
+                    body: "<!-- arc-tools-synthetic-preview -->",
+                    user: { login: "github-actions[bot]" },
+                  },
+                ]
+              : [],
+          );
+
+        calls++;
+
+        if (calls > 1)
+          return Response.json({
+            status: "ready",
+            stage: preview.stage,
+            revision: checked.revision,
+          });
+        request.signal.addEventListener("abort", () => aborted.resolve(), {
+          once: true,
+        });
+
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"status":'));
+            },
+          }),
+        );
+      },
+    });
+
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const clock = yield* TestClock.make();
+          const transport = yield* HttpClient.HttpClient;
+
+          const http = yield* makePreviewHttp({
+            preview,
+            token: Redacted.make("fixture-github"),
+            githubOrigin: server.url.origin,
+          }).pipe(
+            Effect.provideService(
+              HttpClient.HttpClient,
+              transport.pipe(
+                HttpClient.tap((response) =>
+                  (target === "post" || target === "patch") &&
+                  response.request.method === "GET"
+                    ? Effect.void
+                    : Effect.sync(() => headers.resolve()),
+                ),
+              ),
+            ),
+          );
+
+          const operation = Match.value(target).pipe(
+            Match.when("github", () => http.readPr()),
+            Match.when("health", () => http.health(server.url.origin, checked)),
+            Match.orElse(() => http.publish("result")),
+          );
+
+          const fiber = yield* operation.pipe(
+            Effect.provideService(Clock.Clock, clock),
+            Effect.exit,
+            Effect.forkChild,
+          );
+
+          yield* Effect.promise(() => headers.promise);
+          const timeout = target === "health" ? 10_000 : 30_000;
+          yield* clock.adjust(timeout - 1);
+          expect(fiber.pollUnsafe()).toBeUndefined();
+          expect(calls).toBe(1);
+          yield* clock.adjust(1);
+          yield* Effect.promise(() => aborted.promise);
+
+          if (target === "health") {
+            yield* clock.adjust(999);
+            expect(calls).toBe(1);
+            yield* clock.adjust(1);
+          }
+
+          const result = yield* Fiber.join(fiber);
+
+          if (target !== "health") {
+            expect(Exit.isFailure(result)).toBeTrue();
+
+            if (Exit.isFailure(result))
+              expect(Cause.pretty(result.cause)).toContain("TimeoutError");
+            expect(calls).toBe(1);
+          } else {
+            expect(Exit.isSuccess(result)).toBeTrue();
+            expect(calls).toBe(2);
+          }
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(FetchHttpClient.layer),
+          Effect.provideService(FetchHttpClient.RequestInit, {
+            redirect: "follow",
+          }),
+        ),
+      );
+    } finally {
+      await server.stop(true);
+    }
+  });
+}
+
+for (const target of ["github", "health"]) {
+  test(`caller cancellation aborts the ${target} body without another attempt`, async () => {
+    const headers = Promise.withResolvers<void>();
+    const aborted = Promise.withResolvers<void>();
+    let calls = 0;
+
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        calls++;
+        request.signal.addEventListener("abort", () => aborted.resolve(), {
+          once: true,
+        });
+
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"status":'));
+            },
+          }),
+        );
+      },
+    });
+
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const transport = yield* HttpClient.HttpClient;
+
+          const http = yield* makePreviewHttp({
+            preview,
+            token: Redacted.make("fixture-github"),
+            githubOrigin: server.url.origin,
+          }).pipe(
+            Effect.provideService(
+              HttpClient.HttpClient,
+              transport.pipe(
+                HttpClient.tap(() => Effect.sync(() => headers.resolve())),
+              ),
+            ),
+          );
+
+          const operation =
+            target === "github"
+              ? http.readPr()
+              : http.health(server.url.origin, checked);
+
+          const fiber = yield* operation.pipe(Effect.forkChild);
+          yield* Effect.promise(() => headers.promise);
+          yield* Fiber.interrupt(fiber);
+          const result = yield* Fiber.await(fiber);
+          yield* Effect.promise(() => aborted.promise);
+          expect(Exit.isFailure(result)).toBeTrue();
+
+          if (Exit.isFailure(result))
+            expect(Cause.hasInterrupts(result.cause)).toBeTrue();
+          expect(calls).toBe(1);
+        }).pipe(Effect.scoped, Effect.provide(FetchHttpClient.layer)),
+      );
+    } finally {
+      await server.stop(true);
+    }
+  });
+}
+
+test("a rejected GitHub status aborts an unread streaming error body", async () => {
+  const aborted = Promise.withResolvers<void>();
+
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      request.signal.addEventListener("abort", () => aborted.resolve(), {
+        once: true,
+      });
+
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode("private unfinished response"),
+            );
+          },
+        }),
+        { status: 503 },
+      );
+    },
+  });
+
+  try {
+    const http = await makeHttp(server.url.origin);
+    await expect(Effect.runPromise(http.readPr())).rejects.toThrow(
+      "GitHub GET pulls/10: HTTP 503",
+    );
+    await aborted.promise;
+  } finally {
+    await server.stop(true);
+  }
+});
