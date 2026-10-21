@@ -1,12 +1,10 @@
 import { parseArgs } from "node:util";
 
 import { Effect, Redacted, Schema } from "effect";
-import { HttpClientRequest } from "effect/http";
 
 import { Stage } from "../apps/bot/src/config.js";
-import { manifestHash } from "../apps/bot/src/discord-manifest.js";
-import { ReleaseHealth, syncCommands } from "../apps/bot/src/discord-sync.js";
-import { decodeBody, request } from "../apps/bot/src/provider-http.js";
+import { syncCommands, waitForRelease } from "../apps/bot/src/discord-sync.js";
+import { providerTransport } from "../apps/bot/src/provider-http.js";
 
 try {
   const { values } = parseArgs({
@@ -49,32 +47,10 @@ try {
 
   await Effect.runPromise(
     Effect.gen(function* () {
-      const hash = yield* manifestHash;
-      let ready = false;
-
-      for (let attempt = 0; attempt < (values.wait ? 60 : 1); attempt++) {
-        const health = yield* request(
-          HttpClientRequest.get(`${endpoint.origin}/health`),
-        ).pipe(
-          Effect.flatMap((response) =>
-            response.status === 200
-              ? decodeBody(ReleaseHealth)(response.body)
-              : Effect.succeed(null),
-          ),
-          Effect.catch(() => Effect.succeed(null)),
-        );
-
-        if (
-          health?.stage === stage &&
-          health.revision === revision &&
-          health.manifestHash === hash
-        ) {
-          ready = true;
-          break;
-        }
-
-        if (values.wait && attempt < 59) yield* Effect.sleep(1000);
-      }
+      const ready = yield* waitForRelease(
+        { stage, revision, endpoint: endpoint.origin },
+        values.wait,
+      );
 
       if (!ready) return yield* Effect.fail("deployed revision mismatch");
 
@@ -87,7 +63,7 @@ try {
       });
 
       console.info(JSON.stringify({ stage, revision, ...result }));
-    }),
+    }).pipe(Effect.provide(providerTransport)),
   );
 } catch {
   console.error(

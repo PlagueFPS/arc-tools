@@ -9,7 +9,11 @@ import {
   SchemaIssue,
   Stream,
 } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/http";
+import {
+  HttpClient,
+  type HttpClientError,
+  HttpClientRequest,
+} from "effect/http";
 
 import {
   ArcData,
@@ -36,6 +40,8 @@ export const cachePolicy = {
 } as const;
 
 export type CachePolicy = { readonly [K in keyof typeof cachePolicy]: number };
+
+type SourceBodyError = HttpClientError.HttpClientError | DataUnavailable;
 
 export function canonicalRequest(query: ResourceQuery) {
   const params = new URLSearchParams();
@@ -69,35 +75,25 @@ export const makeSource = Effect.fnUntraced(function* (
       ),
     ),
     HttpClient.filterStatusOk,
+    HttpClient.withScope,
   );
 
   const fetch = Effect.fn("ArcData.source")(
     function* <A, I>(query: ResourceQuery, schema: Schema.Codec<A, I>) {
       const path = canonicalRequest(query);
       const response = yield* client.get(path);
-      let size = 0;
-      const chunks: Uint8Array[] = [];
-      yield* response.stream.pipe(
-        Stream.runForEach(
-          Effect.fnUntraced(function* (chunk) {
-            size += chunk.byteLength;
 
-            if (size > policy.maxBodyBytes)
-              return yield* new DataUnavailable({
-                resource: query.resource,
-                reason: "source",
-              });
-            chunks.push(chunk);
-          }),
+      const bytes = yield* response.stream.pipe(
+        Stream.limitBytes<SourceBodyError, never>(policy.maxBodyBytes, () =>
+          Stream.fail(
+            new DataUnavailable({
+              resource: query.resource,
+              reason: "source",
+            }),
+          ),
         ),
+        Stream.mkUint8Array,
       );
-      const bytes = new Uint8Array(size);
-      let offset = 0;
-
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
 
       return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(
         new TextDecoder().decode(bytes),
@@ -116,6 +112,7 @@ export const makeSource = Effect.fnUntraced(function* (
     },
     (effect, query) =>
       effect.pipe(
+        Effect.scoped,
         Effect.timeout(policy.sourceTimeoutMs),
         Effect.mapError(
           () =>

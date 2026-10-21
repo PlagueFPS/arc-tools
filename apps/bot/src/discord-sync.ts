@@ -4,10 +4,11 @@ import {
   Duration,
   Effect,
   Redacted,
+  Schedule,
   Schema,
   SchemaTransformation,
 } from "effect";
-import { HttpClientRequest } from "effect/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
   canonicalManifest,
@@ -15,7 +16,7 @@ import {
   manifestHash,
   RemoteCommands,
 } from "./discord-manifest.js";
-import { decodeBody, digest, request } from "./provider-http.js";
+import { decodeBody, digest, readJson, request } from "./provider-http.js";
 
 export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
   code: Schema.Literals([
@@ -58,6 +59,58 @@ export const RetryAfter = Schema.Number.check(
   ),
 );
 
+class DiscordRateLimited extends Schema.TaggedError<DiscordRateLimited>()(
+  "DiscordRateLimited",
+  { delay: Schema.Duration },
+) {}
+
+const readHealth = Effect.fnUntraced(function* (
+  client: HttpClient.HttpClient,
+  endpoint: string,
+) {
+  return yield* request(
+    client,
+    HttpClientRequest.get(`${endpoint.replace(/\/$/, "")}/health`),
+    Effect.fnUntraced(function* (response) {
+      const body = yield* HttpClientResponse.matchStatus(response, {
+        "2xx": readJson,
+        429: readJson,
+        orElse: () => Effect.succeed(null),
+      });
+
+      return {
+        status: response.status,
+        health: yield* decodeBody(ReleaseHealth)(body),
+      };
+    }),
+  );
+});
+
+export const waitForRelease = Effect.fn("Discord.waitForRelease")(function* (
+  release: Pick<Release, "stage" | "revision" | "endpoint">,
+  wait = false,
+) {
+  const client = yield* HttpClient.HttpClient;
+  const hash = yield* manifestHash;
+
+  return yield* readHealth(client, release.endpoint).pipe(
+    Effect.map(
+      ({ status, health }) =>
+        status === 200 &&
+        health.stage === release.stage &&
+        health.revision === release.revision &&
+        health.manifestHash === hash,
+    ),
+    Effect.catch(() => Effect.succeed(false)),
+    Effect.repeat({
+      schedule: Schedule.spaced(1000).pipe(
+        Schedule.upTo({ times: wait ? 59 : 0 }),
+      ),
+      until: (ready) => ready,
+    }),
+  );
+});
+
 export const syncCommands = Effect.fn("Discord.sync")(function* (
   release: Release,
   options: {
@@ -66,6 +119,22 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
     readonly checkOnly?: boolean;
   } = {},
 ) {
+  const client = yield* HttpClient.HttpClient;
+
+  const discord = client.pipe(
+    HttpClient.mapRequest((outgoing) =>
+      outgoing.pipe(
+        HttpClientRequest.prependUrl(
+          options.api ?? "https://discord.com/api/v10",
+        ),
+        HttpClientRequest.setHeader(
+          "Authorization",
+          `Bot ${Redacted.value(release.token)}`,
+        ),
+      ),
+    ),
+  );
+
   const desired = options.desired ?? commandManifest;
 
   const hash = options.desired
@@ -74,14 +143,10 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
 
   const fence = Effect.fnUntraced(
     function* (phase: "before" | "overwrite" | "after") {
-      const result = yield* request(
-        HttpClientRequest.get(`${release.endpoint.replace(/\/$/, "")}/health`),
-      );
-
-      const health = yield* decodeBody(ReleaseHealth)(result.body);
+      const { status, health } = yield* readHealth(client, release.endpoint);
 
       if (
-        result.status !== 200 ||
+        status !== 200 ||
         health.stage !== release.stage ||
         health.revision !== release.revision ||
         health.manifestHash !== hash
@@ -102,52 +167,87 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
     function* (method: "GET" | "PUT", phase: "before" | "overwrite" | "after") {
       const end = (yield* Clock.currentTimeMillis) + 30_000;
 
-      for (let attempt = 0; attempt < 4; attempt++) {
-        yield* fence(phase);
+      const attempt = Effect.fnUntraced(
+        function* () {
+          yield* fence(phase);
 
-        const response = yield* request(
-          HttpClientRequest.make(method)(
-            `${options.api ?? "https://discord.com/api/v10"}/applications/${encodeURIComponent(release.applicationId)}/commands`,
-            {
-              headers: {
-                Authorization: `Bot ${Redacted.value(release.token)}`,
-              },
-            },
-          ).pipe(
-            method === "PUT"
-              ? HttpClientRequest.bodyJsonUnsafe(desired)
-              : HttpClientRequest.setUrlParam("with_localizations", "true"),
-          ),
-        );
+          return yield* request(
+            discord,
+            HttpClientRequest.make(method)(
+              `/applications/${encodeURIComponent(release.applicationId)}/commands`,
+            ).pipe(
+              method === "PUT"
+                ? HttpClientRequest.bodyJsonUnsafe(desired)
+                : HttpClientRequest.setUrlParam("with_localizations", "true"),
+            ),
+            Effect.fnUntraced(function* (response) {
+              const body = yield* HttpClientResponse.matchStatus(response, {
+                "2xx": readJson,
+                429: readJson,
+                orElse: () => Effect.succeed(null),
+              });
 
-        if (response.status === 429) {
-          const retry = yield* decodeBody(
-            Schema.Struct({ retry_after: Schema.Number }),
-          )(response.body);
+              return yield* HttpClientResponse.matchStatus(response, {
+                200: () => decodeBody(RemoteCommands)(body),
+                429: Effect.fnUntraced(function* () {
+                  const retry = yield* decodeBody(
+                    Schema.Struct({ retry_after: Schema.Number }),
+                  )(body);
 
-          const delay = yield* Schema.decodeUnknownEffect(RetryAfter)(
-            retry.retry_after,
-          ).pipe(
-            Effect.mapError(() => new SyncError({ code: "rate-limit", phase })),
+                  const delay = yield* Schema.decodeUnknownEffect(RetryAfter)(
+                    retry.retry_after,
+                  ).pipe(
+                    Effect.mapError(
+                      () => new SyncError({ code: "rate-limit", phase }),
+                    ),
+                  );
+
+                  if (
+                    (yield* Clock.currentTimeMillis) +
+                      Duration.toMillis(delay) >=
+                    end
+                  )
+                    return yield* new SyncError({ code: "rate-limit", phase });
+
+                  return yield* new DiscordRateLimited({ delay });
+                }),
+                orElse: () => new SyncError({ code: "provider", phase }),
+              });
+            }),
           );
+        },
+        (effect) =>
+          effect.pipe(
+            Effect.mapError((error) =>
+              Predicate.isTagged(error, "SyncError") ||
+              Predicate.isTagged(error, "DiscordRateLimited")
+                ? error
+                : new SyncError({ code: "provider", phase }),
+            ),
+          ),
+      );
 
-          if (
-            (yield* Clock.currentTimeMillis) + Duration.toMillis(delay) >=
-              end ||
-            attempt === 3
-          )
-            return yield* new SyncError({ code: "rate-limit", phase });
-          yield* Effect.sleep(delay);
-          continue;
-        }
-
-        if (response.status !== 200)
-          return yield* new SyncError({ code: "provider", phase });
-
-        return yield* decodeBody(RemoteCommands)(response.body);
-      }
-
-      return yield* new SyncError({ code: "rate-limit", phase });
+      return yield* attempt().pipe(
+        Effect.retry({
+          while: Predicate.isTagged("DiscordRateLimited"),
+          schedule: Schedule.recurs(3).pipe(
+            Schedule.addDelay(
+              ({
+                input,
+              }: Schedule.Metadata<number, SyncError | DiscordRateLimited>) =>
+                Effect.succeed(
+                  Predicate.isTagged(input, "DiscordRateLimited")
+                    ? input.delay
+                    : Duration.zero,
+                ),
+            ),
+          ),
+        }),
+        Effect.catchTag(
+          "DiscordRateLimited",
+          () => new SyncError({ code: "rate-limit", phase }),
+        ),
+      );
     },
     (effect, _method, phase) =>
       effect.pipe(

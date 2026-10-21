@@ -1,6 +1,7 @@
-import { Match, Effect, Redacted, Schema } from "effect";
+import { Match, Effect, Layer, Redacted, Schema } from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
+import { providerTransport } from "../src/provider-http.js";
 import {
   type AccountConfig,
   AccountService,
@@ -305,7 +306,7 @@ export const fixture = Effect.fnUntraced(function* () {
             redirect: config.redirect,
           },
           { api: base, oauth: base },
-        ),
+        ).pipe(Layer.provide(providerTransport)),
       ),
     );
 

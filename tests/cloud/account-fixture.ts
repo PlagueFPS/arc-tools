@@ -10,6 +10,7 @@ import {
 } from "effect/http-api";
 
 import { EnvironmentConfig, runtimeConfig } from "../../apps/bot/src/config.js";
+import { providerTransport } from "../../apps/bot/src/provider-http.js";
 import { subscriptionBinding } from "../../apps/bot/src/twitch-binding.js";
 import {
   Dispatch,
@@ -133,7 +134,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
                     redirect,
                   },
                   validationEndpoints(baseUrl, correlation),
-                ),
+                ).pipe(Layer.provide(providerTransport)),
               ),
             ),
           );

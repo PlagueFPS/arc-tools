@@ -15,6 +15,7 @@ import {
   Semaphore,
 } from "effect";
 
+import { providerTransport } from "../../apps/bot/src/provider-http.js";
 import { makeAccount } from "../../apps/bot/src/twitch-account.js";
 import { AccountError } from "../../apps/bot/src/twitch-contracts.js";
 import {
@@ -160,9 +161,10 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
   const providerFor = (
     correlation: Parameters<typeof validationEndpoints>[1],
   ) => {
-    const provider = makeProvider(
-      providerConfig,
-      validationEndpoints(url, correlation),
+    const provider = Effect.runSync(
+      makeProvider(providerConfig, validationEndpoints(url, correlation)).pipe(
+        Effect.provide(providerTransport),
+      ),
     );
 
     return {
@@ -711,9 +713,11 @@ for (const phase of ["start", "completion"] as const) {
 
           const provider = yield* observeValidations(
             (correlation) => {
-              const real = makeProvider(
-                providerConfig,
-                validationEndpoints(url, correlation),
+              const real = Effect.runSync(
+                makeProvider(
+                  providerConfig,
+                  validationEndpoints(url, correlation),
+                ).pipe(Effect.provide(providerTransport)),
               );
 
               return {

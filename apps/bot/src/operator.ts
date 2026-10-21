@@ -1,6 +1,9 @@
 import { Effect, Redacted, Schema, Stream } from "effect";
-import type { HttpServerRequest } from "effect/http";
-import { HttpServerResponse } from "effect/http";
+import {
+  type HttpServerError,
+  type HttpServerRequest,
+  HttpServerResponse,
+} from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
@@ -13,6 +16,13 @@ import {
 } from "./twitch-contracts.js";
 
 export const OperatorRequest = Schema.Struct({ stage: Stage });
+
+export class OperatorBodyTooLarge extends Schema.TaggedError<OperatorBodyTooLarge>()(
+  "OperatorBodyTooLarge",
+  {},
+) {}
+
+type OperatorBodyError = HttpServerError.HttpServerError | OperatorBodyTooLarge;
 
 const headers = {
   "Cache-Control": "no-store",
@@ -28,27 +38,19 @@ const response = (
   status = 200,
 ) => HttpServerResponse.jsonUnsafe(body, { status, headers });
 
-const body = Effect.fnUntraced(function* (
+export const readOperatorBody = Effect.fnUntraced(function* (
   request: HttpServerRequest.HttpServerRequest,
 ) {
-  let length = 0;
-  let text = "";
-  const decoder = new TextDecoder();
-  yield* request.stream.pipe(
-    Stream.runForEach((chunk) =>
-      Effect.sync(() => {
-        length += chunk.byteLength;
-
-        if (length > 4096) throw new Error("bounded operator body");
-        text += decoder.decode(chunk, { stream: true });
-      }),
+  const bytes = yield* request.stream.pipe(
+    Stream.limitBytes<OperatorBodyError, never>(4096, () =>
+      Stream.fail(new OperatorBodyTooLarge()),
     ),
+    Stream.mkUint8Array,
   );
-  text += decoder.decode();
 
   return yield* Schema.decodeUnknownEffect(
     Schema.fromJsonString(OperatorRequest),
-  )(text);
+  )(new TextDecoder().decode(bytes));
 });
 
 export const operatorHandlers = (
@@ -78,7 +80,7 @@ export const operatorHandlers = (
         Effect.gen(function* () {
           if (!(yield* authorized(request)))
             return response({ error: "unauthorized" }, 401);
-          const input = yield* body(request);
+          const input = yield* readOperatorBody(request);
 
           if (input.stage !== stage)
             return response({ error: "stage-mismatch" }, 409);

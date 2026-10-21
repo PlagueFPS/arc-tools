@@ -1,14 +1,157 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Result, Effect, Fiber, Layer, Schema } from "effect";
-import { FetchHttpClient, HttpClientRequest } from "effect/http";
+import { Clock, Deferred, Result, Effect, Fiber, Layer, Schema } from "effect";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/http";
+import { TestClock } from "effect/testing";
 
-import { digest, request, ProviderError } from "../src/provider-http.js";
+import {
+  digest,
+  request,
+  providerTransport,
+  readJson,
+  ProviderError,
+} from "../src/provider-http.js";
 import { Dispatch } from "../src/twitch-contracts.js";
 import { fixture } from "./subscription-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
+test(
+  "native injected transport and response consumers share a scope and preserve domain failures",
+  Effect.gen(function* () {
+    const outgoing = HttpClientRequest.get("https://native.invalid/users");
+    const signals: AbortSignal[] = [];
+    let released = 0;
+
+    const client = HttpClient.make((incoming, _url, signal) => {
+      signals.push(signal);
+
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(incoming, Response.json({ ok: true })),
+      );
+    });
+
+    const value = yield* request(
+      client,
+      outgoing,
+      Effect.fnUntraced(function* (response) {
+        expect(signals[0]?.aborted).toBeFalse();
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            released++;
+          }),
+        );
+
+        return yield* readJson(response);
+      }),
+    );
+
+    expect(value).toEqual({ ok: true });
+    expect(released).toBe(1);
+    expect(signals[0]?.aborted).toBeTrue();
+
+    class ConsumerError extends Schema.TaggedError<ConsumerError>()(
+      "ConsumerError",
+      {},
+    ) {}
+
+    const failure = new ConsumerError({});
+    expect(
+      yield* request(client, outgoing, () => failure).pipe(Effect.flip),
+    ).toBe(failure);
+    expect(signals[1]?.aborted).toBeTrue();
+
+    const failed = HttpClient.make(
+      (incoming) =>
+        new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({
+            request: incoming,
+            cause: "canary-secret",
+          }),
+        }),
+    );
+
+    const error = yield* request(failed, outgoing, readJson).pipe(Effect.flip);
+    expect(error).toEqual(new ProviderError({ kind: "network" }));
+    expect(JSON.stringify(error)).not.toContain("canary");
+  }),
+);
+
+test(
+  "one native timeout encloses execution and consumption and closes their shared scope",
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    const aborted: number[] = [];
+    const consumed: number[] = [];
+
+    const client = HttpClient.make((incoming, _url, signal) =>
+      Effect.gen(function* () {
+        const clock = yield* Clock.Clock;
+        signal.addEventListener(
+          "abort",
+          () => aborted.push(clock.currentTimeMillisUnsafe()),
+          { once: true },
+        );
+        yield* Deferred.succeed(entered, undefined);
+        yield* Effect.sleep(60);
+
+        return HttpClientResponse.fromWeb(
+          incoming,
+          Response.json({ ok: true }),
+        );
+      }),
+    );
+
+    const fiber = yield* request(
+      client,
+      HttpClientRequest.get("https://native.invalid/users"),
+      Effect.fnUntraced(function* () {
+        consumed.push(yield* Clock.currentTimeMillis);
+        yield* Effect.sleep(60);
+
+        return "late";
+      }),
+      100,
+    ).pipe(Effect.result, Effect.forkChild);
+
+    yield* Deferred.await(entered);
+    yield* TestClock.adjust(100);
+    expect(yield* Fiber.join(fiber)).toEqual(
+      Result.fail(new ProviderError({ kind: "network" })),
+    );
+    expect(consumed).toEqual([60]);
+    expect(aborted).toEqual([100]);
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
+const fetchResponse = Effect.fnUntraced(
+  function* (outgoing: HttpClientRequest.HttpClientRequest, timeoutMs = 4_000) {
+    const client = yield* HttpClient.HttpClient;
+
+    return yield* request(
+      client,
+      outgoing,
+      Effect.fnUntraced(function* (response) {
+        const body =
+          (response.status >= 200 && response.status < 300) ||
+          response.status === 429
+            ? yield* readJson(response)
+            : null;
+
+        return { status: response.status, headers: response.headers, body };
+      }),
+      timeoutMs,
+    );
+  },
+  (effect) => effect.pipe(Effect.provide(providerTransport)),
+);
 
 const errorBodies: { name: string; response: () => Response }[] = [
   {
@@ -114,7 +257,11 @@ test(
         { status: 401 },
       );
     });
-    const response = yield* request(HttpClientRequest.get(`${f.base}/users`));
+
+    const response = yield* fetchResponse(
+      HttpClientRequest.get(`${f.base}/users`),
+    );
+
     expect(response).toMatchObject({ status: 401, body: null });
     yield* Effect.promise(() => cancelled.promise).pipe(Effect.timeout(1_000));
     expect(f.control.requests.length).toBe(1);
@@ -126,7 +273,7 @@ test(
   Effect.gen(function* () {
     const wire = yield* truncatedWireResponse(401);
 
-    const fiber = yield* request(HttpClientRequest.get(wire.url)).pipe(
+    const fiber = yield* fetchResponse(HttpClientRequest.get(wire.url)).pipe(
       Effect.provideService(FetchHttpClient.Fetch, wire.fetch),
       Effect.forkChild,
     );
@@ -161,7 +308,9 @@ test(
     );
 
     expect(
-      yield* request(HttpClientRequest.get("http://127.0.0.1/users")).pipe(
+      yield* fetchResponse(
+        HttpClientRequest.get("http://127.0.0.1/users"),
+      ).pipe(
         Effect.provideService(FetchHttpClient.Fetch, rejectedFetch),
         Effect.flip,
       ),
@@ -191,7 +340,11 @@ test(
 
     f.control.responses.set("GET /users", limited);
     f.control.responses.set("POST /chat/messages", limited);
-    const response = yield* request(HttpClientRequest.get(`${f.base}/users`));
+
+    const response = yield* fetchResponse(
+      HttpClientRequest.get(`${f.base}/users`),
+    );
+
     expect({
       status: response.status,
       body: response.body,
@@ -224,7 +377,7 @@ for (const status of [200, 204, 429])
         () => new Response(null, { status }),
       );
       expect(
-        yield* request(HttpClientRequest.get(`${f.base}/users`)),
+        yield* fetchResponse(HttpClientRequest.get(`${f.base}/users`)),
       ).toMatchObject({
         status,
         body: null,
@@ -239,7 +392,7 @@ for (const status of [200, 429])
     Effect.gen(function* () {
       const wire = yield* truncatedWireResponse(status);
 
-      const fiber = yield* request(HttpClientRequest.get(wire.url)).pipe(
+      const fiber = yield* fetchResponse(HttpClientRequest.get(wire.url)).pipe(
         Effect.provideService(FetchHttpClient.Fetch, wire.fetch),
         Effect.result,
         Effect.forkChild,
@@ -279,7 +432,7 @@ for (const status of [200, 429])
 
       yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
       expect(
-        yield* request(
+        yield* fetchResponse(
           HttpClientRequest.get(`http://127.0.0.1:${server.port}/users`),
         ).pipe(Effect.flip),
       ).toMatchObject(new ProviderError({ kind: "network" }));
@@ -317,7 +470,7 @@ for (const phase of ["headers", "body"])
 
         yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
 
-        const fiber = yield* request(
+        const fiber = yield* fetchResponse(
           HttpClientRequest.get(`http://127.0.0.1:${server.port}/users`),
           stop === "timeout" ? 100 : 2_000,
         ).pipe(Effect.result, Effect.forkChild);
@@ -343,11 +496,11 @@ test(
     const text = "é".repeat(131_071);
     f.control.responses.set("GET /users", () => Response.json(text));
     expect(
-      (yield* request(HttpClientRequest.get(`${f.base}/users`))).body,
+      (yield* fetchResponse(HttpClientRequest.get(`${f.base}/users`))).body,
     ).toBe(text);
     f.control.responses.set("GET /users", () => Response.json(`${text}a`));
     expect(
-      yield* request(HttpClientRequest.get(`${f.base}/users`)).pipe(
+      yield* fetchResponse(HttpClientRequest.get(`${f.base}/users`)).pipe(
         Effect.flip,
       ),
     ).toMatchObject({ kind: "network" });
@@ -369,7 +522,7 @@ test(
       });
     });
 
-    const response = yield* request(
+    const response = yield* fetchResponse(
       HttpClientRequest.post(`${f.base}/redirect`, {
         headers: { Authorization: "canary-token" },
       }).pipe(HttpClientRequest.bodyText("payload")),

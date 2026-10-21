@@ -1,9 +1,20 @@
-import { flow, Crypto, Effect, Schema, Stream } from "effect";
+import {
+  flow,
+  Crypto,
+  Effect,
+  Layer,
+  Option,
+  Schema,
+  type Scope,
+  Stream,
+} from "effect";
 import { Hex } from "effect/encoding";
 import {
   FetchHttpClient,
   HttpClient,
+  HttpClientError,
   type HttpClientRequest,
+  type HttpClientResponse,
 } from "effect/http";
 
 export class ProviderError extends Schema.TaggedError<ProviderError>()(
@@ -13,61 +24,67 @@ export class ProviderError extends Schema.TaggedError<ProviderError>()(
   },
 ) {}
 
-export const request = Effect.fn("Provider.request")(
-  function* (
-    outgoing: HttpClientRequest.HttpClientRequest,
-    _timeoutMs = 4_000,
-  ) {
-    const client = (yield* HttpClient.HttpClient).pipe(
-      HttpClient.withScope,
-      HttpClient.filterStatus(
-        (status) => (status >= 200 && status < 300) || status === 429,
+export const providerTransport = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.map(HttpClient.HttpClient, (client) =>
+    HttpClient.transformResponse(client, (effect) =>
+      Effect.flatMap(
+        Effect.serviceOption(FetchHttpClient.RequestInit),
+        (init) =>
+          Effect.provideService(effect, FetchHttpClient.RequestInit, {
+            ...Option.getOrUndefined(init),
+            redirect: "manual",
+          }),
       ),
-    );
-
-    const response = yield* client.execute(outgoing);
-    const { status, headers } = response;
-
-    const bytes = yield* response.stream.pipe(
-      Stream.catchReason(
-        "HttpClientError",
-        "EmptyBodyError",
-        () => Stream.empty,
-      ),
-      Stream.mapError(() => new ProviderError({ kind: "network" })),
-      Stream.limitBytes(256 * 1024, () =>
-        Stream.fail(new ProviderError({ kind: "network" })),
-      ),
-      Stream.mkUint8Array,
-    );
-
-    const body =
-      bytes.byteLength > 0
-        ? yield* Schema.decodeUnknownEffect(
-            Schema.fromJsonString(Schema.Unknown),
-          )(new TextDecoder().decode(bytes))
-        : null;
-
-    return { status, headers, body };
-  },
-  (effect, _outgoing, timeoutMs = 4_000) =>
-    effect.pipe(
-      Effect.catchReason("HttpClientError", "StatusCodeError", ({ response }) =>
-        Effect.succeed({
-          status: response.status,
-          headers: response.headers,
-          body: null,
-        }),
-      ),
-      Effect.provideService(FetchHttpClient.RequestInit, {
-        redirect: "manual",
-      }),
-      Effect.provide(FetchHttpClient.layer),
-      Effect.scoped,
-      Effect.timeout(timeoutMs),
-      Effect.mapError(() => new ProviderError({ kind: "network" })),
     ),
-);
+  ),
+).pipe(Layer.provide(FetchHttpClient.layer));
+
+export const request = Effect.fn("Provider.request")(function* <A, E, R>(
+  client: HttpClient.HttpClient,
+  outgoing: HttpClientRequest.HttpClientRequest,
+  consume: (
+    response: HttpClientResponse.HttpClientResponse,
+  ) => Effect.Effect<A, E, R | Scope.Scope>,
+  timeoutMs = 4_000,
+) {
+  return yield* HttpClient.withScope(client)
+    .execute(outgoing)
+    .pipe(
+      Effect.flatMap(consume),
+      Effect.mapError((error) =>
+        HttpClientError.isHttpClientError(error)
+          ? new ProviderError({ kind: "network" })
+          : error,
+      ),
+      Effect.scoped,
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () => new ProviderError({ kind: "network" }),
+      }),
+    );
+});
+
+export const readJson = Effect.fnUntraced(function* (
+  response: HttpClientResponse.HttpClientResponse,
+) {
+  const bytes = yield* response.stream.pipe(
+    Stream.catchReason("HttpClientError", "EmptyBodyError", () => Stream.empty),
+    Stream.mapError(() => new ProviderError({ kind: "network" })),
+    Stream.limitBytes(256 * 1024, () =>
+      Stream.fail(new ProviderError({ kind: "network" })),
+    ),
+    Stream.mkUint8Array,
+  );
+
+  if (bytes.byteLength === 0) return null;
+
+  return yield* Schema.decodeUnknownEffect(
+    Schema.fromJsonString(Schema.Unknown),
+  )(new TextDecoder().decode(bytes)).pipe(
+    Effect.mapError(() => new ProviderError({ kind: "network" })),
+  );
+});
 
 export const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
   flow(
