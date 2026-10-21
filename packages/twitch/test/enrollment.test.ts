@@ -335,14 +335,14 @@ test(
         yield* h.enrollment.begin(input);
         publicGrant(h);
         h.control.exchangeGate = yield* Deferred.make<void>();
+        h.control.exchangeStarted = yield* Deferred.make<void>();
         const exchanges = h.control.exchanges;
 
         const complete = yield* h.enrollment
           .complete({ ...input, outcome: { kind: "accepted", code: "secret" } })
           .pipe(Effect.flip, Effect.forkChild);
 
-        for (let i = 0; i < 100 && h.control.exchanges === exchanges; i++)
-          yield* Effect.yieldNow;
+        yield* Deferred.await(h.control.exchangeStarted);
         expect(h.control.exchanges).toBe(exchanges + 1);
         expect(
           (yield* h.enrollment
@@ -1120,14 +1120,14 @@ test(
       yield* h.enrollment.begin(input);
       publicGrant(h);
       h.control.exchangeGate = yield* Deferred.make<void>();
+      h.control.exchangeStarted = yield* Deferred.make<void>();
       const exchanges = h.control.exchanges;
 
       const completion = yield* h.enrollment
         .complete({ ...input, outcome: { kind: "accepted", code: "held" } })
         .pipe(Effect.result, Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.exchanges === exchanges; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.exchangeStarted);
       expect(h.control.exchanges).toBe(exchanges + 1);
       h.time(initial + policy.enrollmentLeaseMs);
       yield* TestClock.adjust(policy.enrollmentLeaseMs).pipe(

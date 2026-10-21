@@ -124,6 +124,7 @@ export const harness = Effect.fnUntraced(function* (
     sendGate: noGate(),
     mintGate: noGate(),
     exchangeGate: noGate(),
+    exchangeStarted: noGate(),
     validationGate: noGate(),
     failCreate: false,
     failUsers: false,
@@ -151,6 +152,9 @@ export const harness = Effect.fnUntraced(function* (
     }),
     exchange: Effect.fnUntraced(function* () {
       control.exchanges++;
+
+      if (control.exchangeStarted)
+        yield* Deferred.succeed(control.exchangeStarted, undefined);
       time += control.exchangeElapsedMs;
 
       if (control.sleepProviderDelays)
