@@ -1,8 +1,7 @@
+import type { Provider } from "@arctools/twitch/testing";
+import { AccountState } from "@arctools/twitch/testing";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Context, Effect, Exit, Schema } from "effect";
-
-import type { Provider } from "../../apps/bot/src/twitch-provider.js";
-import { AccountState } from "../../apps/bot/src/twitch-state.js";
 
 export interface AttributionStorage {
   readonly get: <T = unknown>(

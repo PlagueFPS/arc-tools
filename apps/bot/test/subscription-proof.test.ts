@@ -1,12 +1,12 @@
 import { expect } from "bun:test";
 
+import type { AccountConfig } from "@arctools/twitch/server";
+import { subscriptionBinding } from "@arctools/twitch/server";
+import type { Subscription } from "@arctools/twitch/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Match, Effect, Fiber, Layer, Redacted, Schema } from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
-import type { AccountConfig } from "../src/twitch-account.js";
-import { subscriptionBinding } from "../src/twitch-binding.js";
-import type { Subscription } from "../src/twitch-provider.js";
 import {
   callback,
   fixture,

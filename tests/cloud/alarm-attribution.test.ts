@@ -1,5 +1,16 @@
 import { expect } from "bun:test";
 
+import { makeAccountStorage } from "@arctools/twitch/cloudflare";
+import { AccountError } from "@arctools/twitch/server";
+import {
+  makeAccount,
+  makeProvider,
+  TwitchProvider,
+  AccountState,
+  AccountStore,
+  policy,
+} from "@arctools/twitch/testing";
+import { providerTransport } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Test from "alchemy/Test/Bun";
 import {
@@ -15,23 +26,7 @@ import {
   Semaphore,
 } from "effect";
 
-import { providerTransport } from "../../apps/bot/src/provider-http.js";
-import { makeAccount } from "../../apps/bot/src/twitch-account.js";
-import { AccountError } from "../../apps/bot/src/twitch-contracts.js";
-import {
-  makeProvider,
-  TwitchProvider,
-} from "../../apps/bot/src/twitch-provider.js";
-import {
-  AccountState,
-  AccountStore,
-  policy,
-} from "../../apps/bot/src/twitch-state.js";
-import { makeAccountStorage } from "../../apps/bot/src/twitch.js";
-import {
-  fixtureConfig,
-  initial,
-} from "../../apps/bot/test/twitch-account-fixture.js";
+import { EnvironmentConfig } from "../../apps/bot/src/config.js";
 import {
   AccountAttribution,
   attributionLimit,
@@ -53,6 +48,19 @@ import {
 import { makeProviderFixture } from "./twitch-provider-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
+const initial = 1_000_000_000_000;
+
+const fixtureConfig = Schema.decodeUnknownSync(EnvironmentConfig)({
+  kind: "test",
+  stage: "test-account-0123456789ab",
+  applicationStage: "test-account-0123456789ab",
+  senderKind: "synthetic",
+  senderLogin: "fixture_sender",
+  channelLogins: ["fixture_channel", "fixture_other"],
+  twitchClientId: "fixture-twitch",
+  discordApplicationId: "fixture-discord",
+});
 
 const runtime = RuntimeContext.of({
   Type: "test",

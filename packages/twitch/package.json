@@ -1,0 +1,26 @@
+{
+  "name": "@arctools/twitch",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "bun test ./test",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    "./server": "./src/server.ts",
+    "./cloudflare": "./src/cloudflare.ts",
+    "./testing": "./src/testing.ts",
+    "./testing/fixtures": "./test/account-fixture.ts"
+  },
+  "dependencies": {
+    "@arctools/utils": "workspace:*",
+    "alchemy": "2.0.0-beta.83",
+    "effect": "4.0.4"
+  },
+  "devDependencies": {
+    "@arctools/typescript-config": "workspace:*",
+    "typescript": "7.0.2"
+  }
+}

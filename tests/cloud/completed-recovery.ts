@@ -1,4 +1,5 @@
-import { policy } from "../../apps/bot/src/twitch-state.js";
+import { policy } from "@arctools/twitch/testing";
+
 import type {
   AccountAttribution,
   CompletedAlarmRun,

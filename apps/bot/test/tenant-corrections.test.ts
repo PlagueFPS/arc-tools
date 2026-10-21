@@ -1,10 +1,10 @@
 import { expect } from "bun:test";
 
+import { AttemptId, Deadline } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
 import { Result, Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 
-import { AttemptId, Deadline } from "../src/contracts.js";
 import { discordResponse, friendlyFailure } from "../src/presentation.js";
 import {
   fixture as accountFixture,

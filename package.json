@@ -43,7 +43,10 @@
     "oxlint": "1.88.0",
     "oxlint-tsgolint": "7.0.2004",
     "turbo": "^2.8.15",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "@arctools/twitch": "workspace:*",
+    "@arctools/utils": "workspace:*",
+    "@arctools/discord": "workspace:*"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.4",

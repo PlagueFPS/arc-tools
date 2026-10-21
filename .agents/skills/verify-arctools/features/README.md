@@ -22,4 +22,5 @@ Record the feature ID, entry point, revision, action, result, and exit status. C
 - [Item and ARC lookup](item-lookup.md): buy, loot, craft, find, sell, recycle, and recycleto through both platforms.
 - [Event lookup](events.md): event, upcoming, and active through both platforms.
 - [Twitch authorization and repair](twitch-setup.md): operator setup, OAuth grants, subscription readiness, and status.
+- [Public Twitch enrollment](twitch-enrollment.md): browser-bound onboarding, automatic confirmed subscription repair, installation status, and revocation recovery.
 - [Discord registration](discord-registration.md): revision-fenced command synchronization and drift status.

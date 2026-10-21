@@ -1,3 +1,8 @@
+import {
+  AccountError,
+  DispatchOutcome,
+  TwitchAccount,
+} from "@arctools/twitch/server";
 import { Stack } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
@@ -21,11 +26,6 @@ import {
   TenantService,
   tenantServiceLayer,
 } from "../../apps/bot/src/tenant.js";
-import {
-  AccountError,
-  DispatchOutcome,
-  TwitchAccount,
-} from "../../apps/bot/src/twitch-contracts.js";
 import type { TwitchAccountDO } from "../../apps/bot/src/twitch.js";
 import { Bot } from "../../apps/bot/src/worker.js";
 import {

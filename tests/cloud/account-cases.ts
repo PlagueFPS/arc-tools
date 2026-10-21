@@ -1,20 +1,20 @@
 import { expect } from "bun:test";
 import { appendFile } from "node:fs/promises";
 
-import { Match, Effect, Fiber, Redacted, Schedule, Schema } from "effect";
-
-import { commandManifest } from "../../apps/bot/src/discord-manifest.js";
 import {
+  commandManifest,
   ReleaseHealth,
   syncCommands,
-} from "../../apps/bot/src/discord-sync.js";
-import { providerTransport } from "../../apps/bot/src/provider-http.js";
-import { subscriptionBinding } from "../../apps/bot/src/twitch-binding.js";
+} from "@arctools/discord/server";
 import {
+  subscriptionBinding,
   AccountStatus,
   DispatchOutcome,
   SetupResult,
-} from "../../apps/bot/src/twitch-contracts.js";
+} from "@arctools/twitch/server";
+import { providerTransport } from "@arctools/utils/http";
+import { Match, Effect, Fiber, Redacted, Schedule, Schema } from "effect";
+
 import {
   LiveAccountAttribution,
   NativeAlarmSnapshot,

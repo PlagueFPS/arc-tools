@@ -1,5 +1,12 @@
 import { ArcData } from "@arctools/arc-data";
 import { makeFixture } from "@arctools/arc-data/testing";
+import {
+  type Account,
+  AccountError,
+  type Dispatch,
+  type DispatchOutcome,
+  TwitchAccount,
+} from "@arctools/twitch/server";
 import { Effect, Schema } from "effect";
 
 import { DiscordReceipt, TwitchReceipt } from "../src/tenant-contracts.js";
@@ -10,13 +17,6 @@ import {
   TenantStore,
 } from "../src/tenant-state.js";
 import { TenantService, tenantServiceLayer } from "../src/tenant.js";
-import {
-  type Account,
-  AccountError,
-  type Dispatch,
-  type DispatchOutcome,
-  TwitchAccount,
-} from "../src/twitch-contracts.js";
 
 export const twitchReceipt = (id = "work", receivedAt = 0) =>
   Schema.decodeUnknownSync(TwitchReceipt)({

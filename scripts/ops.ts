@@ -1,20 +1,17 @@
 import { parseArgs } from "node:util";
 
-import { Effect, Redacted, Schema } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/http";
-
-import { Stage } from "../apps/bot/src/config.js";
-import { syncCommands } from "../apps/bot/src/discord-sync.js";
+import { syncCommands } from "@arctools/discord/server";
+import { AccountStatus, SetupResult } from "@arctools/twitch/server";
 import {
   decodeBody,
   providerTransport,
   readJson,
   request,
-} from "../apps/bot/src/provider-http.js";
-import {
-  AccountStatus,
-  SetupResult,
-} from "../apps/bot/src/twitch-contracts.js";
+} from "@arctools/utils/http";
+import { Effect, Redacted, Schema } from "effect";
+import { HttpClient, HttpClientRequest } from "effect/http";
+
+import { Stage } from "../apps/bot/src/config.js";
 
 try {
   const { values, positionals } = parseArgs({

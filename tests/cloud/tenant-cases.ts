@@ -1,13 +1,10 @@
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
 
+import { AccountStatus, SetupResult } from "@arctools/twitch/server";
 import { Predicate, Effect, Exit, Fiber, Schedule, Schema } from "effect";
 
 import { discordResponse } from "../../apps/bot/src/presentation.js";
-import {
-  AccountStatus,
-  SetupResult,
-} from "../../apps/bot/src/twitch-contracts.js";
 import { cloudSettings } from "../../scripts/cloud-settings.js";
 import { expectDataFailure } from "./discord-failure.js";
 import {

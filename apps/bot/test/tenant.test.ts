@@ -1,18 +1,18 @@
 import { describe, expect } from "bun:test";
 
 import { makeFixture } from "@arctools/arc-data/testing";
+import { AttemptId, Deadline, AccountError } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
 import { Result, Predicate, Deferred, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 
-import { AttemptId, Deadline, WorkId } from "../src/contracts.js";
+import { WorkId } from "../src/contracts.js";
 import {
   discordResponse,
   encodedBytes,
   friendlyFailure,
 } from "../src/presentation.js";
 import { fits, tenantPolicy } from "../src/tenant-state.js";
-import { AccountError } from "../src/twitch-contracts.js";
 import {
   discordReceipt,
   tenantFixture,

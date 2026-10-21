@@ -1,6 +1,16 @@
 import { expect } from "bun:test";
 
 import { ArcData } from "@arctools/arc-data";
+import {
+  AttemptId,
+  Deadline,
+  type Account,
+  AccountError,
+  Dispatch,
+  ReplyId,
+  TwitchAccount,
+  TwitchEnrollment,
+} from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
@@ -12,18 +22,11 @@ import {
   twitchEvent,
 } from "../../../tests/cloud/signatures.js";
 import { BotApi } from "../src/api.js";
-import { AttemptId, Deadline } from "../src/contracts.js";
 import { ingressHandlers } from "../src/ingress.js";
 import { operatorHandlers } from "../src/operator.js";
 import { Tenants } from "../src/tenant-contracts.js";
 import { TenantStore } from "../src/tenant-state.js";
 import { makeTenant } from "../src/tenant.js";
-import {
-  type Account,
-  Dispatch,
-  ReplyId,
-  TwitchAccount,
-} from "../src/twitch-contracts.js";
 import {
   fixture as accountFixture,
   callback,
@@ -138,6 +141,13 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
       ),
       Layer.provide(Layer.succeed(TwitchAccount, trustedAccount)),
       Layer.provide(Layer.succeed(Tenants, tenants)),
+      Layer.provide(
+        Layer.succeed(TwitchEnrollment, {
+          begin: () => new AccountError({ code: "configuration" }),
+          complete: () => new AccountError({ code: "configuration" }),
+          status: () => new AccountError({ code: "configuration" }),
+        }),
+      ),
       Layer.provide(HttpServer.layerServices),
     );
 

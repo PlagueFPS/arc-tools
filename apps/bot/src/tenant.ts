@@ -1,6 +1,13 @@
 import { ArcData } from "@arctools/arc-data";
 import { bindData } from "@arctools/arc-data/cloudflare";
 import { executeCommand } from "@arctools/commands";
+import {
+  AttemptId,
+  Deadline,
+  AccountError,
+  Dispatch,
+  TwitchAccount,
+} from "@arctools/twitch/server";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import {
@@ -16,7 +23,6 @@ import {
   Schema,
 } from "effect";
 
-import { AttemptId, Deadline } from "./contracts.js";
 import {
   DiscordResponse,
   discordResponse,
@@ -48,7 +54,6 @@ import {
   tenantPolicy,
   type Work,
 } from "./tenant-state.js";
-import { AccountError, Dispatch, TwitchAccount } from "./twitch-contracts.js";
 import { bindAccount } from "./twitch.js";
 
 type TwitchComputing = Extract<

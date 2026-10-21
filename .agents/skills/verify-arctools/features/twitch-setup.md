@@ -6,7 +6,7 @@ An operator authorizes the sender and broadcaster, repairs EventSub subscription
 
 - `setup` resolves configured identities and returns grant links.
 - `oauth` accepts each grant once for its intended identity and scopes.
-- `repair` preserves enabled subscriptions and repairs revoked or unknown subscriptions.
+- `repair` preserves enabled subscriptions and repairs revoked or unknown subscriptions across configured and public members.
 - `status` reports account and channel readiness.
 
 ## How to get to it (user POV)
@@ -22,6 +22,8 @@ Preconditions: a protected `.env.local`, a separate personal Twitch application,
 - **Delivery.** Send `!sell sensors` in that channel. Capture the command and exactly one threaded bot reply.
 - **Repair.** In the isolated nonproduction application, repeat setup and compare the enabled subscription identity before and after. Exercise revocation repair only when that scenario is authorized, then require restored readiness and a successful command.
 - **Controlled integration.** `bun run test:cloud` covers synthetic setup, grant callbacks, subscription observation, revocation, and dispatch. Retain its journal and successful cleanup result separately from live evidence.
+
+Public browser onboarding has a separate [enrollment journey](twitch-enrollment.md).
 
 ## Gotchas
 

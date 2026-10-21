@@ -1,4 +1,6 @@
 import { ArcCacheDO } from "@arctools/arc-data/cloudflare";
+import { manifestHash } from "@arctools/discord/server";
+import { TwitchAccount, TwitchEnrollment } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer } from "effect";
@@ -12,14 +14,12 @@ import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
 import { bindOrigin, buildRevision, runtimeConfig } from "./config.js";
-import { manifestHash } from "./discord-manifest.js";
 import { ingressHandlers } from "./ingress.js";
 import { operatorHandlers } from "./operator.js";
 import { Tenants } from "./tenant-contracts.js";
 import { TenantBoundaryObserver } from "./tenant-diagnostics.js";
 import { bindTenants } from "./tenant.js";
-import { TwitchAccount } from "./twitch-contracts.js";
-import { bindAccount } from "./twitch.js";
+import { bindAccount, bindEnrollment } from "./twitch.js";
 
 export class Bot extends Cloudflare.Worker<Bot>()(
   "Bot",
@@ -58,6 +58,11 @@ export class Bot extends Cloudflare.Worker<Bot>()(
     const hash = yield* manifestHash;
     yield* ArcCacheDO.pipe(Effect.provide(bindings));
     const client = yield* bindAccount.pipe(Effect.provide(bindings));
+
+    const enrollmentClient = yield* bindEnrollment.pipe(
+      Effect.provide(bindings),
+    );
+
     const tenantClient = yield* bindTenants.pipe(Effect.provide(bindings));
 
     return {
@@ -65,6 +70,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
         const receivedAt = Date.now();
         const observation = testComposition?.botRequestObservation(identity);
         const account = yield* client;
+        const enrollment = yield* enrollmentClient;
 
         const tenants = yield* observation
           ? tenantClient.pipe(
@@ -93,6 +99,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
           Layer.provide(
             operatorHandlers(identity.stage, operatorSecret).pipe(
               Layer.provide(Layer.succeed(TwitchAccount, account)),
+              Layer.provide(Layer.succeed(TwitchEnrollment, enrollment)),
             ),
           ),
           Layer.provide(

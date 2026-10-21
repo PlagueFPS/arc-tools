@@ -1,0 +1,25 @@
+{
+  "name": "@arctools/discord",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "bun test ./test",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    "./server": "./src/server.ts",
+    "./install": "./src/install.ts"
+  },
+  "dependencies": {
+    "@arctools/commands": "workspace:*",
+    "@arctools/utils": "workspace:*",
+    "effect": "4.0.4"
+  },
+  "devDependencies": {
+    "@arctools/typescript-config": "workspace:*",
+    "alchemy": "2.0.0-beta.83",
+    "typescript": "7.0.2"
+  }
+}

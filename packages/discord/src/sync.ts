@@ -1,3 +1,4 @@
+import { decodeBody, digest, readJson, request } from "@arctools/utils/http";
 import {
   Predicate,
   Clock,
@@ -15,8 +16,7 @@ import {
   commandManifest,
   manifestHash,
   RemoteCommands,
-} from "./discord-manifest.js";
-import { decodeBody, digest, readJson, request } from "./provider-http.js";
+} from "./manifest.js";
 
 export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
   code: Schema.Literals([

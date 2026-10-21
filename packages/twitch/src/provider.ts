@@ -1,4 +1,10 @@
 import {
+  decodeBody,
+  type ProviderError,
+  readJson,
+  request,
+} from "@arctools/utils/http";
+import {
   Layer,
   Predicate,
   Clock,
@@ -11,14 +17,8 @@ import {
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
-import {
-  decodeBody,
-  type ProviderError,
-  readJson,
-  request,
-} from "./provider-http.js";
-import { subscriptionBinding } from "./twitch-binding.js";
-import { AccountError, bounded, type Dispatch } from "./twitch-contracts.js";
+import { subscriptionBinding } from "./binding.js";
+import { AccountError, bounded, type Dispatch } from "./contracts.js";
 
 const seconds = Schema.Int.check(Schema.isGreaterThan(0));
 

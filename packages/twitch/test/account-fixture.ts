@@ -1,42 +1,41 @@
-import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Clock, Deferred, Effect, Schema, Semaphore } from "effect";
-
-import { EnvironmentConfig } from "../src/config.js";
 import {
-  senderScopes,
-  AccountService,
-  accountServiceLayer,
-} from "../src/twitch-account.js";
+  type AccountStorage,
+  accountStorageLayer,
+} from "@arctools/twitch/cloudflare";
+import type { AccountIdentity } from "@arctools/twitch/server";
 import {
   type Account,
   AccountError,
   Dispatch,
   type SetupResult,
-} from "../src/twitch-contracts.js";
+} from "@arctools/twitch/server";
 import {
+  senderScopes,
+  AccountService,
+  accountServiceLayer,
   type Provider,
   type SendResult,
   type Subscription,
   TwitchProvider,
-} from "../src/twitch-provider.js";
-import { AccountState, AccountStore, emptyState } from "../src/twitch-state.js";
-import { type AccountStorage, accountStorageLayer } from "../src/twitch.js";
+  AccountState,
+  AccountStore,
+  emptyState,
+} from "@arctools/twitch/testing";
+import { RuntimeContext } from "alchemy/RuntimeContext";
+import { Clock, Deferred, Effect, Schema, Semaphore } from "effect";
 
 export const initial = 1_000_000_000_000;
 
-export const fixtureConfig = Schema.decodeUnknownSync(EnvironmentConfig)({
+export const fixtureConfig = {
   kind: "test",
   stage: "test-account-0123456789ab",
-  applicationStage: "test-account-0123456789ab",
-  senderKind: "synthetic",
   senderLogin: "fixture_sender",
   channelLogins: ["fixture_channel", "fixture_other"],
   twitchClientId: "fixture-twitch",
-  discordApplicationId: "fixture-discord",
-});
+} satisfies AccountIdentity;
 
 export const harness = Effect.fnUntraced(function* (
-  identity = fixtureConfig,
+  identity: AccountIdentity = fixtureConfig,
   webhookReady = true,
 ) {
   const clock = yield* Clock.Clock;
@@ -44,9 +43,16 @@ export const harness = Effect.fnUntraced(function* (
   let raw: unknown = emptyState("");
   const mutex = yield* Semaphore.make(1);
   let nativeAlarm: number | null = null;
+  let nextReadElapsedMs = 0;
 
   const storage: AccountStorage = {
-    get: () => Effect.sync(() => structuredClone(raw)),
+    get: () =>
+      Effect.sync(() => {
+        time += nextReadElapsedMs;
+        nextReadElapsedMs = 0;
+
+        return structuredClone(raw);
+      }),
     put: (_key, value) =>
       Effect.sync(() => {
         raw = structuredClone(value);
@@ -82,6 +88,10 @@ export const harness = Effect.fnUntraced(function* (
     messageId: "message-one",
   });
 
+  const subscriptionStatus = ():
+    | "enabled"
+    | "webhook_callback_verification_pending" => "enabled";
+
   const noFailure = (): "client" | "provider" | null => null;
   const remoteBindings: Record<string, string> = {};
   const usersTokens: string[] = [];
@@ -89,7 +99,10 @@ export const harness = Effect.fnUntraced(function* (
   const remote: Subscription[] = [];
 
   const control = {
+    userIds: new Map<string, string>(),
+    subscriptionStatus: subscriptionStatus(),
     grantClient: identity.twitchClientId,
+    grantExpires: 3600,
     grantUser: "100",
     grantLogin: identity.senderLogin,
     grantScopes: [...senderScopes],
@@ -99,6 +112,12 @@ export const harness = Effect.fnUntraced(function* (
     mints: 0,
     validations: 0,
     exchanges: 0,
+    exchangeElapsedMs: 0,
+    grantValidationElapsedMs: 0,
+    usersElapsedMs: 0,
+    sleepProviderDelays: false,
+    createGate: noGate(),
+    lists: 0,
     creates: 0,
     removes: 0,
     result: defaultResult(),
@@ -110,6 +129,7 @@ export const harness = Effect.fnUntraced(function* (
     failUsers: false,
     usersFailure: noFailure(),
     usersGate: noGate(),
+    listGate: noGate(),
     usersTokens,
     sendTokens,
     remoteBindings,
@@ -131,6 +151,10 @@ export const harness = Effect.fnUntraced(function* (
     }),
     exchange: Effect.fnUntraced(function* () {
       control.exchanges++;
+      time += control.exchangeElapsedMs;
+
+      if (control.sleepProviderDelays)
+        yield* Effect.sleep(control.exchangeElapsedMs);
 
       if (control.exchangeGate) yield* Deferred.await(control.exchangeGate);
 
@@ -152,7 +176,7 @@ export const harness = Effect.fnUntraced(function* (
             }
           : {
               client_id: control.grantClient,
-              expires_in: 3600,
+              expires_in: control.grantExpires,
               user_id: control.grantUser,
               login: control.grantLogin,
               scopes: control.grantScopes,
@@ -161,10 +185,21 @@ export const harness = Effect.fnUntraced(function* (
       if (token === "canary-app-token" && control.validationGate)
         yield* Deferred.await(control.validationGate);
 
+      if (token !== "canary-app-token") {
+        time += control.grantValidationElapsedMs;
+
+        if (control.sleepProviderDelays)
+          yield* Effect.sleep(control.grantValidationElapsedMs);
+      }
+
       return result;
     }),
     users: Effect.fnUntraced(function* (token, logins) {
       control.usersTokens.push(token);
+      time += control.usersElapsedMs;
+
+      if (control.sleepProviderDelays)
+        yield* Effect.sleep(control.usersElapsedMs);
       const failure = control.failUsers ? "client" : control.usersFailure;
 
       if (control.usersGate) yield* Deferred.await(control.usersGate);
@@ -174,16 +209,23 @@ export const harness = Effect.fnUntraced(function* (
       return logins.map((login) => ({
         login,
         id:
-          login === identity.senderLogin
+          control.userIds.get(login) ??
+          (login === identity.senderLogin
             ? "100"
             : login === "fixture_channel"
               ? "200"
               : login === "fixture_other"
                 ? "300"
-                : String(400 + logins.indexOf(login)),
+                : String(400 + logins.indexOf(login))),
       }));
     }),
-    list: () => Effect.sync(() => [...control.remote]),
+    list: Effect.fnUntraced(function* () {
+      control.lists++;
+
+      if (control.listGate) yield* Deferred.await(control.listGate);
+
+      return [...control.remote];
+    }),
     create: (_token, channel, sender) =>
       Effect.sync(() => {
         control.creates++;
@@ -194,7 +236,7 @@ export const harness = Effect.fnUntraced(function* (
           id,
           type: "channel.chat.message",
           version: "1",
-          status: "enabled",
+          status: control.subscriptionStatus,
           condition: { broadcaster_user_id: channel, user_id: sender },
           transport: {
             method: "webhook",
@@ -217,10 +259,14 @@ export const harness = Effect.fnUntraced(function* (
             senderId: sender,
             callback: subscription.transport.callback ?? "",
             binding: control.binding,
-            status: "enabled",
+            status: control.subscriptionStatus,
           },
         } satisfies Effect.Success<ReturnType<Provider["create"]>>;
-      }),
+      }).pipe(
+        Effect.tap(() =>
+          control.createGate ? Deferred.await(control.createGate) : Effect.void,
+        ),
+      ),
     remove: (_token, id) =>
       Effect.sync(() => {
         control.removes++;
@@ -250,13 +296,14 @@ export const harness = Effect.fnUntraced(function* (
   const construct = (
     revision = "revision-one",
     subscriptionBinding = "fixture-binding",
+    configuredIdentity = identity,
   ) => {
     control.binding = subscriptionBinding;
 
     return AccountService.pipe(
       Effect.provide(
         accountServiceLayer({
-          identity,
+          identity: configuredIdentity,
           webhookReady,
           subscriptionBinding,
           revision,
@@ -275,6 +322,7 @@ export const harness = Effect.fnUntraced(function* (
   return {
     account: account.service,
     alarm: account.credentialAlarm,
+    enrollment: account.enrollment,
     construct,
     control,
     clock: fakeClock,
@@ -282,7 +330,13 @@ export const harness = Effect.fnUntraced(function* (
       time = value;
     },
     now: () => time,
+    delayNextReadBy: (elapsedMs: number) => {
+      nextReadElapsedMs = elapsedMs;
+    },
     snapshot: () => raw,
+    restoreRaw: (value: typeof AccountState.Encoded) => {
+      raw = structuredClone(value);
+    },
     restore: (value: AccountState) => {
       raw = Schema.encodeSync(AccountState)(value);
     },

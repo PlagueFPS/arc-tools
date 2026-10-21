@@ -1,22 +1,9 @@
 import { ArcData, type DataRead, DataUnavailable } from "@arctools/arc-data";
 import { Clock, Effect, Predicate, Ref, Schema } from "effect";
 
+import { commandHandlers } from "./handlers.js";
 import { CommandError } from "./lib/command-error.js";
-import { commands } from "./registry.js";
-
-export const CommandName = Schema.Literals(
-  commands.map((command) => command.name),
-);
-
-export type CommandName = typeof CommandName.Type;
-
-export const CommandExecution = Schema.Struct({
-  command: CommandName,
-  input: Schema.String.check(Schema.isMaxLength(256)),
-  deadline: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-});
-
-export type CommandExecution = typeof CommandExecution.Type;
+import { CommandExecution } from "./schemas.js";
 
 export interface CommandReply {
   readonly text: string;
@@ -55,12 +42,7 @@ export const executeCommand = Effect.fn("Command.execute")(function* (
     events: () => observe(data.events()),
   });
 
-  const command = commands.find((command) => command.name === input.command);
-
-  if (Predicate.isUndefined(command))
-    return yield* new CommandError({ cause: "Unknown command" });
-
-  const text = yield* command.handler(input.input).pipe(
+  const text = yield* commandHandlers[input.command](input.input).pipe(
     Effect.provideService(ArcData, local),
     Effect.timeout(remaining),
     Effect.catch(

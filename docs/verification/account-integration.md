@@ -23,10 +23,11 @@ The evidence commit containing this document follows those seven commits. Its id
 
 ## Every conflict and integration edit
 
-The first four imports applied without conflicts. Their stable patch IDs match their originals. The fifth import had exactly one conflict, at `tests/cloud/account-fixture.ts:19`. Both branches added an import after `makeProvider`. The resolution retains these exact imports.
+The first four imports applied without conflicts. Their stable patch IDs match their originals. The fifth import had exactly one conflict, at `tests/cloud/account-fixture.ts:19`. Both branches added an import after `makeProvider`. The resolution retains both imports. Their current paths after the Twitch package extraction are shown below.
 
 ```ts
-import { AccountState, policy } from "../../apps/bot/src/twitch-state.js";
+import { AccountState, policy } from "@arctools/twitch/testing";
+
 import {
   acknowledgeReconstruction,
   identifyFixtureResponse,

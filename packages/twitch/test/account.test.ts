@@ -1,14 +1,13 @@
 import { expect } from "bun:test";
 
+import type { AccountIdentity } from "@arctools/twitch/server";
+import { Dispatch } from "@arctools/twitch/server";
+import { senderScopes, AccountState } from "@arctools/twitch/testing";
+import type { SendResult } from "@arctools/twitch/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Deferred, Effect, Fiber, Layer, Schema } from "effect";
 
-import { EnvironmentConfig } from "../src/config.js";
-import { senderScopes } from "../src/twitch-account.js";
-import { Dispatch } from "../src/twitch-contracts.js";
-import type { SendResult } from "../src/twitch-provider.js";
-import { AccountState } from "../src/twitch-state.js";
-import { fixtureConfig, harness, initial } from "./twitch-account-fixture.js";
+import { fixtureConfig, harness, initial } from "./account-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 
@@ -259,13 +258,13 @@ test(
 test(
   "32 channels and a distinct sender allocate all links atomically across repeats and expiry",
   Effect.gen(function* () {
-    const identity = Schema.decodeUnknownSync(EnvironmentConfig)({
+    const identity = {
       ...fixtureConfig,
       channelLogins: Array.from(
         { length: 32 },
         (_, i) => `fixture_channel_${i}`,
       ),
-    });
+    } satisfies AccountIdentity;
 
     const h = yield* harness(identity);
     yield* Effect.gen(function* () {
@@ -474,15 +473,13 @@ test(
 test(
   "personal identity requests the union of sender and broadcaster grants and awaits real ingress",
   Effect.gen(function* () {
-    const personal = Schema.decodeUnknownSync(EnvironmentConfig)({
+    const personal = {
       ...fixtureConfig,
       kind: "personal",
       stage: "staging",
-      applicationStage: "staging",
-      senderKind: "personal",
       senderLogin: "personal",
       channelLogins: ["personal"],
-    });
+    } satisfies AccountIdentity;
 
     const h = yield* harness(personal, false);
     const first = yield* h.account.setup("operator-digest");

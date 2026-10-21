@@ -1,24 +1,24 @@
-import { Match, Effect, Layer, Redacted, Schema } from "effect";
-
-import { EnvironmentConfig } from "../src/config.js";
-import { providerTransport } from "../src/provider-http.js";
+import type { AccountConfig } from "@arctools/twitch/server";
 import {
-  type AccountConfig,
-  AccountService,
-  accountServiceLayer,
-} from "../src/twitch-account.js";
-import { subscriptionBinding } from "../src/twitch-binding.js";
-import {
+  subscriptionBinding,
   type Account,
   Dispatch,
   type SetupResult,
-} from "../src/twitch-contracts.js";
+} from "@arctools/twitch/server";
 import {
+  AccountService,
+  accountServiceLayer,
   type Subscription,
   TwitchProvider,
   providerLayer,
-} from "../src/twitch-provider.js";
-import { AccountState, AccountStore, emptyState } from "../src/twitch-state.js";
+  AccountState,
+  AccountStore,
+  emptyState,
+} from "@arctools/twitch/testing";
+import { providerTransport } from "@arctools/utils/http";
+import { Match, Effect, Layer, Redacted, Schema } from "effect";
+
+import { EnvironmentConfig } from "../src/config.js";
 
 export const callback = "https://fixture.invalid/webhooks/twitch";
 

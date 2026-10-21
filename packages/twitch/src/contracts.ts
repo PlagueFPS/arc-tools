@@ -1,7 +1,7 @@
 import type { Effect } from "effect";
 import { Context, Schema } from "effect";
 
-import { AttemptId, BroadcasterId, Deadline } from "./contracts.js";
+import { AttemptId, BroadcasterId, Deadline } from "./schemas.js";
 
 export const bounded = (max: number) =>
   Schema.NonEmptyString.check(Schema.isMaxLength(max));
@@ -27,6 +27,11 @@ export const DispatchOutcome = Schema.Union([
 ]);
 
 export type DispatchOutcome = typeof DispatchOutcome.Type;
+
+export const enrollmentTiming = {
+  exchangeMs: 14_000,
+  callbackMs: 16_000,
+};
 
 export class AccountError extends Schema.TaggedError<AccountError>()(
   "AccountError",
@@ -130,3 +135,63 @@ export interface Account {
 export class TwitchAccount extends Context.Service<TwitchAccount, Account>()(
   "@arctools/TwitchAccount",
 ) {}
+
+export const EnrollmentSession = Schema.String.check(
+  Schema.isPattern(/^[a-f0-9]{64}$/),
+).pipe(Schema.brand("EnrollmentSession"));
+
+export const EnrollmentNonce = Schema.String.check(
+  Schema.isPattern(/^enroll\.[a-f0-9]{64}$/),
+);
+
+export const EnrollmentFailure = Schema.Literals([
+  "authorization-required",
+  "authorization-failed",
+  "denied",
+  "expired",
+  "capacity",
+  "repair-required",
+  "unavailable",
+]);
+
+export const EnrollmentStatus = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("pending") }),
+  Schema.Struct({ kind: Schema.Literal("ready"), login: bounded(25) }),
+  Schema.Struct({ kind: Schema.Literal("failed"), reason: EnrollmentFailure }),
+]);
+
+export type EnrollmentStatus = typeof EnrollmentStatus.Type;
+
+export const EnrollmentBegin = Schema.Struct({
+  session: EnrollmentSession,
+  previousSession: Schema.NullOr(EnrollmentSession),
+  state: EnrollmentNonce,
+});
+
+export type EnrollmentBegin = typeof EnrollmentBegin.Type;
+
+export const EnrollmentCompletion = Schema.Struct({
+  session: EnrollmentSession,
+  state: EnrollmentNonce,
+  outcome: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("accepted"), code: bounded(2048) }),
+    Schema.Struct({ kind: Schema.Literal("denied") }),
+  ]),
+});
+
+export type EnrollmentCompletion = typeof EnrollmentCompletion.Type;
+
+export class TwitchEnrollment extends Context.Service<
+  TwitchEnrollment,
+  {
+    readonly begin: (
+      input: EnrollmentBegin,
+    ) => Effect.Effect<string, AccountError>;
+    readonly complete: (
+      input: EnrollmentCompletion,
+    ) => Effect.Effect<EnrollmentStatus, AccountError>;
+    readonly status: (
+      session: typeof EnrollmentSession.Type,
+    ) => Effect.Effect<EnrollmentStatus, AccountError>;
+  }
+>()("@arctools/TwitchEnrollment") {}

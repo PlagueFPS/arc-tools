@@ -1,3 +1,4 @@
+import { digest } from "@arctools/utils/http";
 import {
   Context,
   Clock,
@@ -9,34 +10,46 @@ import {
   Semaphore,
 } from "effect";
 
-import type { EnvironmentConfig } from "./config.js";
-import { BroadcasterId, Deadline } from "./contracts.js";
-import { digest } from "./provider-http.js";
 import {
   AccountError,
   type AccountStatus,
   Dispatch,
+  EnrollmentBegin,
+  EnrollmentCompletion,
+  EnrollmentSession,
+  type EnrollmentStatus,
+  TwitchEnrollment,
   type DispatchOutcome,
   OAuthCompletion,
   type SetupResult,
   SubscriptionObservation,
   TwitchAccount,
-} from "./twitch-contracts.js";
-import { type Subscription, TwitchProvider } from "./twitch-provider.js";
+} from "./contracts.js";
+import { type Subscription, TwitchProvider } from "./provider.js";
+import { BroadcasterId, Deadline } from "./schemas.js";
 import {
   type AccountState,
   AccountStore,
+  desiredChannels,
   policy,
   reclaim,
   reserveAt,
-} from "./twitch-state.js";
+} from "./state.js";
 
 export const senderScopes = ["user:read:chat", "user:write:chat", "user:bot"];
 
 export const broadcasterScopes = ["channel:bot"];
 
+export interface AccountIdentity {
+  readonly kind: "production" | "personal" | "test";
+  readonly stage: string;
+  readonly twitchClientId: string;
+  readonly senderLogin: string;
+  readonly channelLogins: readonly string[];
+}
+
 export interface AccountConfig {
-  readonly identity: EnvironmentConfig;
+  readonly identity: AccountIdentity;
   readonly revision: string;
   readonly callback: string;
   readonly redirect: string;
@@ -83,7 +96,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     record: AccountState["subscriptions"][string],
   ) =>
     current(state) &&
-    state.channels.some((channel) => channel.id === record.broadcasterId) &&
+    desiredChannels(state, config.identity.kind).some(
+      (channel) => channel.id === record.broadcasterId,
+    ) &&
     state.sender?.id === record.senderId &&
     record.callback === config.callback &&
     record.binding === config.subscriptionBinding;
@@ -108,7 +123,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     if (
       !current(state) ||
       !state.sender ||
-      !state.channels.some((channel) => channel.id === id)
+      !desiredChannels(state, config.identity.kind).some(
+        (channel) => channel.id === id,
+      )
     )
       kind = "unresolved";
     else if (record && (!confirmed || !liveSubscription(record.status)))
@@ -161,7 +178,28 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       until: prior?.until ?? now + policy.retentionMs,
       reason: authorizationLost ? "authorization-revoked" : "revoked",
     };
-    state.authGeneration += 1;
+
+    const publicOnly =
+      observation.broadcasterId !== state.sender?.id &&
+      state.publicMembers.some(
+        (member) => member.id === observation.broadcasterId,
+      ) &&
+      !state.channels.some(
+        (channel) => channel.id === observation.broadcasterId,
+      );
+
+    if (publicOnly) {
+      state.publicRevocationGeneration += 1;
+      state.publicMembers = state.publicMembers.map((member) =>
+        member.id === observation.broadcasterId
+          ? {
+              ...member,
+              revocationGeneration: state.publicRevocationGeneration,
+            }
+          : member,
+      );
+      state.setupLease = null;
+    } else state.authGeneration += 1;
     const record = state.subscriptions[observation.broadcasterId];
 
     if (record?.id === observation.id && matchesTarget(state, record))
@@ -170,9 +208,18 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         status: observation.status,
       };
 
+    if (
+      state.publicMembers.some(
+        (member) => member.id === observation.broadcasterId,
+      ) &&
+      state.repair.kind !== "scheduled"
+    )
+      state.repair = { kind: "required" };
+
     if (authorizationLost) {
       delete state.grants[observation.broadcasterId];
-      delete state.grants[observation.senderId];
+
+      if (!publicOnly) delete state.grants[observation.senderId];
     }
   };
 
@@ -184,6 +231,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       state.channels = [];
       state.grants = {};
       state.oauth = [];
+      state.enrollments = state.enrollments.map((entry) => ({
+        ...entry,
+        phase: { kind: "failed", reason: "authorization-required" },
+      }));
+      state.repair = { kind: "idle" };
       state.session = null;
       state.setupLease = null;
       state.tokenLease = null;
@@ -337,15 +389,17 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const result = yield* store.update((state) => {
         reclaim(state, now);
 
-        const decisions = state.channels.map((channel) =>
-          decideChannel(state, channel.id),
+        const decisions = desiredChannels(state, config.identity.kind).map(
+          (channel) => decideChannel(state, channel.id),
         );
 
-        const channels = state.channels.map((channel, index) => ({
-          ...channel,
-          authorized: granted(state, channel.id, broadcasterScopes),
-          subscription: decisions[index]?.subscription ?? "missing",
-        }));
+        const channels = desiredChannels(state, config.identity.kind).map(
+          (channel, index) => ({
+            ...channel,
+            authorized: granted(state, channel.id, broadcasterScopes),
+            subscription: decisions[index]?.subscription ?? "missing",
+          }),
+        );
 
         const sender = state.sender && {
           ...state.sender,
@@ -462,6 +516,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         const channel = subscription.condition.broadcaster_user_id ?? "";
         const record = state.subscriptions[channel];
 
+        const owned = Object.values(state.subscriptions).some((local) =>
+          sameRemote(local, subscription),
+        );
+
+        const currentBinding =
+          subscription.transport.callback === config.callback &&
+          subscription.condition.user_id === state.sender?.id;
+
+        if (!owned && !currentBinding) continue;
+
         if (
           record &&
           sameRemote(record, subscription) &&
@@ -513,6 +577,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
       const action = yield* store.update((state) => {
         if (!ownsSetup(state, owner, generation, now)) return "stale";
+
+        if (
+          !state.sender ||
+          !granted(state, state.sender.id, senderScopes) ||
+          !granted(state, channel, broadcasterScopes) ||
+          !desiredChannels(state, config.identity.kind).some(
+            (entry) => entry.id === channel,
+          )
+        )
+          return "keep";
 
         return decideChannel(state, channel).confirmed ? "keep" : "create";
       });
@@ -620,14 +694,26 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const resolvedAt = yield* Clock.currentTimeMillis;
 
       const accepted = yield* store.update((state) => {
-        if (!ownsSetup(state, owner, generation, resolvedAt)) return false;
+        if (!ownsSetup(state, owner, generation, resolvedAt)) return "stale";
+
+        if (
+          desiredChannels(
+            {
+              channels: resolved,
+              publicMembers: state.publicMembers,
+            },
+            config.identity.kind,
+          ).length > policy.maxChannels
+        )
+          return "capacity";
         state.sender = sender;
         state.channels = resolved;
 
-        return true;
+        return "accepted";
       });
 
-      if (!accepted) return yield* new AccountError({ code: "stale" });
+      if (accepted !== "accepted")
+        return yield* new AccountError({ code: accepted });
       const authorizations: SetupResult["authorizations"][number][] = [];
       const states: AccountState["oauth"][number][] = [];
 
@@ -715,7 +801,20 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
             owner,
             session.token,
             sender.id,
-            resolved.map((channel) => channel.id),
+            yield* store.update((state) =>
+              desiredChannels(state, config.identity.kind)
+                .filter((channel) => {
+                  const decision = decideChannel(state, channel.id);
+
+                  return (
+                    decision.kind === "pending" ||
+                    decision.kind === "ready" ||
+                    (decision.kind === "repair-required" &&
+                      granted(state, channel.id, broadcasterScopes))
+                  );
+                })
+                .map((channel) => channel.id),
+            ),
             generation,
           ),
         );
@@ -794,6 +893,467 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     return yield* status();
   });
 
+  const enrollmentStatus = Effect.fnUntraced(function* (
+    session: typeof EnrollmentSession.Type,
+  ): Effect.fn.Return<EnrollmentStatus, AccountError> {
+    const valid = yield* Schema.decodeUnknownEffect(EnrollmentSession)(
+      session,
+    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+
+    const now = yield* Clock.currentTimeMillis;
+
+    return yield* store.update((state): EnrollmentStatus => {
+      const entry = state.enrollments.find((entry) => entry.session === valid);
+
+      if (config.identity.kind !== "production")
+        return { kind: "failed", reason: "unavailable" };
+
+      if (!entry || entry.expiresAt <= now)
+        return { kind: "failed", reason: "expired" };
+
+      if (
+        !current(state) ||
+        entry.revision !== config.revision ||
+        (entry.phase.kind !== "member" &&
+          entry.generation !== state.authGeneration)
+      )
+        return { kind: "failed", reason: "authorization-required" };
+
+      switch (entry.phase.kind) {
+        case "failed":
+          return { kind: "failed", reason: entry.phase.reason };
+        case "pending":
+          return { kind: "pending" };
+        case "exchanging":
+          return entry.phase.lease.until > now
+            ? { kind: "pending" }
+            : { kind: "failed", reason: "expired" };
+        case "member": {
+          const id = entry.phase.broadcasterId;
+
+          const member = desiredChannels(state, config.identity.kind).find(
+            (channel) => channel.id === id,
+          );
+
+          if (
+            !member ||
+            !state.sender ||
+            !granted(state, state.sender.id, senderScopes) ||
+            !granted(state, id, broadcasterScopes)
+          )
+            return { kind: "failed", reason: "authorization-required" };
+          const decision = decideChannel(state, id);
+
+          if (decision.kind === "ready")
+            return { kind: "ready", login: member.login };
+
+          if (
+            decision.kind === "repair-required" ||
+            state.repair.kind === "required"
+          )
+            return { kind: "failed", reason: "repair-required" };
+
+          return { kind: "pending" };
+        }
+      }
+    });
+  });
+
+  const beginEnrollment = Effect.fnUntraced(function* (input: EnrollmentBegin) {
+    const valid = yield* Schema.decodeUnknownEffect(EnrollmentBegin)(
+      input,
+    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+
+    if (
+      config.identity.kind !== "production" ||
+      !config.webhookReady ||
+      !Schema.is(CallbackUrl)(config.callback) ||
+      !Schema.is(CallbackUrl)(config.redirect)
+    )
+      return yield* new AccountError({ code: "configuration" });
+    const now = yield* Clock.currentTimeMillis;
+    const nonce = yield* digest(valid.state);
+
+    const result = yield* store.update((state) => {
+      if (
+        !current(state) ||
+        !state.sender ||
+        !granted(state, state.sender.id, senderScopes)
+      )
+        return "configuration";
+
+      const retained = state.enrollments.filter(
+        (entry) =>
+          entry.expiresAt > now && entry.session !== valid.previousSession,
+      );
+
+      if (
+        retained.filter(
+          (entry) =>
+            entry.phase.kind === "pending" || entry.phase.kind === "exchanging",
+        ).length >= policy.maxEnrollmentIntents
+      )
+        return "capacity";
+      const active = retained.filter((entry) => entry.phase.kind !== "failed");
+
+      const failureSlots =
+        policy.maxChannels + policy.maxEnrollmentIntents - active.length - 1;
+
+      const failures = retained
+        .filter((entry) => entry.phase.kind === "failed")
+        .slice(0, failureSlots);
+
+      state.enrollments = [
+        ...active,
+        ...failures,
+        {
+          session: valid.session,
+          nonce,
+          revision: config.revision,
+          generation: state.authGeneration,
+          publicRevocationGeneration: state.publicRevocationGeneration,
+          expiresAt: now + policy.oauthMs,
+          phase: { kind: "pending" },
+        },
+      ];
+
+      return "stored";
+    });
+
+    if (result !== "stored") return yield* new AccountError({ code: result });
+
+    const params = new URLSearchParams({
+      client_id: config.identity.twitchClientId,
+      redirect_uri: config.redirect,
+      response_type: "code",
+      scope: broadcasterScopes.join(" "),
+      state: valid.state,
+      force_verify: "true",
+    });
+
+    return `https://id.twitch.tv/oauth2/authorize?${params}`;
+  });
+
+  const completeEnrollment = Effect.fnUntraced(function* (
+    input: EnrollmentCompletion,
+  ) {
+    const valid = yield* Schema.decodeUnknownEffect(EnrollmentCompletion)(
+      input,
+    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+
+    if (config.identity.kind !== "production")
+      return yield* new AccountError({ code: "configuration" });
+    const clock = yield* Clock.Clock;
+    const nonce = yield* digest(valid.state);
+    const owner = crypto.randomUUID();
+
+    const claimed = yield* store.update((state) => {
+      const now = clock.currentTimeMillisUnsafe();
+
+      const entry = state.enrollments.find(
+        (entry) => entry.session === valid.session && entry.nonce === nonce,
+      );
+
+      if (
+        !current(state) ||
+        !entry ||
+        entry.phase.kind !== "pending" ||
+        entry.revision !== config.revision ||
+        entry.generation !== state.authGeneration ||
+        entry.expiresAt <= now
+      )
+        return null;
+      state.enrollments = state.enrollments.map((candidate) =>
+        candidate === entry
+          ? {
+              ...candidate,
+              phase:
+                valid.outcome.kind === "denied"
+                  ? { kind: "failed", reason: "denied" }
+                  : {
+                      kind: "exchanging",
+                      lease: {
+                        owner,
+                        until: Math.min(
+                          entry.expiresAt,
+                          now + policy.enrollmentLeaseMs,
+                        ),
+                      },
+                    },
+            }
+          : candidate,
+      );
+
+      return {
+        entry,
+        until: Math.min(entry.expiresAt, now + policy.enrollmentLeaseMs),
+      };
+    });
+
+    if (!claimed) return yield* new AccountError({ code: "state" });
+
+    if (valid.outcome.kind === "denied")
+      return yield* enrollmentStatus(valid.session);
+    const code = valid.outcome.code;
+
+    const run = Effect.fnUntraced(function* () {
+      const token = yield* provider.exchange(code);
+      const grant = yield* provider.validate(token.access_token);
+
+      if (
+        grant.client_id !== config.identity.twitchClientId ||
+        token.expires_in <= 0 ||
+        grant.expires_in <= 0
+      )
+        return yield* new AccountError({ code: "client" });
+
+      const userId = yield* Schema.decodeUnknownEffect(BroadcasterId)(
+        grant.user_id,
+      ).pipe(Effect.mapError(() => new AccountError({ code: "identity" })));
+
+      const login = yield* Schema.decodeUnknownEffect(
+        Schema.String.check(Schema.isPattern(/^[a-z0-9_]{1,25}$/)),
+      )(grant.login).pipe(
+        Effect.mapError(() => new AccountError({ code: "identity" })),
+      );
+
+      if (!broadcasterScopes.every((scope) => grant.scopes?.includes(scope)))
+        return yield* new AccountError({ code: "scopes" });
+      const users = yield* provider.users(token.access_token, [login]);
+
+      if (!users.some((user) => user.id === userId && user.login === login))
+        return yield* new AccountError({ code: "identity" });
+
+      const result = yield* store.update((state) => {
+        const completed = clock.currentTimeMillisUnsafe();
+
+        const entry = state.enrollments.find(
+          (entry) => entry.session === valid.session && entry.nonce === nonce,
+        );
+
+        if (
+          !current(state) ||
+          state.authGeneration !== claimed.entry.generation ||
+          !entry ||
+          entry.phase.kind !== "exchanging" ||
+          entry.phase.lease.owner !== owner ||
+          entry.phase.lease.until <= completed ||
+          entry.expiresAt <= completed ||
+          entry.revision !== config.revision
+        )
+          return "state";
+
+        const member = state.publicMembers.find(
+          (member) => member.id === userId,
+        );
+
+        if (
+          (member?.revocationGeneration ?? 0) >
+          claimed.entry.publicRevocationGeneration
+        )
+          return "state";
+
+        const existing = desiredChannels(state, config.identity.kind).find(
+          (channel) => channel.id === userId,
+        );
+
+        if (
+          !existing &&
+          desiredChannels(state, config.identity.kind).length >=
+            policy.maxChannels
+        ) {
+          state.enrollments = state.enrollments.map((candidate) =>
+            candidate === entry
+              ? { ...candidate, phase: { kind: "failed", reason: "capacity" } }
+              : candidate,
+          );
+
+          return "capacity";
+        }
+
+        const configured = state.channels.find(
+          (channel) => channel.id === userId,
+        );
+
+        if (configured && configured.login !== login) return "identity";
+
+        if (!existing)
+          state.publicMembers = [
+            ...state.publicMembers,
+            { id: userId, login, revocationGeneration: 0 },
+          ];
+        else
+          state.publicMembers = state.publicMembers.map((member) =>
+            member.id === userId ? { ...member, login } : member,
+          );
+        state.grants[userId] = [
+          ...new Set([...(state.grants[userId] ?? []), ...broadcasterScopes]),
+        ];
+        state.enrollments = state.enrollments
+          .filter(
+            (candidate) =>
+              candidate === entry ||
+              candidate.phase.kind !== "member" ||
+              candidate.phase.broadcasterId !== userId,
+          )
+          .map((candidate) =>
+            candidate === entry
+              ? {
+                  ...candidate,
+                  expiresAt: completed + policy.enrollmentSessionMs,
+                  phase: { kind: "member", broadcasterId: userId },
+                }
+              : candidate,
+          );
+        state.repair = {
+          kind: "scheduled",
+          id: owner,
+          due: completed + 1,
+          attempts: 0,
+        };
+
+        return "saved";
+      });
+
+      if (result !== "saved") return yield* new AccountError({ code: result });
+
+      return yield* enrollmentStatus(valid.session);
+    });
+
+    return yield* run().pipe(
+      Effect.timeoutOrElse({
+        duration: Math.max(0, claimed.until - clock.currentTimeMillisUnsafe()),
+        orElse: () => new AccountError({ code: "state" }),
+      }),
+      Effect.tapError(() =>
+        store.update((state) => {
+          state.enrollments = state.enrollments.map((entry) =>
+            entry.session === valid.session &&
+            entry.nonce === nonce &&
+            entry.phase.kind === "exchanging" &&
+            entry.phase.lease.owner === owner
+              ? {
+                  ...entry,
+                  phase: { kind: "failed", reason: "authorization-failed" },
+                }
+              : entry,
+          );
+        }),
+      ),
+    );
+  });
+
+  const repairMemberships = Effect.fnUntraced(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    const owner = crypto.randomUUID();
+
+    const claim = yield* store.update((state) => {
+      if (
+        !current(state) ||
+        state.repair.kind !== "scheduled" ||
+        state.repair.due > now
+      )
+        return null;
+
+      if (state.repair.attempts >= policy.maxRepairAttempts) {
+        state.repair = { kind: "required" };
+
+        return null;
+      }
+
+      if (state.setupLease && state.setupLease.until > now) {
+        state.repair = { ...state.repair, due: state.setupLease.until + 1 };
+
+        return null;
+      }
+
+      if (
+        config.identity.kind !== "production" ||
+        !config.webhookReady ||
+        !state.sender ||
+        !granted(state, state.sender.id, senderScopes)
+      ) {
+        state.repair = { kind: "required" };
+
+        return null;
+      }
+
+      state.setupLease = {
+        owner,
+        until: now + policy.setupLeaseMs,
+        revision: config.revision,
+        generation: state.authGeneration,
+      };
+
+      const claim = {
+        id: state.repair.id,
+        generation: state.authGeneration,
+        sender: state.sender.id,
+        channels: desiredChannels(state, config.identity.kind)
+          .filter((channel) => granted(state, channel.id, broadcasterScopes))
+          .map((channel) => channel.id),
+        attempts: state.repair.attempts + 1,
+      };
+
+      state.repair = {
+        kind: "scheduled",
+        id: claim.id,
+        due: now + policy.setupLeaseMs + 1,
+        attempts: claim.attempts,
+      };
+
+      return claim;
+    });
+
+    if (!claim) return;
+    yield* Effect.gen(function* () {
+      const session = yield* appToken();
+      yield* reconcile(
+        owner,
+        session.token,
+        claim.sender,
+        claim.channels,
+        claim.generation,
+      ).pipe(
+        Effect.tapError((error) =>
+          error.code === "client"
+            ? invalidate(session.generation)
+            : Effect.void,
+        ),
+      );
+    }).pipe(
+      Effect.catch(() => Effect.void),
+      Effect.ensuring(
+        Effect.gen(function* () {
+          const completed = yield* Clock.currentTimeMillis;
+          yield* store.update((state) => {
+            if (state.setupLease?.owner !== owner) return;
+            state.setupLease = null;
+
+            if (!current(state) || state.repair.kind !== "scheduled") return;
+
+            if (state.repair.id !== claim.id) return;
+
+            const ready = desiredChannels(state, config.identity.kind).every(
+              (channel) => decideChannel(state, channel.id).kind === "ready",
+            );
+
+            state.repair = ready
+              ? { kind: "idle" }
+              : claim.attempts >= policy.maxRepairAttempts
+                ? { kind: "required" }
+                : {
+                    kind: "scheduled",
+                    id: claim.id,
+                    due: completed + policy.repairRetryMs,
+                    attempts: claim.attempts,
+                  };
+          });
+        }),
+      ),
+    );
+  });
+
   const observeSubscription = Effect.fn("TwitchAccount.subscription")(
     function* (input: SubscriptionObservation) {
       const valid = yield* Schema.decodeUnknownEffect(SubscriptionObservation)(
@@ -808,7 +1368,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           valid.binding !== config.subscriptionBinding ||
           valid.callback !== config.callback ||
           state.sender?.id !== valid.senderId ||
-          !state.channels.some((channel) => channel.id === valid.broadcasterId)
+          !desiredChannels(state, config.identity.kind).some(
+            (channel) => channel.id === valid.broadcasterId,
+          )
         )
           return;
         const record = state.subscriptions[valid.broadcasterId];
@@ -937,7 +1499,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         return { kind: "outcome", outcome: { kind: "expired" } } as const;
       }
 
-      const channel = state.channels.find(
+      const channel = desiredChannels(state, config.identity.kind).find(
         (channel) => channel.id === valid.broadcasterId,
       );
 
@@ -1108,31 +1670,38 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       return active;
     });
 
-    if (!maintained) return;
-    yield* appToken().pipe(
-      Effect.catch(() =>
-        Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          yield* store.update((state) => {
-            if (current(state))
-              state.nextCredentialCheck =
-                state.credentialFailures < 3
-                  ? Math.max(
-                      now + 1,
-                      state.tokenLease?.until ??
-                        state.nextCredentialCheck ??
-                        now + 60_000,
-                      state.tokenRetryAt,
-                    )
-                  : null;
-          });
-        }),
-      ),
-      Effect.asVoid,
-    );
+    if (maintained)
+      yield* appToken().pipe(
+        Effect.catch(() =>
+          Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis;
+            yield* store.update((state) => {
+              if (current(state))
+                state.nextCredentialCheck =
+                  state.credentialFailures < 3
+                    ? Math.max(
+                        now + 1,
+                        state.tokenLease?.until ??
+                          state.nextCredentialCheck ??
+                          now + 60_000,
+                        state.tokenRetryAt,
+                      )
+                    : null;
+            });
+          }),
+        ),
+        Effect.asVoid,
+      );
   });
 
+  const alarm = credentialAlarm().pipe(Effect.andThen(repairMemberships));
+
   return {
+    enrollment: TwitchEnrollment.of({
+      begin: beginEnrollment,
+      complete: completeEnrollment,
+      status: enrollmentStatus,
+    }),
     service: TwitchAccount.of({
       dispatch,
       setup,
@@ -1140,7 +1709,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       completeOAuth,
       observeSubscription,
     }),
-    credentialAlarm,
+    credentialAlarm: () => alarm,
   };
 });
 
