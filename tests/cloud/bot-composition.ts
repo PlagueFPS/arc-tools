@@ -1,3 +1,4 @@
+import { AccountEndpoints } from "@arctools/twitch/cloudflare";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer, Schema } from "effect";
 
@@ -6,7 +7,6 @@ import type {
   TenantBoundaryObserver,
   TenantTrace,
 } from "../../apps/bot/src/tenant-diagnostics.js";
-import { AccountEndpoints } from "../../apps/bot/src/twitch.js";
 import { CacheSource } from "../../packages/arc-data/src/cloudflare.js";
 import { MetaforgeWorker } from "./metaforge.js";
 import { TwitchProviderFixture } from "./twitch-provider-fixture.js";

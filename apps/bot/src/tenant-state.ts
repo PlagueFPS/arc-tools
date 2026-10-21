@@ -1,9 +1,14 @@
+import {
+  BroadcasterId,
+  Deadline,
+  Dispatch,
+  ReplyId,
+} from "@arctools/twitch/server";
 import { Context, type Effect, Match, Schema } from "effect";
 
-import { BroadcasterId, Deadline, WorkId } from "./contracts.js";
+import { WorkId } from "./contracts.js";
 import { DiscordResponse, encodedBytes } from "./presentation.js";
 import { Invocation } from "./tenant-contracts.js";
-import { Dispatch, ReplyId } from "./twitch-contracts.js";
 
 export const tenantPolicy = {
   retained: 64,

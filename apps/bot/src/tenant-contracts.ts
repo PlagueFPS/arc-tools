@@ -1,9 +1,9 @@
-import { CommandExecution } from "@arctools/commands";
+import { CommandExecution } from "@arctools/commands/schemas";
+import { BroadcasterId, ReplyId } from "@arctools/twitch/server";
 import { Context, type Effect, Schema } from "effect";
 
-import { BroadcasterId, GuildId, WorkId } from "./contracts.js";
+import { GuildId, WorkId } from "./contracts.js";
 import type { DiscordResponse } from "./presentation.js";
-import { ReplyId } from "./twitch-contracts.js";
 
 export const Invocation = Schema.Struct({
   command: CommandExecution.fields.command,

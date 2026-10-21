@@ -26,7 +26,7 @@ for (const operation of ["sync", "status", "setup"])
         preload,
         `
 import { writeFileSync } from "node:fs";
-import { commandManifest, canonicalManifest } from ${JSON.stringify(join(root, "apps/bot/src/discord-manifest.ts"))};
+import { commandManifest, canonicalManifest } from ${JSON.stringify(join(root, "packages/discord/src/server.ts"))};
 const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalManifest(commandManifest))))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 const calls = [];
 process.on("exit", () => writeFileSync(${JSON.stringify(capture)}, JSON.stringify(calls)));

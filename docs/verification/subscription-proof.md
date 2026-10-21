@@ -41,7 +41,7 @@ Each reconcile makes one paginated list traversal and at most one create per mis
 
 The old internal observation was `{ id, broadcasterId, senderId, status }`. The required shape is now `{ id, broadcasterId, senderId, status, binding, callback }`. There is no legacy fallback.
 
-Unit 3 must compute `binding` using `subscriptionBinding` from `apps/bot/src/twitch-binding.ts`, with the actual signing secret, client ID, and callback context used to verify ingress. The helper hashes the same tuple used by account construction and provider receipts. The signing secret remains redacted. An ingress deployment using an older verification context must send that older context, even if account configuration has advanced.
+Unit 3 must compute `binding` using `subscriptionBinding` from `@arctools/twitch/server`, with the actual signing secret, client ID, and callback context used to verify ingress. The helper hashes the same tuple used by account construction and provider receipts. The signing secret remains redacted. An ingress deployment using an older verification context must send that older context, even if account configuration has advanced.
 
 Positive observations update only an existing confirmed exact ID with a matching target. A challenge supplies `webhook_callback_verification_pending`; it cannot establish enabled delivery. A verified enabled observation preserves enabled phase against a stale pending list for the same ID. Unknown signed positives cannot manufacture ownership.
 

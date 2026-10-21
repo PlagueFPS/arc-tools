@@ -1,4 +1,11 @@
-import { commands } from "@arctools/commands";
+import { commandCatalog } from "@arctools/commands/catalog";
+import {
+  BroadcasterId,
+  subscriptionBinding,
+  bounded,
+  TwitchAccount,
+} from "@arctools/twitch/server";
+import { digest } from "@arctools/utils/http";
 import {
   Cause,
   Clock,
@@ -20,9 +27,8 @@ import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
 import type { EnvironmentConfig } from "./config.js";
-import { BroadcasterId, GuildId } from "./contracts.js";
+import { GuildId } from "./contracts.js";
 import { discordResponse, friendlyFailure } from "./presentation.js";
-import { digest } from "./provider-http.js";
 import {
   DiscordReceipt,
   Invocation,
@@ -31,8 +37,6 @@ import {
   TwitchReceipt,
 } from "./tenant-contracts.js";
 import { tenantPolicy } from "./tenant-state.js";
-import { subscriptionBinding } from "./twitch-binding.js";
-import { bounded, TwitchAccount } from "./twitch-contracts.js";
 
 export class IngressError extends Schema.TaggedError<IngressError>()(
   "IngressError",
@@ -232,7 +236,10 @@ export function parseTwitchCommand(
 ): typeof Invocation.Type | null {
   if (!text.startsWith("!")) return null;
   const [name, ...args] = text.slice(1).trim().split(/\s+/);
-  const command = commands.find((entry) => entry.name === name?.toLowerCase());
+
+  const command = commandCatalog.find(
+    (entry) => entry.name === name?.toLowerCase(),
+  );
 
   if (!command) return null;
   const input = args.join(" ");
@@ -346,8 +353,7 @@ export const ingressHandlers = (config: IngressConfig) =>
 
         const channel = status.channels.find(
           (channel) =>
-            channel.id === subscription.condition.broadcaster_user_id &&
-            config.identity.channelLogins.includes(channel.login),
+            channel.id === subscription.condition.broadcaster_user_id,
         );
 
         if (!channel || !sender || sender.id !== subscription.condition.user_id)
@@ -486,7 +492,7 @@ export const ingressHandlers = (config: IngressConfig) =>
         if (value.guild_id !== value.authorizing_integration_owners["0"])
           return privateReply("Use a slash command from an installed server.");
 
-        const definition = commands.find(
+        const definition = commandCatalog.find(
           (entry) => entry.name === value.data.name,
         );
 

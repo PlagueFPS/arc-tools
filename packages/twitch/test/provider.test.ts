@@ -1,5 +1,8 @@
 import { expect } from "bun:test";
 
+import { Dispatch } from "@arctools/twitch/server";
+import { makeProvider, type SendResult } from "@arctools/twitch/testing";
+import { providerTransport } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
 import {
   Predicate,
@@ -15,10 +18,6 @@ import {
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { TestClock } from "effect/testing";
-
-import { providerTransport } from "../src/provider-http.js";
-import { Dispatch } from "../src/twitch-contracts.js";
-import { makeProvider, type SendResult } from "../src/twitch-provider.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 

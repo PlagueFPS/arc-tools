@@ -1,8 +1,18 @@
-import type { Effect } from "effect";
-import { Context, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 
-import { BroadcasterId } from "./contracts.js";
-import { bounded, DispatchOutcome } from "./twitch-contracts.js";
+import type { AccountIdentity } from "./account.js";
+import {
+  bounded,
+  DispatchOutcome,
+  EnrollmentFailure,
+  enrollmentTiming,
+  EnrollmentSession,
+} from "./contracts.js";
+import { BroadcasterId } from "./schemas.js";
+
+const maxChannels = 32;
+
+const maxEnrollmentIntents = 8;
 
 const Identity = Schema.Struct({ login: bounded(25), id: bounded(64) });
 
@@ -53,12 +63,66 @@ const Attempt = Schema.Union([
   }),
 ]);
 
+const Enrollment = Schema.Struct({
+  session: EnrollmentSession,
+  nonce: Schema.String,
+  revision: Schema.String,
+  generation: Schema.Int,
+  publicRevocationGeneration: Schema.Int.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0)),
+  ),
+  expiresAt: Schema.Number,
+  phase: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("pending") }),
+    Schema.Struct({ kind: Schema.Literal("exchanging"), lease: Lease }),
+    Schema.Struct({
+      kind: Schema.Literal("member"),
+      broadcasterId: BroadcasterId,
+    }),
+    Schema.Struct({
+      kind: Schema.Literal("failed"),
+      reason: EnrollmentFailure,
+    }),
+  ]),
+});
+
+const Repair = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("idle") }),
+  Schema.Struct({
+    kind: Schema.Literal("scheduled"),
+    id: Schema.String,
+    due: Schema.Number,
+    attempts: Schema.Int,
+  }),
+  Schema.Struct({ kind: Schema.Literal("required") }),
+]);
+
 export const AccountState = Schema.Struct({
   revision: Schema.String,
   authGeneration: Schema.Int,
+  publicRevocationGeneration: Schema.Int.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0)),
+  ),
   sender: Schema.NullOr(Identity),
   channels: Schema.Array(
     Schema.Struct({ login: bounded(25), id: BroadcasterId }),
+  ),
+  publicMembers: Schema.Array(
+    Schema.Struct({
+      login: bounded(25),
+      id: BroadcasterId,
+      revocationGeneration: Schema.Int.pipe(
+        Schema.withDecodingDefaultKey(Effect.succeed(0)),
+      ),
+    }),
+  )
+    .check(Schema.isMaxLength(maxChannels))
+    .pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  enrollments: Schema.Array(Enrollment)
+    .check(Schema.isMaxLength(maxChannels + maxEnrollmentIntents))
+    .pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  repair: Repair.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({ kind: "idle" })),
   ),
   grants: Schema.Record(Schema.String, Schema.Array(Schema.String)),
   oauth: Schema.Array(OAuthState),
@@ -115,8 +179,12 @@ export type AccountState = {
 export const emptyState = (revision: string): AccountState => ({
   revision,
   authGeneration: 0,
+  publicRevocationGeneration: 0,
   sender: null,
   channels: [],
+  publicMembers: [],
+  enrollments: [],
+  repair: { kind: "idle" },
   grants: {},
   oauth: [],
   session: null,
@@ -140,15 +208,18 @@ export class AccountStore extends Context.Service<AccountStore, Store>()(
   "@arctools/AccountStore",
 ) {}
 
-const maxChannels = 32;
-
 export const policy = {
   maxChannels,
   maxOAuth: maxChannels + 1,
+  maxEnrollmentIntents,
+  enrollmentSessionMs: 86_400_000,
+  repairRetryMs: 5_000,
+  maxRepairAttempts: 5,
   maxAttempts: 64,
   retentionMs: 600_000,
   oauthMs: 600_000,
   tokenLeaseMs: 10_000,
+  enrollmentLeaseMs: enrollmentTiming.exchangeMs,
   setupLeaseMs: 120_000,
   hourlyMs: 3_600_000,
   globalWindowMs: 30_000,
@@ -190,4 +261,30 @@ export function reserveAt(
     last === undefined ? now : last.at + policy.channelMs,
     state.apiBlockedUntil,
   );
+}
+
+export function desiredChannels(
+  state: Pick<AccountState, "channels" | "publicMembers">,
+  kind: AccountIdentity["kind"],
+) {
+  const channels = new Map<string, AccountState["channels"][number]>(
+    (kind === "production" ? state.publicMembers : []).map((channel) => [
+      channel.id,
+      channel,
+    ]),
+  );
+
+  for (const channel of state.channels) channels.set(channel.id, channel);
+
+  return [...channels.values()];
+}
+
+export function nextAlarm(state: AccountState): number | null {
+  const repair = state.repair.kind === "scheduled" ? state.repair.due : null;
+
+  if (repair === null) return state.nextCredentialCheck;
+
+  return state.nextCredentialCheck === null
+    ? repair
+    : Math.min(repair, state.nextCredentialCheck);
 }

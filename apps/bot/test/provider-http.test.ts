@@ -1,5 +1,13 @@
 import { expect } from "bun:test";
 
+import { Dispatch } from "@arctools/twitch/server";
+import {
+  digest,
+  request,
+  providerTransport,
+  readJson,
+  ProviderError,
+} from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Deferred, Result, Effect, Fiber, Layer, Schema } from "effect";
 import {
@@ -11,14 +19,6 @@ import {
 } from "effect/http";
 import { TestClock } from "effect/testing";
 
-import {
-  digest,
-  request,
-  providerTransport,
-  readJson,
-  ProviderError,
-} from "../src/provider-http.js";
-import { Dispatch } from "../src/twitch-contracts.js";
 import { fixture } from "./subscription-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });

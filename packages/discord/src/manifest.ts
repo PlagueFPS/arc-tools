@@ -1,7 +1,6 @@
-import { commands } from "@arctools/commands";
+import { commandCatalog } from "@arctools/commands/catalog";
+import { digest } from "@arctools/utils/http";
 import { Schema } from "effect";
-
-import { digest } from "./provider-http.js";
 
 const locales = Schema.NullOr(Schema.Record(Schema.String, Schema.String));
 
@@ -87,7 +86,7 @@ export function normalizeManifest(input: RemoteCommands) {
     .sort((a, b) => a.type - b.type || a.name.localeCompare(b.name));
 }
 
-export const commandManifest = commands.map((command) => ({
+export const commandManifest = commandCatalog.map((command) => ({
   type: 1,
   name: command.name,
   description: command.description,

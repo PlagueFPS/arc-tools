@@ -1,3 +1,11 @@
+import {
+  AccountStatus,
+  enrollmentTiming,
+  SetupResult,
+  TwitchAccount,
+  TwitchEnrollment,
+} from "@arctools/twitch/server";
+import { digest } from "@arctools/utils/http";
 import { Effect, Redacted, Schema, Stream } from "effect";
 import {
   type HttpServerError,
@@ -8,12 +16,7 @@ import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
 import { Stage } from "./config.js";
-import { digest } from "./provider-http.js";
-import {
-  AccountStatus,
-  SetupResult,
-  TwitchAccount,
-} from "./twitch-contracts.js";
+import { enrollmentHttp } from "./enrollment.js";
 
 export const OperatorRequest = Schema.Struct({ stage: Stage });
 
@@ -60,6 +63,7 @@ export const operatorHandlers = (
   HttpApiBuilder.group(BotApi, "operator", (handlers) =>
     Effect.gen(function* () {
       const account = yield* TwitchAccount;
+      const enrollment = enrollmentHttp(yield* TwitchEnrollment);
 
       const authorized = Effect.fnUntraced(function* (
         request: HttpServerRequest.HttpServerRequest,
@@ -93,6 +97,13 @@ export const operatorHandlers = (
           return response(result);
         }).pipe(
           Effect.timeout(25_000),
+          Effect.catchTag("AccountError", (error) =>
+            error.code === "capacity"
+              ? Effect.succeed(
+                  response({ error: "channel-capacity-exceeded" }, 409),
+                )
+              : error,
+          ),
           Effect.catchCause(() =>
             Effect.succeed(
               response({ error: "operator-operation-failed" }, 503),
@@ -103,11 +114,26 @@ export const operatorHandlers = (
       return handlers
         .handleRaw("setup", ({ request }) => handle("setup", request))
         .handleRaw("status", ({ request }) => handle("status", request))
+        .handleRaw("enroll", ({ request }) => enrollment.begin(request))
+        .handleRaw("enrollmentStatus", ({ request }) =>
+          enrollment.status(request),
+        )
         .handleRaw("oauth", ({ request }) =>
           Effect.gen(function* () {
             if (request.url.length > 4096)
               return response({ error: "invalid-callback" }, 400);
             const url = new URL(request.url, "https://callback.invalid");
+
+            if (url.searchParams.getAll("state").length !== 1)
+              return response({ error: "invalid-callback" }, 400);
+
+            if (url.searchParams.get("state")?.startsWith("enroll."))
+              return yield* enrollment
+                .complete(request, url)
+                .pipe(Effect.timeout(enrollmentTiming.callbackMs));
+
+            if (url.searchParams.getAll("code").length !== 1)
+              return response({ error: "invalid-callback" }, 400);
 
             const input = yield* Schema.decodeUnknownEffect(
               Schema.Struct({
@@ -119,17 +145,18 @@ export const operatorHandlers = (
               code: url.searchParams.get("code"),
             });
 
-            yield* account.completeOAuth({
-              ...input,
-              operator: yield* digest(Redacted.value(secret)),
-            });
+            yield* account
+              .completeOAuth({
+                ...input,
+                operator: yield* digest(Redacted.value(secret)),
+              })
+              .pipe(Effect.timeout(12_000));
 
             return HttpServerResponse.text(
               "<!doctype html><meta name=referrer content=no-referrer><title>ARC Tools authorization</title><p>Authorization recorded. Run setup again in the CLI.</p>",
               { headers, contentType: "text/html" },
             );
           }).pipe(
-            Effect.timeout(12_000),
             Effect.catchCause(() =>
               Effect.succeed(response({ error: "authorization-failed" }, 400)),
             ),

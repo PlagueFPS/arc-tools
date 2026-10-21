@@ -10,10 +10,14 @@
     "typecheck": "tsc --noEmit"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./http": "./src/http.ts"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "effect": "4.0.4"
   }
 }

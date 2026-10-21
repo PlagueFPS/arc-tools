@@ -1,10 +1,10 @@
 import { parseArgs } from "node:util";
 
+import { syncCommands, waitForRelease } from "@arctools/discord/server";
+import { providerTransport } from "@arctools/utils/http";
 import { Effect, Redacted, Schema } from "effect";
 
 import { Stage } from "../apps/bot/src/config.js";
-import { syncCommands, waitForRelease } from "../apps/bot/src/discord-sync.js";
-import { providerTransport } from "../apps/bot/src/provider-http.js";
 
 try {
   const { values } = parseArgs({

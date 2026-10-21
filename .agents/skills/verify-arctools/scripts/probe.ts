@@ -9,7 +9,7 @@ import * as Core from "alchemy/Test/Core";
 import { Effect, Schema } from "effect";
 
 import Stack from "../../../../alchemy.run.ts";
-import { manifestHash } from "../../../../apps/bot/src/discord-manifest.ts";
+import { manifestHash } from "@arctools/discord/server";
 import { signDiscord } from "../../../../tests/cloud/signatures.ts";
 
 const action = process.argv[2];

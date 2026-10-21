@@ -26,6 +26,8 @@ b96620a -> d5e9a88
 
 The before command at `f0e4f07` was:
 
+The same suite can be selected at its current package paths.
+
 ```sh
 bunx bun@1.3.5 test apps/bot/test/authorization-boundary.test.ts
 ```
@@ -92,8 +94,10 @@ All commands used pinned Bun `1.3.5 (1e86cebd)`.
 - `TURBO_FORCE=true bunx bun@1.3.5 run lint` passed the root Biome task across 129 files with zero cache hits. Log `/tmp/authorization-boundary-lint.log`.
 - `git diff --check` passed. The correction adds no comments, suppressions, SDKs, or dependencies. This owner scan is not an independent comment review.
 
+The same suite can be selected at its current package paths.
+
 ```sh
-bunx bun@1.3.5 test apps/bot/test/authorization-boundary.test.ts apps/bot/test/provider-http.test.ts apps/bot/test/subscription-proof.test.ts apps/bot/test/twitch-account.test.ts apps/bot/test/twitch-provider.test.ts apps/bot/test/discord-sync.test.ts
+bunx bun@1.3.5 test apps/bot/test/authorization-boundary.test.ts apps/bot/test/provider-http.test.ts apps/bot/test/subscription-proof.test.ts packages/twitch/test/account.test.ts packages/twitch/test/provider.test.ts packages/discord/test/sync.test.ts
 ```
 
 The default-run assertion total is the sum of the actual per-suite counters, `39 + 11 + 117 + 73 + 119 + 589 + 73 = 1021`. The retained baseline log `/tmp/subscription-proof-all-tests-final.log` totals 931 assertions, including 499 bot assertions. The corrected bot suite totals 589. An intermediate progress message mistakenly added the final counters as 1,121; the captured command output and this evidence use the correct 1,021.

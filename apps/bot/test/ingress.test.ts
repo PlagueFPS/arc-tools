@@ -1,5 +1,13 @@
 import { describe, expect } from "bun:test";
 
+import {
+  type Account,
+  AccountError,
+  AccountStatus,
+  type SubscriptionObservation,
+  TwitchAccount,
+  TwitchEnrollment,
+} from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
 import { Result, Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
@@ -30,13 +38,6 @@ import {
   type TenantService,
   Tenants,
 } from "../src/tenant-contracts.js";
-import {
-  type Account,
-  AccountError,
-  AccountStatus,
-  type SubscriptionObservation,
-  TwitchAccount,
-} from "../src/twitch-contracts.js";
 import { identity } from "./subscription-fixture.js";
 import { tenantFixture } from "./tenant-fixture.js";
 
@@ -143,6 +144,13 @@ const fixture = Effect.fnUntraced(function* (
     ),
     Layer.provide(Layer.succeed(TwitchAccount, account)),
     Layer.provide(Layer.succeed(Tenants, tenants)),
+    Layer.provide(
+      Layer.succeed(TwitchEnrollment, {
+        begin: () => new AccountError({ code: "configuration" }),
+        complete: () => new AccountError({ code: "configuration" }),
+        status: () => new AccountError({ code: "configuration" }),
+      }),
+    ),
     Layer.provide(HttpServer.layerServices),
   );
 

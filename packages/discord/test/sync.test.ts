@@ -1,5 +1,16 @@
 import { expect } from "bun:test";
 
+import {
+  canonicalManifest,
+  commandManifest,
+  manifestHash,
+  normalizeManifest,
+  RemoteCommands,
+  RetryAfter,
+  syncCommands,
+  waitForRelease,
+} from "@arctools/discord/server";
+import { digest, providerTransport } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
@@ -19,20 +30,6 @@ import {
   HttpClientResponse,
 } from "effect/http";
 import { TestClock } from "effect/testing";
-
-import {
-  canonicalManifest,
-  commandManifest,
-  manifestHash,
-  normalizeManifest,
-  RemoteCommands,
-} from "../src/discord-manifest.js";
-import {
-  RetryAfter,
-  syncCommands,
-  waitForRelease,
-} from "../src/discord-sync.js";
-import { digest, providerTransport } from "../src/provider-http.js";
 
 const { test } = Test.make({ providers: providerTransport });
 
