@@ -18,6 +18,8 @@ import { BotApi } from "../src/api.js";
 import { publicOrigin } from "../src/config.js";
 import {
   ingressHandlers,
+  ingressPolicy,
+  IngressError,
   parseTwitchCommand,
   readBody,
 } from "../src/ingress.js";
@@ -60,6 +62,7 @@ const fixture = Effect.fnUntraced(function* (
   const admissions: unknown[] = [];
   const observations: SubscriptionObservation[] = [];
   let reads = 0;
+  let setups = 0;
 
   const status = Schema.decodeUnknownSync(AccountStatus)({
     stage: identity.stage,
@@ -87,7 +90,11 @@ const fixture = Effect.fnUntraced(function* (
         return status;
       }),
     dispatch: () => Effect.succeed({ kind: "rejected" }),
-    setup: () => new AccountError({ code: "configuration" }),
+    setup: Effect.fnUntraced(function* () {
+      setups++;
+
+      return yield* new AccountError({ code: "configuration" });
+    }),
     completeOAuth: () => new AccountError({ code: "configuration" }),
     observeSubscription: (input) =>
       Effect.sync(() => {
@@ -142,19 +149,20 @@ const fixture = Effect.fnUntraced(function* (
   const app = HttpRouter.toWebHandler(handlers, { disableLogger: true });
   yield* Effect.addFinalizer(() => Effect.promise(() => app.dispose()));
 
+  const handle = (request: Request) =>
+    Effect.promise(() => app.handler(request));
+
   const request = (
     path: string,
     body: Uint8Array,
     headers: Record<string, string>,
   ) =>
-    Effect.promise(() =>
-      app.handler(
-        new Request(`https://bot.invalid${path}`, {
-          method: "POST",
-          body: new Uint8Array(body),
-          headers,
-        }),
-      ),
+    handle(
+      new Request(`https://bot.invalid${path}`, {
+        method: "POST",
+        body: new Uint8Array(body),
+        headers,
+      }),
     );
 
   const discord = Effect.fnUntraced(function* (
@@ -186,12 +194,14 @@ const fixture = Effect.fnUntraced(function* (
 
   return {
     receivedAt: now,
+    handle,
     request,
     discord,
     twitch,
     admissions,
     observations,
     reads: () => reads,
+    setups: () => setups,
   };
 });
 
@@ -609,9 +619,14 @@ describe("signed HttpApi ingress", () => {
 test(
   "an unfinished raw body is interrupted at its bounded read timeout",
   Effect.gen(function* () {
+    let canceled = false;
+
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new Uint8Array([123]));
+      },
+      cancel() {
+        canceled = true;
       },
     });
 
@@ -631,7 +646,285 @@ test(
     expect(yield* Fiber.join(result)).toMatchObject(
       Result.fail({ status: 408 }),
     );
+    expect(canceled).toBeTrue();
   }).pipe(Effect.provide(TestClock.layer())),
+);
+
+test(
+  "ingress preserves every byte at the exact limit across chunks",
+  Effect.gen(function* () {
+    const bytes = Uint8Array.from(
+      { length: ingressPolicy.maxBytes },
+      (_, index) => index % 256,
+    );
+
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, 1));
+        controller.enqueue(bytes.slice(1, 65));
+        controller.enqueue(bytes.slice(65));
+        controller.close();
+      },
+    });
+
+    const input = HttpServerRequest.fromWeb(
+      new Request("https://bot.invalid/interactions/discord", {
+        method: "POST",
+        headers: { "content-length": String(ingressPolicy.maxBytes) },
+        body,
+      }),
+    );
+
+    expect(yield* readBody(input)).toEqual(bytes);
+  }),
+);
+
+test(
+  "ingress one-byte overflow is a typed 413 and cancels the unread body",
+  Effect.gen(function* () {
+    let canceled = false;
+
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(ingressPolicy.maxBytes));
+        controller.enqueue(new Uint8Array(1));
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+
+    const input = HttpServerRequest.fromWeb(
+      new Request("https://bot.invalid/interactions/discord", {
+        method: "POST",
+        body,
+      }),
+    );
+
+    expect(yield* readBody(input).pipe(Effect.result)).toMatchObject(
+      Result.fail(new IngressError({ status: 413 })),
+    );
+    expect(canceled).toBeTrue();
+  }),
+);
+
+test(
+  "ingress validates content length before reading and maps stream errors to 400",
+  Effect.gen(function* () {
+    for (const [length, status] of [
+      ["", 400],
+      ["-1", 400],
+      ["1.5", 400],
+      ["invalid", 400],
+      [String(ingressPolicy.maxBytes + 1), 413],
+    ]) {
+      let reads = 0;
+
+      const input = HttpServerRequest.fromWeb(
+        new Request("https://bot.invalid/interactions/discord", {
+          method: "POST",
+          headers: { "content-length": String(length) },
+          body: new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                reads++;
+                controller.enqueue(encode("{}"));
+                controller.close();
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+        }),
+      );
+
+      expect(yield* readBody(input).pipe(Effect.result)).toMatchObject(
+        Result.fail({ status }),
+      );
+      expect(reads).toBe(0);
+    }
+
+    const input = HttpServerRequest.fromWeb(
+      new Request("https://bot.invalid/interactions/discord", {
+        method: "POST",
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error("connection failed"));
+          },
+        }),
+      }),
+    );
+
+    expect(yield* readBody(input).pipe(Effect.result)).toMatchObject(
+      Result.fail(new IngressError({ status: 400 })),
+    );
+  }),
+);
+
+test(
+  "signed ingress preserves whitespace and split UTF-8 bytes before parsing",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+
+    const discord = encode(
+      ' { "application_id" : "fixture-discord", "type" : 1, "extra": "雪🙂" }\r\n',
+    );
+
+    const twitch = encode(
+      ` ${JSON.stringify(twitchEvent("utf8", "!sell 雪🙂"))}\r\n`,
+    );
+
+    for (const [path, bytes, headers, status] of [
+      [
+        "/interactions/discord",
+        discord,
+        yield* signDiscord(discord, f.receivedAt),
+        200,
+      ],
+      [
+        "/webhooks/twitch",
+        twitch,
+        yield* signTwitch(twitch, "utf8", f.receivedAt),
+        204,
+      ],
+    ] as const) {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+          controller.close();
+        },
+      });
+
+      const response = yield* f.handle(
+        new Request(`https://bot.invalid${path}`, {
+          method: "POST",
+          headers,
+          body,
+        }),
+      );
+
+      expect(response.status).toBe(status);
+      expect(
+        (yield* f.request(
+          path,
+          encode(JSON.parse(new TextDecoder().decode(bytes))),
+          headers,
+        )).status,
+      ).toBe(401);
+      expect((yield* f.request(path, encode("{"), {})).status).toBe(401);
+    }
+
+    expect(f.admissions).toHaveLength(1);
+    expect(f.admissions[0]).toMatchObject({
+      invocation: { command: "sell", input: "雪🙂" },
+    });
+  }),
+);
+
+test(
+  "ingress returns HTTP 408 and cancels an unfinished request body",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    let canceled = false;
+
+    const response = yield* f.handle(
+      new Request("https://bot.invalid/interactions/discord", {
+        method: "POST",
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encode("{"));
+          },
+          cancel() {
+            canceled = true;
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(408);
+    expect(canceled).toBeTrue();
+    expect(f.reads()).toBe(0);
+    expect(f.admissions).toEqual([]);
+  }),
+);
+
+test(
+  "operator body limits preserve success, authorization and external error mappings",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const input = JSON.stringify({ stage: identity.stage });
+    const body = encode(input + " ".repeat(4096 - encode(input).byteLength));
+    const authorization = { authorization: "Bearer operator" };
+    const accepted = yield* f.request("/ops/status", body, authorization);
+    expect(accepted.status).toBe(200);
+    expect(yield* json(accepted)).toMatchObject({ stage: identity.stage });
+    expect((yield* f.request("/ops/status", body, {})).status).toBe(401);
+
+    const overflow = yield* f.request(
+      "/ops/status",
+      encode(new TextDecoder().decode(body) + " "),
+      authorization,
+    );
+
+    expect(overflow.status).toBe(503);
+    expect(yield* json(overflow)).toEqual({
+      error: "operator-operation-failed",
+    });
+    expect(
+      (yield* f.request(
+        "/ops/setup",
+        encode(new TextDecoder().decode(body) + " "),
+        authorization,
+      )).status,
+    ).toBe(503);
+    expect(
+      (yield* f.request("/ops/status", encode("{"), authorization)).status,
+    ).toBe(503);
+    expect(
+      (yield* f.request(
+        "/ops/status",
+        encode({ stage: "staging" }),
+        authorization,
+      )).status,
+    ).toBe(409);
+    expect(f.reads()).toBe(1);
+    expect(f.setups()).toBe(0);
+    expect((yield* f.request("/ops/setup", body, authorization)).status).toBe(
+      503,
+    );
+    expect(f.setups()).toBe(1);
+  }),
+);
+
+test(
+  "operator rejects unauthorized requests before reading the body",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    let reads = 0;
+
+    for (const path of ["/ops/setup", "/ops/status"]) {
+      const response = yield* f.handle(
+        new Request(`https://bot.invalid${path}`, {
+          method: "POST",
+          body: new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                reads++;
+                controller.error(new Error("must not read"));
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+        }),
+      );
+
+      expect(response.status).toBe(401);
+      expect(yield* json(response)).toEqual({ error: "unauthorized" });
+    }
+
+    expect(reads).toBe(0);
+    expect(f.reads()).toBe(0);
+    expect(f.setups()).toBe(0);
+  }),
 );
 
 for (const delta of [-1, -20, 3000])

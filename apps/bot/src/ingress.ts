@@ -11,7 +11,11 @@ import {
   Stream,
 } from "effect";
 import { Hex } from "effect/encoding";
-import { type HttpServerRequest, HttpServerResponse } from "effect/http";
+import {
+  type HttpServerError,
+  type HttpServerRequest,
+  HttpServerResponse,
+} from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
@@ -34,6 +38,8 @@ export class IngressError extends Schema.TaggedError<IngressError>()(
   "IngressError",
   { status: Schema.Literals([400, 401, 408, 413]) },
 ) {}
+
+type IngressBodyError = HttpServerError.HttpServerError | IngressError;
 
 export const ingressPolicy = {
   maxBytes: 64 * 1024,
@@ -87,18 +93,12 @@ export const readBody = Effect.fnUntraced(function* (
     return yield* new IngressError({
       status: /^\d+$/.test(length) ? 413 : 400,
     });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  yield* request.stream.pipe(
-    Stream.runForEach(
-      Effect.fnUntraced(function* (chunk) {
-        size += chunk.byteLength;
 
-        if (size > ingressPolicy.maxBytes)
-          return yield* new IngressError({ status: 413 });
-        chunks.push(chunk);
-      }),
+  return yield* request.stream.pipe(
+    Stream.limitBytes<IngressBodyError, never>(ingressPolicy.maxBytes, () =>
+      Stream.fail(new IngressError({ status: 413 })),
     ),
+    Stream.mkUint8Array,
     Effect.timeout(ingressPolicy.bodyMs),
     Effect.mapError((error) =>
       Predicate.isTagged(error, "IngressError")
@@ -108,15 +108,6 @@ export const readBody = Effect.fnUntraced(function* (
           }),
     ),
   );
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return bytes;
 });
 
 const fresh = (timestamp: number, receivedAt: number, age: number) =>
