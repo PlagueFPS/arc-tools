@@ -8,6 +8,7 @@ import {
   ReleaseHealth,
   syncCommands,
 } from "../../apps/bot/src/discord-sync.js";
+import { providerTransport } from "../../apps/bot/src/provider-http.js";
 import { subscriptionBinding } from "../../apps/bot/src/twitch-binding.js";
 import {
   AccountStatus,
@@ -937,7 +938,7 @@ export function registerAccountTests({
       const raced = yield* syncCommands(release, options).pipe(Effect.flip);
       expect(raced.code).toBe("stale-release");
       expect(raced.phase).toBe("after");
-    }),
+    }).pipe(Effect.provide(providerTransport)),
     { timeout: 60_000 },
   );
 }

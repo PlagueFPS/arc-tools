@@ -1,11 +1,16 @@
 import { parseArgs } from "node:util";
 
 import { Effect, Redacted, Schema } from "effect";
-import { HttpClientRequest } from "effect/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { Stage } from "../apps/bot/src/config.js";
 import { syncCommands } from "../apps/bot/src/discord-sync.js";
-import { decodeBody, request } from "../apps/bot/src/provider-http.js";
+import {
+  decodeBody,
+  providerTransport,
+  readJson,
+  request,
+} from "../apps/bot/src/provider-http.js";
 import {
   AccountStatus,
   SetupResult,
@@ -46,26 +51,29 @@ try {
 
   await Effect.runPromise(
     Effect.gen(function* () {
+      const client = (yield* HttpClient.HttpClient).pipe(
+        HttpClient.filterStatus((status) => status === 200),
+      );
+
       const result = yield* request(
+        client,
         HttpClientRequest.post(`${endpoint.origin}/ops/${operation}`, {
           headers: {
             Authorization: `Bearer ${operator}`,
           },
         }).pipe(HttpClientRequest.bodyJsonUnsafe({ stage })),
+        readJson,
         30_000,
       );
 
-      if (result.status !== 200)
-        return yield* Effect.fail("operator request failed");
-
       if (operation === "setup") {
-        const setup = yield* decodeBody(SetupResult)(result.body);
+        const setup = yield* decodeBody(SetupResult)(result);
 
         if (setup.status.stage !== stage)
           return yield* Effect.fail("stage mismatch");
         console.info(JSON.stringify(setup, null, 2));
       } else {
-        const status = yield* decodeBody(AccountStatus)(result.body);
+        const status = yield* decodeBody(AccountStatus)(result);
 
         if (status.stage !== stage) return yield* Effect.fail("stage mismatch");
         console.info(JSON.stringify(status, null, 2));
@@ -98,7 +106,7 @@ try {
           }),
         );
       }
-    }),
+    }).pipe(Effect.provide(providerTransport)),
   );
 } catch {
   console.error(

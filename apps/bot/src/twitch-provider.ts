@@ -6,10 +6,17 @@ import {
   Effect,
   Redacted,
   Schema,
+  SchemaGetter,
+  Option,
 } from "effect";
-import { HttpClientRequest } from "effect/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
-import { decodeBody, type ProviderError, request } from "./provider-http.js";
+import {
+  decodeBody,
+  type ProviderError,
+  readJson,
+  request,
+} from "./provider-http.js";
 import { subscriptionBinding } from "./twitch-binding.js";
 import { AccountError, bounded, type Dispatch } from "./twitch-contracts.js";
 
@@ -143,63 +150,114 @@ export interface ProviderConfig {
   readonly redirect: string;
 }
 
-export const makeProvider = (
+const ResetTimestamp = Schema.Finite.pipe(Schema.brand("RateLimitResetMillis"));
+
+const RateLimitHeaders = Schema.Struct({
+  "ratelimit-remaining": Schema.optional(Schema.String),
+  "ratelimit-reset": Schema.optional(Schema.String),
+}).pipe(
+  Schema.decodeTo(
+    Schema.Struct({ exhausted: Schema.Boolean, reset: ResetTimestamp }),
+    {
+      decode: SchemaGetter.transform((headers) => ({
+        exhausted: headers["ratelimit-remaining"] === "0",
+        reset: Number(headers["ratelimit-reset"]) * 1000,
+      })),
+      encode: SchemaGetter.forbidden(() => "Response headers are decode only"),
+    },
+  ),
+  Schema.catchDecoding(() =>
+    Effect.succeed(
+      Option.some({ exhausted: false, reset: ResetTimestamp.make(0) }),
+    ),
+  ),
+);
+
+const readAcceptedJson = HttpClientResponse.matchStatus({
+  "2xx": readJson,
+  429: readJson,
+  orElse: () => Effect.succeed(null),
+});
+
+export const makeProvider = Effect.fnUntraced(function* (
   config: ProviderConfig,
   endpoints = {
     api: "https://api.twitch.tv/helix",
     oauth: "https://id.twitch.tv/oauth2",
   },
-): Provider => {
-  const headers = (token: string) => ({
-    "Client-Id": config.clientId,
-    Authorization: `Bearer ${token}`,
-  });
+) {
+  const transport = yield* HttpClient.HttpClient;
+
+  const helix = transport.pipe(
+    HttpClient.mapRequest((outgoing) =>
+      outgoing.pipe(
+        HttpClientRequest.prependUrl(endpoints.api),
+        HttpClientRequest.setHeader("Client-Id", config.clientId),
+      ),
+    ),
+  );
+
+  const oauth = transport.pipe(
+    HttpClient.mapRequest(HttpClientRequest.prependUrl(endpoints.oauth)),
+  );
+
+  const authenticated = (
+    client: HttpClient.HttpClient,
+    token: string,
+    scheme: "Bearer" | "OAuth",
+  ) =>
+    client.pipe(
+      HttpClient.mapRequest(
+        HttpClientRequest.setHeader("Authorization", `${scheme} ${token}`),
+      ),
+    );
 
   const checked = Effect.fnUntraced(function* (
     outgoing: HttpClientRequest.HttpClientRequest,
     token: string,
   ) {
-    const result = yield* request(
-      outgoing.pipe(
-        HttpClientRequest.prependUrl(endpoints.api),
-        HttpClientRequest.setHeaders(headers(token)),
-      ),
+    return yield* request<unknown, AccountError | ProviderError, never>(
+      authenticated(helix, token, "Bearer"),
+      outgoing,
+      Effect.fnUntraced(function* (response) {
+        const body = yield* readAcceptedJson(response);
+
+        return yield* HttpClientResponse.matchStatus(response, {
+          401: () => new AccountError({ code: "client" }),
+          "2xx": () => Effect.succeed(body),
+          orElse: () => new AccountError({ code: "provider" }),
+        });
+      }),
     );
-
-    if (result.status === 401)
-      return yield* new AccountError({ code: "client" });
-
-    if (result.status < 200 || result.status >= 300)
-      return yield* new AccountError({ code: "provider" });
-
-    return result;
   });
+
+  const accountError = (error: AccountError | ProviderError) =>
+    Predicate.isTagged(error, "AccountError")
+      ? error
+      : new AccountError({ code: "provider" });
 
   const token = Effect.fnUntraced(
     function* (params: Record<string, string>) {
-      const result = yield* request(
-        HttpClientRequest.post(`${endpoints.oauth}/token`).pipe(
+      return yield* request(
+        oauth,
+        HttpClientRequest.post("/token").pipe(
           HttpClientRequest.bodyUrlParams({
             ...params,
             client_id: config.clientId,
             client_secret: Redacted.value(config.clientSecret),
           }),
         ),
+        Effect.fnUntraced(function* (response) {
+          const body = yield* readAcceptedJson(response);
+
+          return yield* HttpClientResponse.matchStatus(response, {
+            200: () => decodeBody(Token)(body),
+            orElse: () => new AccountError({ code: "provider" }),
+          });
+        }),
       );
-
-      if (result.status !== 200)
-        return yield* new AccountError({ code: "provider" });
-
-      return yield* decodeBody(Token)(result.body);
     },
-    (effect) =>
-      effect.pipe(
-        Effect.mapError((error) =>
-          Predicate.isTagged(error, "AccountError")
-            ? error
-            : new AccountError({ code: "provider" }),
-        ),
-      ),
+    (effect) => effect.pipe(Effect.mapError(accountError)),
   );
 
   return TwitchProvider.of({
@@ -212,48 +270,36 @@ export const makeProvider = (
       }),
     validate: Effect.fnUntraced(
       function* (token: string) {
-        const result = yield* request(
-          HttpClientRequest.get(`${endpoints.oauth}/validate`, {
-            headers: { Authorization: `OAuth ${token}` },
+        return yield* request<
+          typeof Validation.Type,
+          AccountError | ProviderError,
+          never
+        >(
+          authenticated(oauth, token, "OAuth"),
+          HttpClientRequest.get("/validate"),
+          Effect.fnUntraced(function* (response) {
+            const body = yield* readAcceptedJson(response);
+
+            return yield* HttpClientResponse.matchStatus(response, {
+              200: () => decodeBody(Validation)(body),
+              401: () => new AccountError({ code: "client" }),
+              orElse: () => new AccountError({ code: "provider" }),
+            });
           }),
         );
-
-        if (result.status === 401)
-          return yield* new AccountError({ code: "client" });
-
-        if (result.status !== 200)
-          return yield* new AccountError({ code: "provider" });
-
-        return yield* decodeBody(Validation)(result.body);
       },
-      (effect) =>
-        effect.pipe(
-          Effect.mapError((error) =>
-            Predicate.isTagged(error, "AccountError")
-              ? error
-              : new AccountError({ code: "provider" }),
-          ),
-        ),
+      (effect) => effect.pipe(Effect.mapError(accountError)),
     ),
     users: Effect.fnUntraced(
       function* (token: string, logins: readonly string[]) {
         return (yield* decodeBody(Users)(
-          (yield* checked(
-            HttpClientRequest.get("/users", {
-              urlParams: { login: logins },
-            }),
+          yield* checked(
+            HttpClientRequest.get("/users", { urlParams: { login: logins } }),
             token,
-          )).body,
+          ),
         )).data;
       },
-      (effect) =>
-        effect.pipe(
-          Effect.mapError((error) =>
-            Predicate.isTagged(error, "AccountError")
-              ? error
-              : new AccountError({ code: "provider" }),
-          ),
-        ),
+      (effect) => effect.pipe(Effect.mapError(accountError)),
     ),
     list: Effect.fnUntraced(
       function* (token: string) {
@@ -263,12 +309,12 @@ export const makeProvider = (
 
         do {
           const page = yield* decodeBody(Page)(
-            (yield* checked(
+            yield* checked(
               HttpClientRequest.get("/eventsub/subscriptions", {
                 urlParams: cursor ? { after: cursor } : {},
               }),
               token,
-            )).body,
+            ),
           );
 
           subscriptions.push(...page.data);
@@ -286,21 +332,17 @@ export const makeProvider = (
 
         return subscriptions;
       },
-      (effect) =>
-        effect.pipe(
-          Effect.mapError((error) =>
-            Predicate.isTagged(error, "AccountError")
-              ? error
-              : new AccountError({ code: "provider" }),
-          ),
-        ),
+      (effect) => effect.pipe(Effect.mapError(accountError)),
     ),
     create: Effect.fnUntraced(
       function* (token: string, channel: string, sender: string) {
-        const result = yield* request(
-          HttpClientRequest.post(`${endpoints.api}/eventsub/subscriptions`, {
-            headers: headers(token),
-          }).pipe(
+        return yield* request<
+          typeof CreateOutcome.Type,
+          AccountError | ProviderError,
+          never
+        >(
+          authenticated(helix, token, "Bearer"),
+          HttpClientRequest.post("/eventsub/subscriptions").pipe(
             HttpClientRequest.bodyJsonUnsafe({
               type: "channel.chat.message",
               version: "1",
@@ -312,44 +354,50 @@ export const makeProvider = (
               },
             }),
           ),
+          Effect.fnUntraced(function* (response) {
+            const body = yield* readAcceptedJson(response);
+
+            return yield* HttpClientResponse.matchStatus(response, {
+              401: () => new AccountError({ code: "client" }),
+              409: () =>
+                Effect.succeed<typeof CreateOutcome.Type>({ kind: "conflict" }),
+              202: Effect.fnUntraced(function* () {
+                const {
+                  data: [subscription],
+                } = yield* decodeBody(Creation)(body);
+
+                if (
+                  subscription.type !== "channel.chat.message" ||
+                  subscription.version !== "1" ||
+                  subscription.transport.method !== "webhook" ||
+                  subscription.transport.callback !== config.callback ||
+                  subscription.condition.broadcaster_user_id !== channel ||
+                  subscription.condition.user_id !== sender ||
+                  (subscription.status !== "enabled" &&
+                    subscription.status !==
+                      "webhook_callback_verification_pending")
+                )
+                  return {
+                    kind: "unknown",
+                  } satisfies typeof CreateOutcome.Type;
+
+                return {
+                  kind: "created",
+                  subscription: {
+                    id: subscription.id,
+                    broadcasterId: channel,
+                    senderId: sender,
+                    callback: config.callback,
+                    binding: yield* subscriptionBinding(config),
+                    status: subscription.status,
+                  },
+                } satisfies typeof CreateOutcome.Type;
+              }),
+              orElse: () =>
+                Effect.succeed<typeof CreateOutcome.Type>({ kind: "unknown" }),
+            });
+          }),
         );
-
-        if (result.status === 401)
-          return yield* new AccountError({ code: "client" });
-
-        if (result.status === 409)
-          return { kind: "conflict" } satisfies typeof CreateOutcome.Type;
-
-        if (result.status !== 202)
-          return { kind: "unknown" } satisfies typeof CreateOutcome.Type;
-
-        const {
-          data: [subscription],
-        } = yield* decodeBody(Creation)(result.body);
-
-        if (
-          subscription.type !== "channel.chat.message" ||
-          subscription.version !== "1" ||
-          subscription.transport.method !== "webhook" ||
-          subscription.transport.callback !== config.callback ||
-          subscription.condition.broadcaster_user_id !== channel ||
-          subscription.condition.user_id !== sender ||
-          (subscription.status !== "enabled" &&
-            subscription.status !== "webhook_callback_verification_pending")
-        )
-          return { kind: "unknown" } satisfies typeof CreateOutcome.Type;
-
-        return {
-          kind: "created",
-          subscription: {
-            id: subscription.id,
-            broadcasterId: channel,
-            senderId: sender,
-            callback: config.callback,
-            binding: yield* subscriptionBinding(config),
-            status: subscription.status,
-          },
-        } satisfies typeof CreateOutcome.Type;
       },
       (effect) =>
         effect.pipe(
@@ -367,26 +415,24 @@ export const makeProvider = (
     ),
     remove: Effect.fnUntraced(
       function* (token: string, id: string) {
-        const result = yield* request(
-          HttpClientRequest.delete(`${endpoints.api}/eventsub/subscriptions`, {
-            headers: headers(token),
+        yield* request(
+          authenticated(helix, token, "Bearer"),
+          HttpClientRequest.delete("/eventsub/subscriptions", {
             urlParams: { id },
           }),
-        );
+          Effect.fnUntraced(function* (response) {
+            yield* readAcceptedJson(response);
 
-        if (result.status !== 204 && result.status !== 404)
-          return yield* new AccountError({
-            code: result.status === 401 ? "client" : "provider",
-          });
+            return yield* HttpClientResponse.matchStatus(response, {
+              401: () => new AccountError({ code: "client" }),
+              204: () => Effect.void,
+              404: () => Effect.void,
+              orElse: () => new AccountError({ code: "provider" }),
+            });
+          }),
+        );
       },
-      (effect) =>
-        effect.pipe(
-          Effect.mapError((error) =>
-            Predicate.isTagged(error, "AccountError")
-              ? error
-              : new AccountError({ code: "provider" }),
-          ),
-        ),
+      (effect) => effect.pipe(Effect.mapError(accountError)),
     ),
     send: Effect.fnUntraced(
       function* (
@@ -398,10 +444,9 @@ export const makeProvider = (
 
         if (now >= input.deadline) return { kind: "expired" };
 
-        const result = yield* request(
-          HttpClientRequest.post(`${endpoints.api}/chat/messages`, {
-            headers: headers(token),
-          }).pipe(
+        return yield* request(
+          authenticated(helix, token, "Bearer"),
+          HttpClientRequest.post("/chat/messages").pipe(
             HttpClientRequest.bodyJsonUnsafe({
               broadcaster_id: input.broadcasterId,
               sender_id: sender,
@@ -410,49 +455,75 @@ export const makeProvider = (
               for_source_only: true,
             }),
           ),
+          Effect.fnUntraced(function* (response) {
+            const body = yield* readAcceptedJson(response);
+
+            const limits = yield* Schema.decodeUnknownEffect(RateLimitHeaders)(
+              response.headers,
+            ).pipe(Effect.orDie);
+
+            const budget =
+              limits.exhausted && limits.reset > now
+                ? { blockedUntil: limits.reset }
+                : {};
+
+            return yield* HttpClientResponse.matchStatus(response, {
+              401: () =>
+                Effect.succeed<SendResult>({ kind: "unauthorized", ...budget }),
+              429: Effect.fnUntraced(function* (): Effect.fn.Return<
+                SendResult,
+                ProviderError
+              > {
+                const now = yield* Clock.currentTimeMillis;
+
+                return {
+                  kind: "limited",
+                  retryAt: Math.max(now + 1_000, limits.reset),
+                };
+              }),
+              400: () =>
+                Effect.succeed<SendResult>({
+                  kind: "rejected",
+                  code: "http-400",
+                  ...budget,
+                }),
+              403: () =>
+                Effect.succeed<SendResult>({
+                  kind: "rejected",
+                  code: "http-403",
+                  ...budget,
+                }),
+              422: () =>
+                Effect.succeed<SendResult>({
+                  kind: "rejected",
+                  code: "http-422",
+                  ...budget,
+                }),
+              200: Effect.fnUntraced(function* (): Effect.fn.Return<
+                SendResult,
+                ProviderError
+              > {
+                const decoded = yield* decodeBody(Sent)(body);
+
+                const sent = decoded.data[0];
+
+                if (!sent.is_sent)
+                  return {
+                    kind: "rejected",
+                    code: sent.drop_reason?.code ?? "dropped",
+                    ...budget,
+                  };
+
+                if (!sent.message_id || sent.message_id.length > 128)
+                  return { kind: "ambiguous" };
+
+                return { kind: "sent", messageId: sent.message_id, ...budget };
+              }),
+              orElse: () => Effect.succeed<SendResult>({ kind: "ambiguous" }),
+            });
+          }),
           Math.min(4_000, input.deadline - now),
         );
-
-        const blockedUntil =
-          result.headers["ratelimit-remaining"] === "0"
-            ? Number(result.headers["ratelimit-reset"]) * 1000
-            : 0;
-
-        const budget =
-          Number.isFinite(blockedUntil) && blockedUntil > now
-            ? { blockedUntil }
-            : {};
-
-        if (result.status === 401) return { kind: "unauthorized", ...budget };
-
-        if (result.status === 429) {
-          const now = yield* Clock.currentTimeMillis;
-          const reset = Number(result.headers["ratelimit-reset"]) * 1000;
-
-          return {
-            kind: "limited",
-            retryAt: Math.max(now + 1_000, Number.isFinite(reset) ? reset : 0),
-          };
-        }
-
-        if ([400, 403, 422].includes(result.status))
-          return { kind: "rejected", code: `http-${result.status}`, ...budget };
-
-        if (result.status !== 200) return { kind: "ambiguous" };
-        const decoded = yield* decodeBody(Sent)(result.body);
-        const sent = decoded.data[0];
-
-        if (!sent.is_sent)
-          return {
-            kind: "rejected",
-            code: sent.drop_reason?.code ?? "dropped",
-            ...budget,
-          };
-
-        if (!sent.message_id || sent.message_id.length > 128)
-          return { kind: "ambiguous" };
-
-        return { kind: "sent", messageId: sent.message_id, ...budget };
       },
       (effect) =>
         effect.pipe(
@@ -460,9 +531,9 @@ export const makeProvider = (
         ),
     ),
   });
-};
+});
 
 export const providerLayer = (
   config: ProviderConfig,
   endpoints?: Parameters<typeof makeProvider>[1],
-) => Layer.sync(TwitchProvider, () => makeProvider(config, endpoints));
+) => Layer.effect(TwitchProvider, makeProvider(config, endpoints));

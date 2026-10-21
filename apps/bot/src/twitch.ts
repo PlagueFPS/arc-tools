@@ -11,7 +11,7 @@ import {
 } from "effect";
 
 import { bindOrigin, runtimeConfig } from "./config.js";
-import { digest } from "./provider-http.js";
+import { digest, providerTransport } from "./provider-http.js";
 import { AccountService, accountServiceLayer } from "./twitch-account.js";
 import { subscriptionBinding } from "./twitch-binding.js";
 import {
@@ -201,7 +201,7 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
               Option.isSome(endpoints)
                 ? yield* endpoints.value.resolve
                 : undefined,
-            ),
+            ).pipe(Layer.provide(providerTransport)),
           ),
         ),
       );

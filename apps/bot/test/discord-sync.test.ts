@@ -1,7 +1,23 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Duration, Effect, Layer, Redacted, Result, Schema } from "effect";
+import {
+  Clock,
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  Redacted,
+  Result,
+  Schema,
+  Stream,
+} from "effect";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/http";
 import { TestClock } from "effect/testing";
 
 import {
@@ -11,10 +27,14 @@ import {
   normalizeManifest,
   RemoteCommands,
 } from "../src/discord-manifest.js";
-import { RetryAfter, syncCommands } from "../src/discord-sync.js";
-import { digest } from "../src/provider-http.js";
+import {
+  RetryAfter,
+  syncCommands,
+  waitForRelease,
+} from "../src/discord-sync.js";
+import { digest, providerTransport } from "../src/provider-http.js";
 
-const { test } = Test.make({ providers: Layer.empty });
+const { test } = Test.make({ providers: providerTransport });
 
 const fixture = Effect.fnUntraced(function* () {
   const hash = yield* manifestHash;
@@ -446,4 +466,272 @@ test(
     expect((yield* syncCommands(f.release, f.options)).changed).toBeTrue();
     expect(f.control.writes).toBe(1);
   }),
+);
+
+const nativeResponse = (
+  request: HttpClientRequest.HttpClientRequest,
+  body: string,
+  status = 200,
+) => {
+  const native = HttpClientResponse.fromWeb(
+    request,
+    new Response(body, { status }),
+  );
+
+  Object.defineProperty(native, "stream", {
+    value: Stream.make(new TextEncoder().encode(body)),
+  });
+
+  return native;
+};
+
+const nativeFixture = Effect.fnUntraced(function* () {
+  const hash = yield* manifestHash;
+  const entered = yield* Deferred.make<void>();
+
+  const requests: {
+    path: string;
+    method: string;
+    authorization: string | undefined;
+    time: number;
+  }[] = [];
+
+  const control = {
+    stage: "staging",
+    revision: "commit-one",
+    hash,
+    healthStatus: 200,
+    commandStatus: 200,
+    retryAfter: 0.0011,
+    rateLimits: 0,
+    staleOnRateLimit: false,
+    networkFailure: false,
+    commandBody: JSON.stringify(commandManifest),
+  };
+
+  const client = HttpClient.make((request, url) =>
+    Effect.gen(function* () {
+      const time = yield* Clock.currentTimeMillis;
+      requests.push({
+        path: url.pathname,
+        method: request.method,
+        authorization: request.headers.authorization,
+        time,
+      });
+
+      if (url.pathname === "/health") {
+        yield* Deferred.succeed(entered, undefined);
+        expect(request.headers.authorization).toBeUndefined();
+
+        return nativeResponse(
+          request,
+          JSON.stringify({
+            status: "ready",
+            stage: control.stage,
+            revision: control.revision,
+            manifestHash: control.hash,
+          }),
+          control.healthStatus,
+        );
+      }
+
+      expect(request.headers.authorization).toBe("Bot canary-discord-token");
+      expect(url.searchParams.get("with_localizations")).toBe("true");
+
+      if (control.networkFailure)
+        return yield* new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({
+            request,
+            cause: "canary-network",
+          }),
+        });
+
+      if (control.rateLimits > 0) {
+        control.rateLimits--;
+
+        if (control.staleOnRateLimit) control.revision = "commit-newer";
+
+        return nativeResponse(
+          request,
+          JSON.stringify({ retry_after: control.retryAfter }),
+          429,
+        );
+      }
+
+      return nativeResponse(
+        request,
+        control.commandBody,
+        control.commandStatus,
+      );
+    }),
+  );
+
+  const release = {
+    stage: "staging",
+    revision: "commit-one",
+    endpoint: "https://release.invalid",
+    applicationId: "fixture-discord",
+    token: Redacted.make("canary-discord-token"),
+  };
+
+  const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(Effect.provideService(HttpClient.HttpClient, client));
+
+  return { control, requests, release, run, started: Deferred.await(entered) };
+});
+
+test(
+  "scheduled Discord retries allow four total rate-limited attempts and never sleep after the last one",
+  Effect.gen(function* () {
+    const f = yield* nativeFixture();
+    f.control.rateLimits = 4;
+
+    const fiber = yield* f
+      .run(syncCommands(f.release))
+      .pipe(Effect.result, Effect.forkChild);
+
+    yield* f.started;
+    yield* TestClock.adjust(6);
+    const result = yield* Fiber.join(fiber);
+    expect(Result.isFailure(result) && result.failure).toMatchObject({
+      code: "rate-limit",
+      phase: "before",
+    });
+    const calls = f.requests.filter(({ path }) => path !== "/health");
+    expect(calls.map(({ time }) => time)).toEqual([0, 2, 4, 6]);
+    expect(f.requests.filter(({ path }) => path === "/health")).toHaveLength(4);
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
+test(
+  "every delayed retry fences the exact release before another command request",
+  Effect.gen(function* () {
+    const f = yield* nativeFixture();
+    f.control.rateLimits = 1;
+    f.control.staleOnRateLimit = true;
+
+    const fiber = yield* f
+      .run(syncCommands(f.release))
+      .pipe(Effect.result, Effect.forkChild);
+
+    yield* f.started;
+    yield* TestClock.adjust(2);
+    const result = yield* Fiber.join(fiber);
+    expect(Result.isFailure(result) && result.failure).toMatchObject({
+      code: "stale-release",
+      phase: "before",
+    });
+    expect(f.requests.map(({ path, time }) => [path, time])).toEqual([
+      ["/health", 0],
+      ["/api/v10/applications/fixture-discord/commands", 0],
+      ["/health", 2],
+    ]);
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
+for (const failure of [
+  "status",
+  "network",
+  "malformed",
+  "stage",
+  "revision",
+  "manifest",
+])
+  test(
+    `Discord ${failure} failures stop immediately without a retry`,
+    Effect.gen(function* () {
+      const f = yield* nativeFixture();
+
+      if (failure === "status") f.control.commandStatus = 503;
+
+      if (failure === "network") f.control.networkFailure = true;
+
+      if (failure === "malformed") f.control.commandBody = "{";
+
+      if (failure === "stage") f.control.stage = "other-stage";
+
+      if (failure === "revision") f.control.revision = "other-revision";
+
+      if (failure === "manifest") f.control.hash = "other-manifest";
+      const result = yield* f.run(syncCommands(f.release)).pipe(Effect.flip);
+      expect(result.code).toBe(
+        ["stage", "revision", "manifest"].includes(failure)
+          ? "stale-release"
+          : "provider",
+      );
+      expect(result.phase).toBe("before");
+      expect(f.requests.filter(({ path }) => path === "/health")).toHaveLength(
+        1,
+      );
+      expect(f.requests.filter(({ path }) => path !== "/health")).toHaveLength(
+        ["stage", "revision", "manifest"].includes(failure) ? 0 : 1,
+      );
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+test(
+  "Discord delay admission uses the original per-call horizon and rejects equality",
+  Effect.gen(function* () {
+    const f = yield* nativeFixture();
+    f.control.rateLimits = 4;
+    f.control.retryAfter = 15;
+
+    const fiber = yield* f
+      .run(syncCommands(f.release))
+      .pipe(Effect.result, Effect.forkChild);
+
+    yield* f.started;
+    yield* TestClock.adjust(15000);
+    const result = yield* Fiber.join(fiber);
+    expect(Result.isFailure(result) && result.failure).toMatchObject({
+      code: "rate-limit",
+      phase: "before",
+    });
+    expect(
+      f.requests
+        .filter(({ path }) => path !== "/health")
+        .map(({ time }) => time),
+    ).toEqual([0, 15000]);
+  }).pipe(Effect.provide(TestClock.layer())),
+);
+
+for (const wait of [false, true])
+  test(
+    `release polling makes ${wait ? 60 : 1} attempts with no final sleep`,
+    Effect.gen(function* () {
+      const f = yield* nativeFixture();
+      f.control.healthStatus = 503;
+
+      const fiber = yield* f
+        .run(waitForRelease(f.release, wait))
+        .pipe(Effect.forkChild);
+
+      yield* f.started;
+      yield* TestClock.adjust(wait ? 59000 : 0);
+      expect(yield* Fiber.join(fiber)).toBeFalse();
+      expect(f.requests.map(({ time }) => time)).toEqual(
+        Array.from({ length: wait ? 60 : 1 }, (_, i) => i * 1000),
+      );
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+test(
+  "release polling stops at the first exact healthy revision and manifest",
+  Effect.gen(function* () {
+    const f = yield* nativeFixture();
+    f.control.revision = "other";
+
+    const fiber = yield* f
+      .run(waitForRelease(f.release, true))
+      .pipe(Effect.forkChild);
+
+    yield* f.started;
+    yield* TestClock.adjust(1000);
+    expect(f.requests).toHaveLength(2);
+    f.control.revision = "commit-one";
+    yield* f.started;
+    yield* TestClock.adjust(1000);
+    expect(yield* Fiber.join(fiber)).toBeTrue();
+    expect(f.requests).toHaveLength(3);
+  }).pipe(Effect.provide(TestClock.layer())),
 );
