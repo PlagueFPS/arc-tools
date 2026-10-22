@@ -351,7 +351,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
           const before = yield* directory(shared);
 
           const state = yield* Schema.decodeUnknownEffect(AccountState)(
-            joinDirectory(before),
+            yield* joinDirectory(before).pipe(Effect.orDie),
           ).pipe(Effect.orDie);
 
           const result = f(state);

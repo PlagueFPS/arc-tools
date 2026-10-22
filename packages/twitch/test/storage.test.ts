@@ -227,7 +227,7 @@ test(
   "keyed reconstruction preserves every field, membership source, order and subscription map key without rewriting records",
   Effect.gen(function* () {
     const original = populated();
-    expect(joinDirectory(splitAccount(original))).toEqual(original);
+    expect(yield* joinDirectory(splitAccount(original))).toEqual(original);
     const memory = yield* keyedStorage();
     memory.restore(original);
     const before = structuredClone(memory.values);
@@ -255,6 +255,49 @@ test(
     expect(memory.traces.some((entry) => entry.key === "account:v1")).toBe(
       false,
     );
+  }),
+);
+
+test(
+  "directory validation returns typed failures for conflicting membership positions and keys",
+  Effect.gen(function* () {
+    for (const collection of ["configured", "public"] satisfies Array<
+      "configured" | "public"
+    >) {
+      const positions = splitAccount(populated());
+      positions.channels = new Map(
+        [...positions.channels].map(([key, record]) => [
+          key,
+          {
+            ...record,
+            [collection]: record[collection].map((entry) => ({
+              ...entry,
+              position: entry.position + 1,
+            })),
+          },
+        ]),
+      );
+      const positionError = yield* joinDirectory(positions).pipe(Effect.flip);
+      expect(positionError._tag).toBe("DirectoryValidationError");
+      expect(positionError.reason).toBe("positions");
+
+      const keys = splitAccount(populated());
+      keys.channels = new Map(
+        [...keys.channels].map(([key, record]) => [
+          key,
+          {
+            ...record,
+            [collection]: record[collection].map((entry) => ({
+              ...entry,
+              member: { ...entry.member, id: "conflicting-id" },
+            })),
+          },
+        ]),
+      );
+      const keyError = yield* joinDirectory(keys).pipe(Effect.flip);
+      expect(keyError._tag).toBe("DirectoryValidationError");
+      expect(keyError.reason).toBe("key");
+    }
   }),
 );
 

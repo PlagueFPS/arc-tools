@@ -240,7 +240,17 @@ export function splitAccount(state: AccountState) {
 
 export type AccountDirectory = ReturnType<typeof splitAccount>;
 
-export function joinDirectory(directory: AccountDirectory): AccountState {
+export class DirectoryValidationError extends Schema.TaggedError<DirectoryValidationError>()(
+  "DirectoryValidationError",
+  {
+    reason: Schema.Literals(["positions", "key"]),
+    message: Schema.String,
+  },
+) {}
+
+export const joinDirectory = Effect.fnUntraced(function* (
+  directory: AccountDirectory,
+): Effect.fn.Return<AccountState, DirectoryValidationError> {
   const configured = [...directory.channels.values()]
     .flatMap((record) => record.configured)
     .sort((a, b) => a.position - b.position);
@@ -251,7 +261,10 @@ export function joinDirectory(directory: AccountDirectory): AccountState {
 
   for (const entries of [configured, members])
     if (entries.some((entry, index) => entry.position !== index))
-      throw new Error("Conflicting channel membership positions");
+      return yield* new DirectoryValidationError({
+        reason: "positions",
+        message: "Conflicting channel membership positions",
+      });
 
   for (const [key, record] of directory.channels)
     if (
@@ -259,7 +272,10 @@ export function joinDirectory(directory: AccountDirectory): AccountState {
         (entry) => entry.member.id !== key,
       )
     )
-      throw new Error("Conflicting channel membership key");
+      return yield* new DirectoryValidationError({
+        reason: "key",
+        message: "Conflicting channel membership key",
+      });
 
   return {
     ...directory.shared,
@@ -275,7 +291,7 @@ export function joinDirectory(directory: AccountDirectory): AccountState {
     attempts: directory.attempts,
     enrollments: directory.enrollments,
   };
-}
+});
 
 export type SendAttemptState = SharedAccount & Pick<AccountState, "attempts">;
 
