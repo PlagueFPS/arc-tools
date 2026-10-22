@@ -1,7 +1,10 @@
 import type { Effect } from "effect";
 import { Context, Schema } from "effect";
 
+import type { EnrollmentStatus } from "./enrollment-contracts.js";
 import { AttemptId, BroadcasterId, Deadline } from "./schemas.js";
+
+export { EnrollmentFailure, EnrollmentStatus } from "./enrollment-contracts.js";
 
 export const bounded = (max: number) =>
   Schema.NonEmptyString.check(Schema.isMaxLength(max));
@@ -143,24 +146,6 @@ export const EnrollmentSession = Schema.String.check(
 export const EnrollmentNonce = Schema.String.check(
   Schema.isPattern(/^enroll\.[a-f0-9]{64}$/),
 );
-
-export const EnrollmentFailure = Schema.Literals([
-  "authorization-required",
-  "authorization-failed",
-  "denied",
-  "expired",
-  "capacity",
-  "repair-required",
-  "unavailable",
-]);
-
-export const EnrollmentStatus = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("pending") }),
-  Schema.Struct({ kind: Schema.Literal("ready"), login: bounded(25) }),
-  Schema.Struct({ kind: Schema.Literal("failed"), reason: EnrollmentFailure }),
-]);
-
-export type EnrollmentStatus = typeof EnrollmentStatus.Type;
 
 export const EnrollmentBegin = Schema.Struct({
   session: EnrollmentSession,

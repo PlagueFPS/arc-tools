@@ -12,7 +12,8 @@
     "./server": "./src/server.ts",
     "./cloudflare": "./src/cloudflare.ts",
     "./testing": "./src/testing.ts",
-    "./testing/fixtures": "./test/account-fixture.ts"
+    "./testing/fixtures": "./test/account-fixture.ts",
+    "./enrollment": "./src/enrollment-contracts.ts"
   },
   "dependencies": {
     "@arctools/utils": "workspace:*",

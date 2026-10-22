@@ -105,11 +105,21 @@ export const enrollmentHttp = (account: typeof TwitchEnrollment.Service) => ({
       return HttpServerResponse.jsonUnsafe(status, { headers });
     }).pipe(
       Effect.timeout(12_000),
+      Effect.catchTag("AccountError", (error) =>
+        error.code === "state" || error.code === "input"
+          ? Effect.succeed(
+              HttpServerResponse.jsonUnsafe(
+                { error: "enrollment-unavailable" },
+                { status: 401, headers },
+              ),
+            )
+          : error,
+      ),
       Effect.catchCause(() =>
         Effect.succeed(
           HttpServerResponse.jsonUnsafe(
             { error: "enrollment-unavailable" },
-            { status: 401, headers },
+            { status: 503, headers },
           ),
         ),
       ),
@@ -150,9 +160,11 @@ export const enrollmentHttp = (account: typeof TwitchEnrollment.Service) => ({
               ),
             } satisfies Parameters<typeof account.complete>[0]["outcome"]);
 
-      return HttpServerResponse.jsonUnsafe(
-        yield* account.complete({ session, state, outcome }),
-        { headers },
-      );
+      yield* account.complete({ session, state, outcome });
+
+      return HttpServerResponse.empty({
+        status: 303,
+        headers: { ...headers, Location: "/connect" },
+      });
     }),
 });

@@ -218,11 +218,10 @@ test(
       expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
       grant(f.h);
       const completed = yield* f.complete(begun.state, begun.cookie);
-      expect(completed.status).toBe(200);
+      expect(completed.status).toBe(303);
+      expect(completed.headers.get("location")).toBe("/connect");
       privateHeaders(completed);
-      expect(yield* Effect.promise(() => completed.json())).toEqual({
-        kind: "pending",
-      });
+      expect(yield* Effect.promise(() => completed.text())).toBe("");
       expect(f.h.nativeAlarmAt()).toBe(initial + 1);
       expect(
         Schema.decodeUnknownSync(AccountState)(f.h.snapshot()).sender,
@@ -382,8 +381,10 @@ test(
         Schema.decodeUnknownSync(AccountState)(f.h.snapshot()).enrollments,
       ).toEqual(pending);
       const denied = yield* f.request(denial, begun.cookie);
-      expect(denied.status).toBe(200);
-      expect(yield* Effect.promise(() => denied.json())).toEqual({
+      expect(denied.status).toBe(303);
+      expect(denied.headers.get("location")).toBe("/connect");
+      expect(yield* Effect.promise(() => denied.text())).toBe("");
+      expect(yield* f.status(begun.cookie)).toEqual({
         kind: "failed",
         reason: "denied",
       });
@@ -510,10 +511,10 @@ test(
     expect(f.h.control.usersTokens.length).toBe(users + 1);
     yield* TestClock.adjust(3_900);
     const response = yield* Fiber.join(completion);
-    expect(response.status).toBe(200);
-    expect(yield* Effect.promise(() => response.json())).toEqual({
-      kind: "pending",
-    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/connect");
+    expect(yield* Effect.promise(() => response.text())).toBe("");
+    expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
     const state = Schema.decodeUnknownSync(AccountState)(f.h.snapshot());
     expect(state.grants["400"]).toEqual(["channel:bot"]);
     expect(state.publicMembers.map((member) => String(member.id))).toEqual([

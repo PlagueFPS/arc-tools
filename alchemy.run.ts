@@ -7,6 +7,8 @@ import { Config, Effect, Schema } from "effect";
 import { Stage as StageSchema, TestStage } from "./apps/bot/src/config.js";
 import { Bot } from "./apps/bot/src/worker.js";
 
+export { Website } from "./stacks/website.js";
+
 export default Alchemy.Stack(
   "arc-tools",
   { providers: Cloudflare.providers(), state: Cloudflare.state() },
