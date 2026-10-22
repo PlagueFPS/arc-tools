@@ -29,11 +29,13 @@ The catalog is the source for recognized command names and Discord registration 
 
 `@arctools/twitch/server` supplies account service contracts and schemas. `@arctools/twitch/cloudflare` supplies storage, RPC, credential maintenance, and runtime construction. Test fixtures and controlled provider construction use explicit testing exports.
 
-The `TwitchAccountDO` declaration stays in `apps/bot/src/twitch.ts`, under the resource name `TwitchAccount`. The environment object remains named `environment`, with its snapshot at `account:v1`. One owner coordinates grants, OAuth intents, confirmed EventSub subscriptions, credentials, send attempts, and rate reservations across channel tenants.
+The `TwitchAccountDO` declaration stays in `apps/bot/src/twitch.ts`, under the resource name `TwitchAccount`. The environment object remains named `environment`. Its indexed layout stores broadcaster records separately from shared credentials and send state. It initializes a fresh keyed account and ignores the old `account:v1` snapshot. One owner coordinates grants, OAuth intents, confirmed EventSub subscriptions, credentials, send attempts, and rate reservations across channel tenants.
 
 A tenant asks the account to dispatch a persisted part with its original deadline and stable attempt ID. It does not refresh credentials, create subscriptions, reserve provider capacity, or send through a second path.
 
 Public enrollment uses this same owner. Its HTTP routes remain on the bot origin. The website can navigate to the enrollment entry point without handling an operator secret, Twitch client secret, or access token. See the operator guide for setup and enrollment requirements.
+
+The [channel storage design](twitch-channel-storage.md) describes the first unit of issue #20, its fresh-start authorization steps, and the remaining work before removing the admission ceiling.
 
 ## Shared HTTP policy
 

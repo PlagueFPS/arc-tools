@@ -17,6 +17,10 @@ export type { Provider, SendResult } from "./provider.js";
 
 export {
   AccountState,
+  SharedAccount,
+  ChannelRecord,
+  splitAccount,
+  joinDirectory,
   AccountStore,
   emptyState,
   policy,

@@ -1,3 +1,4 @@
+import { makeAccountStorage } from "@arctools/twitch/cloudflare";
 import type { AccountConfig } from "@arctools/twitch/server";
 import {
   subscriptionBinding,
@@ -11,11 +12,11 @@ import {
   type Subscription,
   TwitchProvider,
   providerLayer,
-  AccountState,
   AccountStore,
-  emptyState,
 } from "@arctools/twitch/testing";
+import { keyedStorage } from "@arctools/twitch/testing/fixtures";
 import { providerTransport } from "@arctools/utils/http";
+import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Match, Effect, Layer, Redacted, Schema } from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
@@ -54,18 +55,17 @@ const Grant = Schema.Struct({
 });
 
 export const fixture = Effect.fnUntraced(function* () {
-  let raw: unknown = emptyState("");
+  const memory = yield* keyedStorage();
 
-  const store = AccountStore.of({
-    update: (f) =>
-      Effect.sync(() => {
-        const state = Schema.decodeUnknownSync(AccountState)(raw);
-        const result = f(state);
-        raw = Schema.encodeSync(AccountState)(state);
-
-        return result;
-      }),
-  });
+  const store = yield* makeAccountStorage(memory.storage).pipe(
+    Effect.provideService(RuntimeContext, {
+      Type: "test",
+      id: "subscription-storage",
+      env: {},
+      get: () => Effect.succeed(undefined),
+      set: (key) => Effect.succeed(key),
+    }),
+  );
 
   const noResponse = (): { status: number; body: unknown } | null => null;
   const noGate = (): ReturnType<typeof responseGate> | null => null;
@@ -368,7 +368,8 @@ export const fixture = Effect.fnUntraced(function* () {
     grants,
     authorize,
     send,
-    snapshot: () => Schema.decodeUnknownSync(AccountState)(raw),
+    snapshot: () =>
+      Effect.runSync(store.update((state) => structuredClone(state))),
   };
 });
 

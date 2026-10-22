@@ -6,7 +6,7 @@ import {
   makeAccount,
   makeProvider,
   TwitchProvider,
-  AccountState,
+  SharedAccount,
   AccountStore,
   policy,
 } from "@arctools/twitch/testing";
@@ -94,8 +94,24 @@ const memory = Effect.fnUntraced(function* () {
             T
           >,
       ),
+    delete: (key: string) => Effect.sync(() => values.delete(key)),
     transaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      effect.pipe(lock.withPermit),
+      Effect.gen(function* () {
+        const before = structuredClone(values);
+        const previousAlarm = alarm;
+        const exit = yield* Effect.exit(effect);
+
+        if (Exit.isFailure(exit)) {
+          values.clear();
+
+          for (const [key, value] of before) values.set(key, value);
+          alarm = previousAlarm;
+
+          return yield* Effect.failCause(exit.cause);
+        }
+
+        return exit.value;
+      }).pipe(lock.withPermit),
     getAlarm: () => Effect.sync(() => alarm),
     setAlarm: (value: number | Date) =>
       Effect.sync(() => {
@@ -224,9 +240,9 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
 
   const state = () =>
     storage
-      .get("account:v1")
+      .get("account:shared:v1")
       .pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(AccountState)),
+        Effect.flatMap(Schema.decodeUnknownEffect(SharedAccount)),
         Effect.orDie,
       );
 
@@ -305,7 +321,7 @@ const preparedProof = Effect.fnUntraced(function* (extraEarly = false) {
   if (!preparedInstance)
     return yield* Effect.die("Missing original activation");
   const leaseUntil = initial + policy.tokenLeaseMs;
-  yield* target.storage.put("account:v1", {
+  yield* target.storage.put("account:shared:v1", {
     ...(yield* target.state()),
     tokenLease: { owner: "interrupted-fixture", until: leaseUntil },
     nextCredentialCheck: initial + 1500,

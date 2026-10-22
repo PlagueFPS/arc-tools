@@ -1,5 +1,5 @@
 import type { Provider } from "@arctools/twitch/testing";
-import { AccountState } from "@arctools/twitch/testing";
+import { SharedAccount } from "@arctools/twitch/testing";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Context, Effect, Exit, Schema } from "effect";
 
@@ -267,8 +267,8 @@ export const recordCompletedAlarm = Effect.fnUntraced(function* (
     .transaction(
       Effect.gen(function* () {
         const record = yield* storage
-          .get("account:v1")
-          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(AccountState)));
+          .get("account:shared:v1")
+          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(SharedAccount)));
 
         const previous = yield* readAccountAttribution(storage);
         const key = stableRunKey(run);
