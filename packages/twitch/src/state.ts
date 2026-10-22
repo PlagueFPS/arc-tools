@@ -1,4 +1,4 @@
-import { Context, Effect, Schema } from "effect";
+import { Context, Effect, Schema, Struct } from "effect";
 
 import type { AccountIdentity } from "./account.js";
 import {
@@ -68,9 +68,7 @@ const Enrollment = Schema.Struct({
   nonce: Schema.String,
   revision: Schema.String,
   generation: Schema.Int,
-  publicRevocationGeneration: Schema.Int.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(0)),
-  ),
+  publicRevocationGeneration: Schema.Int,
   expiresAt: Schema.Number,
   phase: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("pending") }),
@@ -97,33 +95,27 @@ const Repair = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("required") }),
 ]);
 
+const PublicMember = Schema.Struct({
+  login: bounded(25),
+  id: BroadcasterId,
+  revocationGeneration: Schema.Int,
+});
+
 export const AccountState = Schema.Struct({
   revision: Schema.String,
   authGeneration: Schema.Int,
-  publicRevocationGeneration: Schema.Int.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(0)),
-  ),
+  publicRevocationGeneration: Schema.Int,
   sender: Schema.NullOr(Identity),
   channels: Schema.Array(
     Schema.Struct({ login: bounded(25), id: BroadcasterId }),
   ),
-  publicMembers: Schema.Array(
-    Schema.Struct({
-      login: bounded(25),
-      id: BroadcasterId,
-      revocationGeneration: Schema.Int.pipe(
-        Schema.withDecodingDefaultKey(Effect.succeed(0)),
-      ),
-    }),
-  )
-    .check(Schema.isMaxLength(maxChannels))
-    .pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  enrollments: Schema.Array(Enrollment)
-    .check(Schema.isMaxLength(maxChannels + maxEnrollmentIntents))
-    .pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  repair: Repair.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed({ kind: "idle" })),
+  publicMembers: Schema.Array(PublicMember).check(
+    Schema.isMaxLength(maxChannels),
   ),
+  enrollments: Schema.Array(Enrollment).check(
+    Schema.isMaxLength(maxChannels + maxEnrollmentIntents),
+  ),
+  repair: Repair,
   grants: Schema.Record(Schema.String, Schema.Array(Schema.String)),
   oauth: Schema.Array(OAuthState),
   session: Schema.NullOr(Session),
@@ -176,6 +168,137 @@ export type AccountState = {
     : Persisted[K];
 };
 
+export const SharedAccount = AccountState.mapFields(
+  Struct.omit([
+    "channels",
+    "publicMembers",
+    "subscriptions",
+    "revoked",
+    "oauth",
+    "attempts",
+    "enrollments",
+  ]),
+);
+
+export type SharedAccount = Pick<AccountState, keyof typeof SharedAccount.Type>;
+
+export const ChannelRecord = Schema.Struct({
+  configured: Schema.Array(
+    Schema.Struct({
+      position: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      member: AccountState.fields.channels.value,
+    }),
+  ),
+  public: Schema.Array(
+    Schema.Struct({
+      position: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+      member: PublicMember,
+    }),
+  ),
+  subscription: Schema.NullOr(AccountState.fields.subscriptions.value),
+});
+
+export type ChannelRecord = typeof ChannelRecord.Type;
+
+export function splitAccount(state: AccountState) {
+  const {
+    channels,
+    publicMembers,
+    subscriptions,
+    revoked,
+    oauth,
+    attempts,
+    enrollments,
+    ...shared
+  } = state;
+
+  const records = new Map<string, ChannelRecord>();
+
+  const entry = (id: string): ChannelRecord =>
+    records.get(id) ?? { configured: [], public: [], subscription: null };
+
+  channels.forEach((member, position) => {
+    const prior = entry(member.id);
+    records.set(member.id, {
+      ...prior,
+      configured: [...prior.configured, { position, member }],
+    });
+  });
+  publicMembers.forEach((member, position) => {
+    const prior = entry(member.id);
+    records.set(member.id, {
+      ...prior,
+      public: [...prior.public, { position, member }],
+    });
+  });
+
+  for (const [key, subscription] of Object.entries(subscriptions))
+    records.set(key, { ...entry(key), subscription });
+
+  return { shared, channels: records, revoked, oauth, attempts, enrollments };
+}
+
+export type AccountDirectory = ReturnType<typeof splitAccount>;
+
+export class DirectoryValidationError extends Schema.TaggedError<DirectoryValidationError>()(
+  "DirectoryValidationError",
+  {
+    reason: Schema.Literals(["positions", "key"]),
+    message: Schema.String,
+  },
+) {}
+
+export const joinDirectory = Effect.fnUntraced(function* (
+  directory: AccountDirectory,
+): Effect.fn.Return<AccountState, DirectoryValidationError> {
+  const configured = [...directory.channels.values()]
+    .flatMap((record) => record.configured)
+    .sort((a, b) => a.position - b.position);
+
+  const members = [...directory.channels.values()]
+    .flatMap((record) => record.public)
+    .sort((a, b) => a.position - b.position);
+
+  for (const entries of [configured, members])
+    if (entries.some((entry, index) => entry.position !== index))
+      return yield* new DirectoryValidationError({
+        reason: "positions",
+        message: "Conflicting channel membership positions",
+      });
+
+  for (const [key, record] of directory.channels)
+    if (
+      [...record.configured, ...record.public].some(
+        (entry) => entry.member.id !== key,
+      )
+    )
+      return yield* new DirectoryValidationError({
+        reason: "key",
+        message: "Conflicting channel membership key",
+      });
+
+  return {
+    ...directory.shared,
+    channels: configured.map((entry) => entry.member),
+    publicMembers: members.map((entry) => entry.member),
+    subscriptions: Object.fromEntries(
+      [...directory.channels].flatMap(([key, record]) =>
+        record.subscription === null ? [] : [[key, record.subscription]],
+      ),
+    ),
+    revoked: directory.revoked,
+    oauth: directory.oauth,
+    attempts: directory.attempts,
+    enrollments: directory.enrollments,
+  };
+});
+
+export type SendAttemptState = SharedAccount & Pick<AccountState, "attempts">;
+
+export type ChannelDispatchState = SendAttemptState &
+  Pick<Persisted, "channels" | "publicMembers" | "subscriptions"> &
+  Pick<AccountState, "revoked">;
+
 export const emptyState = (revision: string): AccountState => ({
   revision,
   authGeneration: 0,
@@ -202,6 +325,14 @@ export const emptyState = (revision: string): AccountState => ({
 
 export interface Store {
   readonly update: <A>(f: (state: AccountState) => A) => Effect.Effect<A>;
+  readonly shared: <A>(f: (state: SharedAccount) => A) => Effect.Effect<A>;
+  readonly sendAttempt: <A>(
+    f: (state: SendAttemptState) => A,
+  ) => Effect.Effect<A>;
+  readonly channelDispatch: <A>(
+    id: BroadcasterId,
+    f: (state: ChannelDispatchState) => A,
+  ) => Effect.Effect<A>;
 }
 
 export class AccountStore extends Context.Service<AccountStore, Store>()(
@@ -227,8 +358,7 @@ export const policy = {
   channelMs: 1_000,
 };
 
-export function reclaim(state: AccountState, now: number) {
-  state.oauth = state.oauth.filter((entry) => entry.expiresAt > now);
+export function reclaimSend(state: SendAttemptState, now: number) {
   state.reservations = state.reservations.filter(
     (entry) => entry.at + policy.globalWindowMs > now,
   );
@@ -236,6 +366,11 @@ export function reclaim(state: AccountState, now: number) {
   for (const [key, attempt] of Object.entries(state.attempts)) {
     if (attempt.retainUntil <= now) delete state.attempts[key];
   }
+}
+
+export function reclaim(state: AccountState, now: number) {
+  reclaimSend(state, now);
+  state.oauth = state.oauth.filter((entry) => entry.expiresAt > now);
 
   for (const [key, tombstone] of Object.entries(state.revoked)) {
     if (tombstone.until <= now) delete state.revoked[key];
@@ -243,7 +378,7 @@ export function reclaim(state: AccountState, now: number) {
 }
 
 export function reserveAt(
-  state: AccountState,
+  state: Pick<AccountState, "reservations" | "apiBlockedUntil">,
   channel: string,
   now: number,
 ): number {
@@ -279,7 +414,9 @@ export function desiredChannels(
   return [...channels.values()];
 }
 
-export function nextAlarm(state: AccountState): number | null {
+export function nextAlarm(
+  state: Pick<AccountState, "repair" | "nextCredentialCheck">,
+): number | null {
   const repair = state.repair.kind === "scheduled" ? state.repair.due : null;
 
   if (repair === null) return state.nextCredentialCheck;

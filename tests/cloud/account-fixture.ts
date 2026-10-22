@@ -8,7 +8,7 @@ import {
 import {
   TwitchProvider,
   providerLayer,
-  AccountState,
+  SharedAccount,
   policy,
 } from "@arctools/twitch/testing";
 import { providerTransport } from "@arctools/utils/http";
@@ -221,14 +221,15 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           yield* state.storage
             .transaction(
               Effect.gen(function* () {
-                const raw = yield* state.storage.get<unknown>("account:v1");
+                const raw =
+                  yield* state.storage.get<unknown>("account:shared:v1");
 
-                const record = yield* Schema.decodeUnknownEffect(AccountState)(
+                const record = yield* Schema.decodeUnknownEffect(SharedAccount)(
                   raw,
                 ).pipe(Effect.orDie);
 
                 const intended = Date.now() + 1_500;
-                yield* state.storage.put("account:v1", {
+                yield* state.storage.put("account:shared:v1", {
                   ...record,
                   tokenLease: { owner: "interrupted-fixture", until },
                   nextCredentialCheck: intended,
@@ -244,9 +245,10 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           return yield* state.storage
             .transaction(
               Effect.gen(function* () {
-                const raw = yield* state.storage.get<unknown>("account:v1");
+                const raw =
+                  yield* state.storage.get<unknown>("account:shared:v1");
 
-                const record = yield* Schema.decodeUnknownEffect(AccountState)(
+                const record = yield* Schema.decodeUnknownEffect(SharedAccount)(
                   raw,
                 ).pipe(Effect.orDie);
 
@@ -288,8 +290,8 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
           );
         }),
         snapshot: Effect.fnUntraced(function* () {
-          const raw = yield* state.storage.get<unknown>("account:v1");
-          const serialized = JSON.stringify(raw);
+          const records = yield* state.storage.list({ prefix: "account:" });
+          const serialized = JSON.stringify([...records]);
 
           return {
             instance,

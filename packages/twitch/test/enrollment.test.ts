@@ -464,43 +464,21 @@ test(
 );
 
 test(
-  "old snapshots decode defaults, public membership survives revision while old sessions require reauthorization",
+  "current keyed membership survives reconstruction and revision while previous sessions require reauthorization",
   Effect.gen(function* () {
     const h = yield* harness(production);
     yield* Effect.gen(function* () {
       yield* h.authorize();
 
-      const {
-        publicMembers: _members,
-        enrollments: _enrollments,
-        repair: _repair,
-        ...old
-      } = snapshot(h);
-
-      h.restoreRaw(old);
-      const legacy = yield* h.construct();
-      expect((yield* legacy.service.status()).setup).toBe("ready");
-      expect(snapshot(h).publicMembers).toEqual([]);
-      expect(snapshot(h).repair).toEqual({ kind: "idle" });
       const input = yield* enroll(h);
       const installed = snapshot(h);
-
-      const { publicRevocationGeneration: _generation, ...legacyInstalled } =
-        installed;
-
-      h.restoreRaw({
-        ...legacyInstalled,
-        publicMembers: installed.publicMembers.map(
-          ({ revocationGeneration: _revocation, ...member }) => member,
-        ),
-        enrollments: installed.enrollments.map(
-          ({ publicRevocationGeneration: _revocation, ...entry }) => entry,
-        ),
+      h.restoreRaw(Schema.encodeSync(AccountState)(installed));
+      const reconstructed = yield* h.construct();
+      expect((yield* reconstructed.service.status()).setup).toBe("pending");
+      expect(snapshot(h)).toEqual({
+        ...installed,
+        nextCredentialCheck: initial + 1,
       });
-      yield* h.construct();
-      expect(snapshot(h).publicRevocationGeneration).toBe(0);
-      expect(snapshot(h).publicMembers[0]?.revocationGeneration).toBe(0);
-      expect(snapshot(h).enrollments[0]?.publicRevocationGeneration).toBe(0);
       const revised = yield* h.construct("new-configuration");
       expect(snapshot(h).publicMembers.length).toBe(1);
       expect(snapshot(h).grants).toEqual({});

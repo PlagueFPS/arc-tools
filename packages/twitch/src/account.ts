@@ -29,10 +29,13 @@ import { type Subscription, TwitchProvider } from "./provider.js";
 import { BroadcasterId, Deadline } from "./schemas.js";
 import {
   type AccountState,
+  type SharedAccount,
+  type ChannelDispatchState,
   AccountStore,
   desiredChannels,
   policy,
   reclaim,
+  reclaimSend,
   reserveAt,
 } from "./state.js";
 
@@ -57,8 +60,11 @@ export interface AccountConfig {
   readonly subscriptionBinding: string;
 }
 
-const granted = (state: AccountState, id: string, scopes: readonly string[]) =>
-  scopes.every((scope) => state.grants[id]?.includes(scope));
+const granted = (
+  state: Pick<AccountState, "grants">,
+  id: string,
+  scopes: readonly string[],
+) => scopes.every((scope) => state.grants[id]?.includes(scope));
 
 const CallbackUrl = Schema.String.check(
   Schema.isMaxLength(512),
@@ -89,10 +95,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   const tokenLock = yield* Semaphore.make(1);
   const instance = crypto.randomUUID();
   let validatedGeneration = "";
-  const current = (state: AccountState) => state.revision === config.revision;
+
+  const current = (state: Pick<AccountState, "revision">) =>
+    state.revision === config.revision;
 
   const matchesTarget = (
-    state: AccountState,
+    state: Pick<
+      AccountState,
+      "revision" | "channels" | "publicMembers" | "sender"
+    >,
     record: AccountState["subscriptions"][string],
   ) =>
     current(state) &&
@@ -103,7 +114,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     record.callback === config.callback &&
     record.binding === config.subscriptionBinding;
 
-  const decideChannel = (state: AccountState, id: string) => {
+  const decideChannel = (state: ChannelDispatchState, id: string) => {
     const record = state.subscriptions[id];
 
     const confirmed =
@@ -223,29 +234,30 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     }
   };
 
-  yield* store.update((state) => {
-    if (!current(state)) {
-      state.revision = config.revision;
-      state.authGeneration += 1;
-      state.sender = null;
-      state.channels = [];
-      state.grants = {};
-      state.oauth = [];
-      state.enrollments = state.enrollments.map((entry) => ({
-        ...entry,
-        phase: { kind: "failed", reason: "authorization-required" },
-      }));
-      state.repair = { kind: "idle" };
-      state.session = null;
-      state.setupLease = null;
-      state.tokenLease = null;
-      state.tokenRetryAt = 0;
-      state.credentialFailures = 0;
-      state.nextCredentialCheck = null;
-    }
-  });
+  if (!(yield* store.shared(current)))
+    yield* store.update((state) => {
+      if (!current(state)) {
+        state.revision = config.revision;
+        state.authGeneration += 1;
+        state.sender = null;
+        state.channels = [];
+        state.grants = {};
+        state.oauth = [];
+        state.enrollments = state.enrollments.map((entry) => ({
+          ...entry,
+          phase: { kind: "failed", reason: "authorization-required" },
+        }));
+        state.repair = { kind: "idle" };
+        state.session = null;
+        state.setupLease = null;
+        state.tokenLease = null;
+        state.tokenRetryAt = 0;
+        state.credentialFailures = 0;
+        state.nextCredentialCheck = null;
+      }
+    });
 
-  const invalidateSession = (state: AccountState, generation: string) => {
+  const invalidateSession = (state: SharedAccount, generation: string) => {
     if (current(state) && state.session?.generation === generation) {
       state.session = null;
       state.tokenLease = null;
@@ -255,14 +267,14 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   };
 
   const invalidate = (generation: string) =>
-    store.update((state) => invalidateSession(state, generation));
+    store.shared((state) => invalidateSession(state, generation));
 
   const appToken = Effect.fn("TwitchAccount.token")(
     function* () {
       const now = yield* Clock.currentTimeMillis;
       const owner = crypto.randomUUID();
 
-      const claim = yield* store.update((state) => {
+      const claim = yield* store.shared((state) => {
         if (!current(state)) return { kind: "stale" } as const;
         const session = state.session;
 
@@ -326,7 +338,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
                     : owner,
               };
 
-              const accepted = yield* store.update((state) => {
+              const accepted = yield* store.shared((state) => {
                 if (
                   !current(state) ||
                   state.tokenLease?.owner !== owner ||
@@ -353,7 +365,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
             return acquire().pipe(
               Effect.tapError(() =>
-                store.update((state) => {
+                store.shared((state) => {
                   if (current(state) && state.tokenLease?.owner === owner) {
                     state.tokenLease = null;
                     state.session = null;
@@ -373,7 +385,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   );
 
   const startedAt = yield* Clock.currentTimeMillis;
-  yield* store.update((state) => {
+  yield* store.shared((state) => {
     if (
       current(state) &&
       (Predicate.isNotNull(state.session) ||
@@ -1247,6 +1259,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const now = yield* Clock.currentTimeMillis;
     const owner = crypto.randomUUID();
 
+    const due = yield* store.shared(
+      (state) =>
+        current(state) &&
+        state.repair.kind === "scheduled" &&
+        state.repair.due <= now,
+    );
+
+    if (!due) return;
+
     const claim = yield* store.update((state) => {
       if (
         !current(state) ||
@@ -1407,8 +1428,8 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const fingerprint = yield* digest(JSON.stringify(valid));
     const first = yield* Clock.currentTimeMillis;
 
-    const read = yield* store.update((state) => {
-      reclaim(state, first);
+    const read = yield* store.sendAttempt((state) => {
+      reclaimSend(state, first);
       const previous = state.attempts[valid.attemptId];
 
       if (previous && previous.fingerprint !== fingerprint)
@@ -1461,129 +1482,141 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const now = yield* Clock.currentTimeMillis;
     const owner = crypto.randomUUID();
 
-    const claimed = yield* store.update((state) => {
-      reclaim(state, now);
-      const prior = state.attempts[valid.attemptId];
+    const claimed = yield* store.channelDispatch(
+      valid.broadcasterId,
+      (state) => {
+        reclaimSend(state, now);
 
-      if (prior && prior.fingerprint !== fingerprint)
-        return { kind: "outcome", outcome: { kind: "rejected" } } as const;
+        for (const [key, tombstone] of Object.entries(state.revoked))
+          if (tombstone.until <= now) delete state.revoked[key];
+        const prior = state.attempts[valid.attemptId];
 
-      const recorded = Match.value(prior).pipe(
-        Match.when(Predicate.isUndefined, () => null),
-        Match.discriminatorsExhaustive("kind")({
-          terminal: (prior) => prior.outcome,
-          sending: (): DispatchOutcome => ({ kind: "ambiguous" }),
-          waiting: () => null,
-        }),
-      );
+        if (prior && prior.fingerprint !== fingerprint)
+          return { kind: "outcome", outcome: { kind: "rejected" } } as const;
 
-      if (recorded) return { kind: "outcome", outcome: recorded } as const;
-
-      if (now >= valid.deadline)
-        return { kind: "outcome", outcome: { kind: "expired" } } as const;
-      const retainUntil = valid.deadline + policy.retentionMs;
-
-      if (!prior && Object.keys(state.attempts).length >= policy.maxAttempts) {
-        const availableAt = Math.min(
-          ...Object.values(state.attempts).map(
-            (attempt) => attempt.retainUntil,
-          ),
+        const recorded = Match.value(prior).pipe(
+          Match.when(Predicate.isUndefined, () => null),
+          Match.discriminatorsExhaustive("kind")({
+            terminal: (prior) => prior.outcome,
+            sending: (): DispatchOutcome => ({ kind: "ambiguous" }),
+            waiting: () => null,
+          }),
         );
 
-        if (availableAt < valid.deadline)
-          return {
-            kind: "outcome",
-            outcome: { kind: "retryable", retryAt: Deadline.make(availableAt) },
-          } as const;
+        if (recorded) return { kind: "outcome", outcome: recorded } as const;
 
-        return { kind: "outcome", outcome: { kind: "expired" } } as const;
-      }
+        if (now >= valid.deadline)
+          return { kind: "outcome", outcome: { kind: "expired" } } as const;
+        const retainUntil = valid.deadline + policy.retentionMs;
 
-      const channel = desiredChannels(state, config.identity.kind).find(
-        (channel) => channel.id === valid.broadcasterId,
-      );
+        if (
+          !prior &&
+          Object.keys(state.attempts).length >= policy.maxAttempts
+        ) {
+          const availableAt = Math.min(
+            ...Object.values(state.attempts).map(
+              (attempt) => attempt.retainUntil,
+            ),
+          );
 
-      const sender = state.sender;
+          if (availableAt < valid.deadline)
+            return {
+              kind: "outcome",
+              outcome: {
+                kind: "retryable",
+                retryAt: Deadline.make(availableAt),
+              },
+            } as const;
 
-      if (
-        !channel ||
-        !sender ||
-        decideChannel(state, channel.id).kind !== "ready"
-      ) {
-        state.attempts[valid.attemptId] = {
-          kind: "terminal",
-          fingerprint,
-          deadline: valid.deadline,
-          retainUntil,
-          outcome: { kind: "rejected" },
-          privateCode: "unavailable",
-        };
+          return { kind: "outcome", outcome: { kind: "expired" } } as const;
+        }
 
-        return { kind: "outcome", outcome: { kind: "rejected" } } as const;
-      }
+        const channel = desiredChannels(state, config.identity.kind).find(
+          (channel) => channel.id === valid.broadcasterId,
+        );
 
-      if (state.session?.generation !== session.generation) {
-        const retryAt = now + 100;
+        const sender = state.sender;
 
-        return {
-          kind: "outcome",
-          outcome: (retryAt < valid.deadline
-            ? { kind: "retryable", retryAt: Deadline.make(retryAt) }
-            : { kind: "expired" }) satisfies DispatchOutcome,
-        } as const;
-      }
-
-      const retryAt = reserveAt(state, channel.id, now);
-
-      if (retryAt > now) {
-        if (retryAt >= valid.deadline) {
+        if (
+          !channel ||
+          !sender ||
+          decideChannel(state, channel.id).kind !== "ready"
+        ) {
           state.attempts[valid.attemptId] = {
             kind: "terminal",
             fingerprint,
             deadline: valid.deadline,
             retainUntil,
-            outcome: { kind: "expired" },
-            privateCode: "rate-deadline",
+            outcome: { kind: "rejected" },
+            privateCode: "unavailable",
           };
 
-          return { kind: "outcome", outcome: { kind: "expired" } } as const;
+          return { kind: "outcome", outcome: { kind: "rejected" } } as const;
         }
 
+        if (state.session?.generation !== session.generation) {
+          const retryAt = now + 100;
+
+          return {
+            kind: "outcome",
+            outcome: (retryAt < valid.deadline
+              ? { kind: "retryable", retryAt: Deadline.make(retryAt) }
+              : { kind: "expired" }) satisfies DispatchOutcome,
+          } as const;
+        }
+
+        const retryAt = reserveAt(state, channel.id, now);
+
+        if (retryAt > now) {
+          if (retryAt >= valid.deadline) {
+            state.attempts[valid.attemptId] = {
+              kind: "terminal",
+              fingerprint,
+              deadline: valid.deadline,
+              retainUntil,
+              outcome: { kind: "expired" },
+              privateCode: "rate-deadline",
+            };
+
+            return { kind: "outcome", outcome: { kind: "expired" } } as const;
+          }
+
+          state.attempts[valid.attemptId] = {
+            kind: "waiting",
+            fingerprint,
+            deadline: valid.deadline,
+            retainUntil,
+            retryAt,
+          };
+
+          return {
+            kind: "outcome",
+            outcome: { kind: "retryable", retryAt: Deadline.make(retryAt) },
+          } as const;
+        }
+
+        state.reservations = [
+          ...state.reservations,
+          { channel: channel.id, at: now },
+        ];
         state.attempts[valid.attemptId] = {
-          kind: "waiting",
+          kind: "sending",
           fingerprint,
           deadline: valid.deadline,
           retainUntil,
-          retryAt,
+          owner,
+          instance,
         };
 
-        return {
-          kind: "outcome",
-          outcome: { kind: "retryable", retryAt: Deadline.make(retryAt) },
-        } as const;
-      }
-
-      state.reservations = [
-        ...state.reservations,
-        { channel: channel.id, at: now },
-      ];
-      state.attempts[valid.attemptId] = {
-        kind: "sending",
-        fingerprint,
-        deadline: valid.deadline,
-        retainUntil,
-        owner,
-        instance,
-      };
-
-      return { kind: "send", sender: sender.id } as const;
-    });
+        return { kind: "send", sender: sender.id } as const;
+      },
+    );
 
     if (claimed.kind === "outcome") return claimed.outcome;
     const result = yield* provider.send(session.token, claimed.sender, valid);
     const completed = yield* Clock.currentTimeMillis;
 
-    const outcome = yield* store.update((state): DispatchOutcome => {
+    const outcome = yield* store.sendAttempt((state): DispatchOutcome => {
       const prior = state.attempts[valid.attemptId];
 
       if (prior?.kind !== "sending" || prior.owner !== owner)
@@ -1656,7 +1689,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   });
 
   const credentialAlarm = Effect.fnUntraced(function* () {
-    const maintained = yield* store.update((state) => {
+    const maintained = yield* store.shared((state) => {
       if (!current(state)) return false;
 
       const active =
@@ -1675,7 +1708,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         Effect.catch(() =>
           Effect.gen(function* () {
             const now = yield* Clock.currentTimeMillis;
-            yield* store.update((state) => {
+            yield* store.shared((state) => {
               if (current(state))
                 state.nextCredentialCheck =
                   state.credentialFailures < 3

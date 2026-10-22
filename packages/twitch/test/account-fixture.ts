@@ -19,10 +19,13 @@ import {
   TwitchProvider,
   AccountState,
   AccountStore,
-  emptyState,
+  SharedAccount,
+  ChannelRecord,
+  splitAccount,
+  nextAlarm,
 } from "@arctools/twitch/testing";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Clock, Deferred, Effect, Schema, Semaphore } from "effect";
+import { Clock, Deferred, Effect, Exit, Schema, Semaphore } from "effect";
 
 export const initial = 1_000_000_000_000;
 
@@ -34,40 +37,149 @@ export const fixtureConfig = {
   twitchClientId: "fixture-twitch",
 } satisfies AccountIdentity;
 
+export const keyedStorage = Effect.fnUntraced(function* (
+  onRead: () => void = () => {},
+) {
+  const values = new Map<string, unknown>();
+  const traces: { operation: string; key: string }[] = [];
+  const mutex = yield* Semaphore.make(1);
+  let nativeAlarm: number | null = null;
+  const control = { failAt: 0, mutations: 0 };
+
+  const mutation = () => {
+    control.mutations++;
+
+    if (control.failAt === control.mutations)
+      throw new Error("Injected storage failure");
+  };
+
+  const storage: AccountStorage = {
+    get: (key) =>
+      Effect.sync(() => {
+        traces.push({ operation: "get", key });
+        onRead();
+
+        return structuredClone(values.get(key));
+      }),
+    list: ({ prefix }) =>
+      Effect.sync(() => {
+        traces.push({ operation: "list", key: prefix });
+
+        return structuredClone(
+          new Map(
+            [...values]
+              .filter(([key]) => key.startsWith(prefix))
+              .sort(([a], [b]) => a.localeCompare(b)),
+          ),
+        );
+      }),
+    put: (key, value) =>
+      Effect.sync(() => {
+        traces.push({ operation: "put", key });
+        values.set(key, structuredClone(value));
+        mutation();
+      }),
+    delete: (key) =>
+      Effect.sync(() => {
+        traces.push({ operation: "delete", key });
+        const deleted = values.delete(key);
+        mutation();
+
+        return deleted;
+      }),
+    transaction: (effect) =>
+      Effect.gen(function* () {
+        const before = structuredClone(values);
+        const alarm = nativeAlarm;
+        const exit = yield* Effect.exit(effect);
+
+        if (Exit.isFailure(exit)) {
+          values.clear();
+
+          for (const [key, value] of before) values.set(key, value);
+          nativeAlarm = alarm;
+
+          return yield* Effect.failCause(exit.cause);
+        }
+
+        return exit.value;
+      }).pipe(mutex.withPermit),
+    getAlarm: () => Effect.sync(() => nativeAlarm),
+    setAlarm: (value) =>
+      Effect.sync(() => {
+        traces.push({ operation: "setAlarm", key: "alarm" });
+        nativeAlarm = Number(value);
+        mutation();
+      }),
+    deleteAlarm: () =>
+      Effect.sync(() => {
+        traces.push({ operation: "deleteAlarm", key: "alarm" });
+        nativeAlarm = null;
+        mutation();
+      }),
+  };
+
+  return {
+    storage,
+    values,
+    traces,
+    control,
+    restore: (value: AccountState) => {
+      const directory = splitAccount(structuredClone(value));
+      values.clear();
+      values.set(
+        "account:shared:v1",
+        Schema.encodeSync(SharedAccount)(directory.shared),
+      );
+      values.set(
+        "account:oauth:v1",
+        Schema.encodeSync(AccountState.fields.oauth)(directory.oauth),
+      );
+      values.set(
+        "account:attempts:v1",
+        Schema.encodeSync(AccountState.fields.attempts)(directory.attempts),
+      );
+      values.set(
+        "account:enrollments:v1",
+        Schema.encodeSync(AccountState.fields.enrollments)(
+          directory.enrollments,
+        ),
+      );
+
+      for (const [id, record] of directory.channels)
+        values.set(
+          "account:channel:v1/" + encodeURIComponent(id),
+          Schema.encodeSync(ChannelRecord)(record),
+        );
+
+      for (const [id, tombstone] of Object.entries(directory.revoked))
+        values.set(
+          "account:tombstone:v1/" + encodeURIComponent(id),
+          Schema.encodeSync(AccountState.fields.revoked.value)(tombstone),
+        );
+      nativeAlarm = nextAlarm(directory.shared);
+    },
+    alarm: () => nativeAlarm,
+    consumeAlarm: () => {
+      nativeAlarm = null;
+    },
+  };
+});
+
 export const harness = Effect.fnUntraced(function* (
   identity: AccountIdentity = fixtureConfig,
   webhookReady = true,
 ) {
   const clock = yield* Clock.Clock;
   let time = initial;
-  let raw: unknown = emptyState("");
-  const mutex = yield* Semaphore.make(1);
-  let nativeAlarm: number | null = null;
   let nextReadElapsedMs = 0;
 
-  const storage: AccountStorage = {
-    get: () =>
-      Effect.sync(() => {
-        time += nextReadElapsedMs;
-        nextReadElapsedMs = 0;
+  const memory = yield* keyedStorage(() => {
+    time += nextReadElapsedMs;
+    nextReadElapsedMs = 0;
+  });
 
-        return structuredClone(raw);
-      }),
-    put: (_key, value) =>
-      Effect.sync(() => {
-        raw = structuredClone(value);
-      }),
-    transaction: (effect) => effect.pipe(mutex.withPermit),
-    getAlarm: () => Effect.sync(() => nativeAlarm),
-    setAlarm: (value) =>
-      Effect.sync(() => {
-        nativeAlarm = Number(value);
-      }),
-    deleteAlarm: () =>
-      Effect.sync(() => {
-        nativeAlarm = null;
-      }),
-  };
+  const { storage } = memory;
 
   const store = yield* AccountStore.pipe(
     Effect.provide(accountStorageLayer(storage)),
@@ -359,19 +471,22 @@ export const harness = Effect.fnUntraced(function* (
     delayNextReadBy: (elapsedMs: number) => {
       nextReadElapsedMs = elapsedMs;
     },
-    snapshot: () => raw,
+    store,
+    memory,
+    snapshot: () =>
+      Effect.runSync(store.update((state) => structuredClone(state))),
     restoreRaw: (value: typeof AccountState.Encoded) => {
-      raw = structuredClone(value);
+      memory.restore(
+        Schema.decodeUnknownSync(AccountState, { onExcessProperty: "error" })(
+          value,
+        ),
+      );
     },
-    restore: (value: AccountState) => {
-      raw = Schema.encodeSync(AccountState)(value);
-    },
+    restore: memory.restore,
     alarmAt: () =>
-      Schema.decodeUnknownSync(AccountState)(raw).nextCredentialCheck,
-    nativeAlarmAt: () => nativeAlarm,
-    consumeAlarm: () => {
-      nativeAlarm = null;
-    },
+      Effect.runSync(store.shared((state) => state.nextCredentialCheck)),
+    nativeAlarmAt: memory.alarm,
+    consumeAlarm: memory.consumeAlarm,
     authorize: Effect.fnUntraced(function* (
       target: Account = account.service,
     ): Effect.fn.Return<SetupResult, AccountError> {
