@@ -117,20 +117,25 @@ export const harness = Effect.fnUntraced(function* (
     usersElapsedMs: 0,
     sleepProviderDelays: false,
     createGate: noGate(),
+    createStarted: noGate(),
     lists: 0,
     creates: 0,
     removes: 0,
     result: defaultResult(),
     sendGate: noGate(),
+    sendStarted: noGate(),
     mintGate: noGate(),
     exchangeGate: noGate(),
     exchangeStarted: noGate(),
     validationGate: noGate(),
+    validationStarted: noGate(),
     failCreate: false,
     failUsers: false,
     usersFailure: noFailure(),
     usersGate: noGate(),
+    usersStarted: noGate(),
     listGate: noGate(),
+    listStarted: noGate(),
     usersTokens,
     sendTokens,
     remoteBindings,
@@ -171,6 +176,9 @@ export const harness = Effect.fnUntraced(function* (
     validate: Effect.fnUntraced(function* (token) {
       control.validations++;
 
+      if (control.validationStarted)
+        yield* Deferred.succeed(control.validationStarted, undefined);
+
       const result =
         token === "canary-app-token"
           ? {
@@ -200,6 +208,9 @@ export const harness = Effect.fnUntraced(function* (
     }),
     users: Effect.fnUntraced(function* (token, logins) {
       control.usersTokens.push(token);
+
+      if (control.usersStarted)
+        yield* Deferred.succeed(control.usersStarted, undefined);
       time += control.usersElapsedMs;
 
       if (control.sleepProviderDelays)
@@ -225,6 +236,9 @@ export const harness = Effect.fnUntraced(function* (
     }),
     list: Effect.fnUntraced(function* () {
       control.lists++;
+
+      if (control.listStarted)
+        yield* Deferred.succeed(control.listStarted, undefined);
 
       if (control.listGate) yield* Deferred.await(control.listGate);
 
@@ -268,6 +282,11 @@ export const harness = Effect.fnUntraced(function* (
         } satisfies Effect.Success<ReturnType<Provider["create"]>>;
       }).pipe(
         Effect.tap(() =>
+          control.createStarted
+            ? Deferred.succeed(control.createStarted, undefined)
+            : Effect.void,
+        ),
+        Effect.tap(() =>
           control.createGate ? Deferred.await(control.createGate) : Effect.void,
         ),
       ),
@@ -280,6 +299,9 @@ export const harness = Effect.fnUntraced(function* (
       if (time >= input.deadline) return { kind: "expired" };
       control.sends++;
       control.sendTokens.push(_token);
+
+      if (control.sendStarted)
+        yield* Deferred.succeed(control.sendStarted, undefined);
 
       if (control.sendGate) yield* Deferred.await(control.sendGate);
 

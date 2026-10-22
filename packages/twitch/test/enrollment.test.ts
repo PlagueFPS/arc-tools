@@ -412,6 +412,7 @@ test(
       yield* h.enrollment.begin(replacement);
       expect(snapshot(h).enrollments.length).toBe(8);
       h.control.usersGate = yield* Deferred.make<void>();
+      h.control.usersStarted = yield* Deferred.make<void>();
       publicGrant(h, "public_a", "800");
       const users = h.control.usersTokens.length;
 
@@ -419,16 +420,15 @@ test(
         .complete({ ...replacement, outcome: { kind: "accepted", code: "a" } })
         .pipe(Effect.result, Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.usersTokens.length === users; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.usersStarted);
       publicGrant(h, "public_b", "900");
+      h.control.usersStarted = yield* Deferred.make<void>();
 
       const b = yield* h.enrollment
         .complete({ ...second, outcome: { kind: "accepted", code: "b" } })
         .pipe(Effect.result, Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.usersTokens.length < users + 2; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.usersStarted);
       expect(h.control.usersTokens.length).toBe(users + 2);
       yield* Deferred.succeed(h.control.usersGate, undefined);
       const outcomes = [yield* Fiber.join(a), yield* Fiber.join(b)];
@@ -683,12 +683,12 @@ test(
       if (old.kind !== "scheduled") return yield* Effect.die("Missing repair");
       expect(old.id.length).toBeGreaterThan(0);
       h.control.listGate = yield* Deferred.make<void>();
+      h.control.listStarted = yield* Deferred.make<void>();
       h.time(initial + 1);
       const lists = h.control.lists;
       const repair = yield* h.alarm().pipe(Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.lists === lists; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.listStarted);
       expect(h.control.lists).toBe(lists + 1);
       const claimed = snapshot(h).repair;
       expect(claimed).toMatchObject({
@@ -748,14 +748,14 @@ test(
       yield* h.authorize();
       const input = yield* enroll(h);
       h.control.usersGate = yield* Deferred.make<void>();
+      h.control.usersStarted = yield* Deferred.make<void>();
       const users = h.control.usersTokens.length;
 
       const setup = yield* h.account
         .setup("operator-digest")
         .pipe(Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.usersTokens.length === users; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.usersStarted);
       expect(h.control.usersTokens.length).toBe(users + 1);
       const lease = snapshot(h).setupLease;
       expect(lease).not.toBeNull();
@@ -916,17 +916,18 @@ test(
       yield* h.enrollment.begin(affected);
       publicGrant(h);
       h.control.usersGate = yield* Deferred.make<void>();
+      h.control.usersStarted = yield* Deferred.make<void>();
       const users = h.control.usersTokens.length;
 
       const stale = yield* h.enrollment
         .complete({ ...affected, outcome: { kind: "accepted", code: "stale" } })
         .pipe(Effect.result, Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.usersTokens.length === users; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.usersStarted);
       const unrelated = yield* enrollmentInput();
       yield* h.enrollment.begin(unrelated);
       publicGrant(h, "unrelated_public", "500");
+      h.control.usersStarted = yield* Deferred.make<void>();
 
       const valid = yield* h.enrollment
         .complete({
@@ -935,9 +936,10 @@ test(
         })
         .pipe(Effect.result, Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.usersTokens.length < users + 2; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.usersStarted);
+      expect(h.control.usersTokens.length).toBe(users + 2);
       h.control.listGate = yield* Deferred.make<void>();
+      h.control.listStarted = yield* Deferred.make<void>();
       const usersGate = h.control.usersGate;
       h.control.usersGate = null;
       const lists = h.control.lists;
@@ -946,8 +948,7 @@ test(
         .setup("operator-digest")
         .pipe(Effect.result, Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.lists === lists; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.listStarted);
       expect(h.control.lists).toBe(lists + 1);
       yield* h.account.observeSubscription({
         ...record,
@@ -1066,12 +1067,12 @@ test(
       yield* h.authorize();
       const input = yield* enroll(h);
       h.control.createGate = yield* Deferred.make<void>();
+      h.control.createStarted = yield* Deferred.make<void>();
       const creates = h.control.creates;
       h.time(initial + 1);
       const repair = yield* h.alarm().pipe(Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.creates === creates; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.createStarted);
       expect(h.control.creates).toBe(creates + 1);
 
       const remote = h.control.remote.find(

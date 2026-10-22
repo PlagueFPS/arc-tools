@@ -61,22 +61,22 @@ test(
       h.control.appExpires = 7200;
       yield* h.authorize();
       h.control.sendGate = yield* Deferred.make<void>();
+      h.control.sendStarted = yield* Deferred.make<void>();
       h.control.result = { kind: "unauthorized" };
 
       const send = yield* h.account
         .dispatch(h.send("overlapping-401"))
         .pipe(Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.sends === 0; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.sendStarted);
       expect(h.control.sends).toBe(1);
       h.time(initial + 3_600_000);
       h.control.validationGate = yield* Deferred.make<void>();
+      h.control.validationStarted = yield* Deferred.make<void>();
       const before = h.control.validations;
       const checking = yield* h.alarm().pipe(Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.validations === before; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.validationStarted);
       expect(h.control.validations).toBe(before + 1);
       yield* Deferred.succeed(h.control.sendGate, undefined);
       yield* Fiber.join(send);
@@ -190,14 +190,14 @@ test(
       yield* h.authorize();
       h.control.usersFailure = "client";
       h.control.usersGate = yield* Deferred.make<void>();
+      h.control.usersStarted = yield* Deferred.make<void>();
       const users = h.control.usersTokens.length;
 
       const setup = yield* h.account
         .setup("operator-digest")
         .pipe(Effect.flip, Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.usersTokens.length === users; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.usersStarted);
       expect(h.control.usersTokens.length).toBe(users + 1);
       h.control.result = { kind: "unauthorized" };
       expect((yield* h.account.dispatch(h.send("setup-old-token"))).kind).toBe(
@@ -231,14 +231,14 @@ test(
       h.control.appExpires = 7200;
       yield* h.authorize();
       h.control.sendGate = yield* Deferred.make<void>();
+      h.control.sendStarted = yield* Deferred.make<void>();
       h.control.result = { kind: "unauthorized" };
 
       const send = yield* h.account
         .dispatch(h.send("late-send-401"))
         .pipe(Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.sends === 0; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.sendStarted);
       expect(h.control.sends).toBe(1);
       h.time(initial + 3_600_000);
       yield* h.alarm();
@@ -631,11 +631,10 @@ test(
     yield* Effect.gen(function* () {
       yield* h.authorize();
       h.control.sendGate = yield* Deferred.make<void>();
+      h.control.sendStarted = yield* Deferred.make<void>();
       const input = h.send("interrupted");
       const fiber = yield* h.account.dispatch(input).pipe(Effect.forkChild);
-      yield* Effect.yieldNow;
-
-      while (h.control.sends === 0) yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.sendStarted);
       const reconstructed = yield* h.construct();
       expect(yield* reconstructed.service.dispatch(input)).toEqual({
         kind: "ambiguous",
@@ -732,6 +731,7 @@ test(
       h.control.grantLogin = "fixture_sender";
       h.control.grantScopes = [...senderScopes];
       h.control.exchangeGate = yield* Deferred.make<void>();
+      h.control.exchangeStarted = yield* Deferred.make<void>();
       const before = h.control.exchanges;
 
       const completing = yield* h.account
@@ -742,12 +742,7 @@ test(
         })
         .pipe(Effect.exit, Effect.forkChild);
 
-      for (
-        let index = 0;
-        index < 100 && h.control.exchanges === before;
-        index++
-      )
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.exchangeStarted);
       expect(h.control.exchanges).toBe(before + 1);
       const subscription = h.control.remote[0];
 
