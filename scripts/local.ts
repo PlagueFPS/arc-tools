@@ -96,7 +96,7 @@ export async function localSettings(
     return { settings, env };
   } catch {
     throw new Error(
-      "Invalid local configuration. Check ARC_STAGE and APPLICATION_STAGE (matching local-*), ARC_ENVIRONMENT and TWITCH_SENDER_KIND (personal), TWITCH_SENDER_LOGIN and TWITCH_CHANNEL_LOGINS (one own channel), ARC_PUBLIC_URL (HTTPS origin), ARC_BUILD_REVISION, ALCHEMY_PROFILE, TWITCH_CLIENT_ID, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, and application secret keys. Values are omitted.",
+      "Invalid local configuration. Check ARC_STAGE and APPLICATION_STAGE (matching local-*), ARC_ENVIRONMENT and TWITCH_SENDER_KIND (both personal or both bot), TWITCH_SENDER_LOGIN and TWITCH_CHANNEL_LOGINS (one own channel for personal; configured channels for bot), ARC_PUBLIC_URL (HTTPS origin), ARC_BUILD_REVISION, ALCHEMY_PROFILE, TWITCH_CLIENT_ID, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, and application secret keys. Values are omitted.",
     );
   }
 }

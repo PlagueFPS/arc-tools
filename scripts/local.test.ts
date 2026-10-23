@@ -113,6 +113,44 @@ describe("local settings", () => {
 });
 
 describe("local package aliases", () => {
+  test("dedicated bot configuration reaches every local child with its own application and tunnel", async () => {
+    const fixture = await launcherFixture();
+
+    const bot = {
+      ...fixtureEnv,
+      ARC_ENVIRONMENT: "bot",
+      TWITCH_SENDER_KIND: "bot",
+      TWITCH_SENDER_LOGIN: "development_bot",
+      TWITCH_CHANNEL_LOGINS: "development_channel,another_channel",
+      TWITCH_CLIENT_ID: "independent-test-application",
+      ARC_PUBLIC_URL: "https://bot-tunnel.invalid",
+    };
+
+    await writeFile(join(fixture.directory, ".env.local"), dotenv(bot));
+
+    for (const alias of [
+      "dev:local",
+      "setup:local",
+      "status:local",
+      "sync:discord:local",
+    ]) {
+      expect((await fixture.run(alias, fixtureEnv)).code).toBe(0);
+    }
+
+    const calls = await fixture.calls();
+    expect(calls.map((call) => call.kind)).toEqual([
+      "dev",
+      "sync",
+      "ops",
+      "ops",
+      "sync",
+    ]);
+
+    for (const call of calls) expect(call.env).toEqual(bot);
+    expect(calls[0]?.args).toContain("local-fixture");
+    expect(calls[2]?.args).toContain(bot.ARC_PUBLIC_URL);
+  });
+
   test("changing only the file twice updates every child, setup orders sync before private OAuth output, and all aliases work", async () => {
     const fixture = await launcherFixture();
 

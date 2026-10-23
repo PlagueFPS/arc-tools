@@ -37,7 +37,7 @@ The binding names are `ARC_STAGE`, `APPLICATION_STAGE`, `ARC_ENVIRONMENT`, `TWIT
 The schema accepts these combinations.
 
 - `prod` uses `ARC_ENVIRONMENT=production`, `TWITCH_SENDER_KIND=bot`, and a nonempty manual channel set.
-- `staging` and `local-<name>` use `ARC_ENVIRONMENT=personal`, `TWITCH_SENDER_KIND=personal`, and exactly one channel equal to the sender login.
+- `staging` and `local-<name>` accept either `ARC_ENVIRONMENT=personal` with `TWITCH_SENDER_KIND=personal` and exactly the sender's own channel, or `ARC_ENVIRONMENT=bot` with `TWITCH_SENDER_KIND=bot` and a nonempty configured channel set. Dedicated bot capability includes public enrollment regardless of deployment stage.
 - Test stages use `ARC_ENVIRONMENT=test`, a synthetic sender and channel, and fixed synthetic Twitch and Discord application IDs.
 
 Production, staging, and concurrently active live local environments require distinct developer-portal applications. The schema checks their declared application stage; it cannot discover portal ownership or detect an operator falsely labeling copied credentials. Unit 4 must validate actual authorization identities. Twitch IDs remain unresolved until setup. No broadcaster IDs or Discord guild IDs are configured in production source.

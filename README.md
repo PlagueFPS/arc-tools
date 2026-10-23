@@ -41,6 +41,8 @@ Successful trusted PR checks publish a resident synthetic service preview. A suc
 
 For development, deployment, Twitch authorization, health/status, and Discord registration, follow [the operator guide](docs/operator-guide.md). Copy [.env.example](.env.example) for public configuration placeholders and inject secrets privately.
 
+For public enrollment with a real test Twitch application, select the dedicated `bot` profile in `.env.local` and follow [local tunnel enrollment](docs/operator-guide.md#exercise-public-enrollment-through-a-local-tunnel). Tunnel the Bot HTTP listener printed by Alchemy.
+
 For a new local tunnel session, edit `ARC_PUBLIC_URL` in `.env.local`, run `bun run dev:local` in one terminal, and run `bun run setup:local` in another. Update the portal endpoints manually if the tunnel host changed. Keep setup's OAuth output private.
 
 [Verification records](docs/verification/README.md) distinguish accepted implementation units from unperformed live-provider, privacy, token-expiry, CI, and cost gates. The intended launch is a few quiet channels and guilds. It carries no free-tier cost guarantee.

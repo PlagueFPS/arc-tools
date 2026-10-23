@@ -475,7 +475,7 @@ test(
   Effect.gen(function* () {
     const personal = {
       ...fixtureConfig,
-      kind: "personal",
+      senderKind: "personal",
       stage: "staging",
       senderLogin: "personal",
       channelLogins: ["personal"],
