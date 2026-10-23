@@ -1,1 +1,50 @@
-@stylex;
+@import "tailwindcss";
+
+@theme {
+  --color-violet: #baa5fc;
+  --color-muted: #aaa9b1;
+  --color-line: #343337;
+  --font-sans: "DM Sans", sans-serif;
+  --font-heading: "Space Grotesk", sans-serif;
+  --breakpoint-tablet: 700px;
+  --breakpoint-desktop: 960px;
+}
+
+@layer base {
+  html {
+    background: #151517;
+    color: #f2efe6;
+    color-scheme: dark;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    margin: 0;
+  }
+  a {
+    text-decoration: none;
+  }
+  button {
+    font: inherit;
+  }
+  a,
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+  :focus-visible {
+    outline: 3px solid #d0bfff;
+    outline-offset: 5px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation: none !important;
+      transition: none !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

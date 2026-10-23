@@ -70,9 +70,7 @@ for (const method of ["GET", "HEAD"] as const) {
 
     const result = await forwardWebsite((assetRequest) => {
       expect(assetRequest.method).toBe(method);
-      expect(assetRequest.url).toBe(
-        "https://website.internal/connect/index.html",
-      );
+      expect(assetRequest.url).toBe("https://website.internal/connect");
       expect(assetRequest.headers).toEqual(Headers.empty);
       expect(assetRequest.urlParams).toEqual(UrlParams.empty);
 
@@ -120,6 +118,42 @@ test("asset forwarding preserves path, content type, cache headers and missing a
 
   expect(result.status).toBe(404);
   expect(result.headers["content-type"]).toBe("text/plain");
+});
+
+test("Vite stylesheets retain CSS negotiation and public module queries without credentials", async () => {
+  for (const accept of ["text/css,*/*;q=0.1", "*/*"]) {
+    const result = await forwardWebsite(
+      (request) => {
+        expect(request.url).toBe(
+          "https://website.internal/assets/src/styles.css?url&routes=__root__%2C%2F",
+        );
+        expect(request.headers).toEqual(
+          accept.startsWith("text/css")
+            ? Headers.fromInput({ accept: "text/css" })
+            : Headers.empty,
+        );
+
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response("stylesheet")),
+        );
+      },
+      HttpServerRequest.fromWeb(
+        new Request(
+          "https://bot.invalid/assets/src/styles.css?url&routes=__root__%2C%2F&code=private&state=private&token=private",
+          {
+            headers: {
+              accept,
+              cookie: "private",
+              authorization: "Bearer private",
+            },
+          },
+        ),
+      ),
+      true,
+    ).pipe(Effect.runPromise);
+
+    expect(result.status).toBe(200);
+  }
 });
 
 test("upstream redirects never expose an asset destination and failures return 503", async () => {
@@ -176,7 +210,7 @@ for (const development of [false, true]) {
       (request) => {
         expect(request.url).toBe(
           development
-            ? "https://website.internal/assets/index.html?v=version&t=123&import=&direct=&html-proxy=&index=0.js"
+            ? "https://website.internal/assets/index.html?v=version&t=123&import&direct&html-proxy&index=0.js"
             : "https://website.internal/assets/index.html",
         );
         expect(request.headers).toEqual(Headers.empty);
@@ -199,10 +233,10 @@ for (const development of [false, true]) {
 }
 
 for (const [development, path, assetPath] of [
-  [false, "/", "/index.html"],
-  [false, "/connect", "/connect/index.html"],
-  [true, "/", "/assets/"],
-  [true, "/connect", "/assets/connect"],
+  [false, "/", "/"],
+  [false, "/connect", "/connect"],
+  [true, "/", "/"],
+  [true, "/connect", "/connect"],
 ] as const) {
   test(`page ${path} forwards to ${assetPath} in development=${development}`, async () => {
     await forwardWebsite(

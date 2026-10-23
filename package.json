@@ -46,8 +46,7 @@
     "typescript": "7.0.2",
     "@arctools/twitch": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "@arctools/discord": "workspace:*",
-    "@foldkit/oxlint-plugin": "0.15.3"
+    "@arctools/discord": "workspace:*"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.4",

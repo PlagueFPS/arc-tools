@@ -1,10 +1,8 @@
-import foldkitRecommended from "@foldkit/oxlint-plugin/recommended.json" with { type: "json" };
 import { defineConfig } from "oxlint";
 
 export default defineConfig({
   plugins: ["typescript", "unicorn", "oxc"],
   jsPlugins: [
-    { name: "foldkit", specifier: "@foldkit/oxlint-plugin" },
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
     {
       name: "anti-slop-effect",
@@ -37,23 +35,11 @@ export default defineConfig({
     "anti-slop-effect/no-service-constructor-imports": "error",
     "anti-slop-effect/prefer-effect-match": "error",
   },
-  overrides: [
-    {
-      files: ["apps/website/src/**/*.ts"],
-      rules: Object.fromEntries(
-        Object.entries(foldkitRecommended.rules).map(
-          ([rule, level]): [string, "error" | "off" | "warn"] => [
-            rule,
-            level === "off" || level === "warn" ? level : "error",
-          ],
-        ),
-      ),
-    },
-  ],
   categories: {
     correctness: "error",
   },
   ignorePatterns: [
+    "apps/website/src/routeTree.gen.ts",
     "**/dist/**",
     "**/.turbo/**",
     ".repos/**",

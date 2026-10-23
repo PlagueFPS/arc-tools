@@ -1,3 +1,7 @@
-import { setup } from "foldkit/test/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi } from "vitest";
 
-setup();
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});

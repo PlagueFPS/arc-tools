@@ -11,10 +11,5 @@ export const websiteDevelopment = Output.named(
 export const Website = Cloudflare.Website.Vite("Website", {
   rootDir: "apps/website",
   workersDev: false,
-  assets: { htmlHandling: "none", notFoundHandling: "none" },
-  // Alchemy 2.0.0-beta.83 `Website.Foldkit` forwards only main, rootDir, and
-  // memo. It cannot select an unbuilt worker environment. `static` is not
-  // built, and the website Vite plugin drops the in-memory ssr bundle after
-  // prerender, so this worker ships the generated client files only.
-  viteEnvironments: { entry: "static" },
+  assets: { htmlHandling: "drop-trailing-slash", notFoundHandling: "none" },
 });

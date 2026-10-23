@@ -9,24 +9,6 @@ import {
   HttpServerResponse,
 } from "effect/http";
 
-const websitePages = {
-  "/": { development: "/assets/", production: "/index.html" },
-  "/connect": {
-    development: "/assets/connect",
-    production: "/connect/index.html",
-  },
-} as const;
-
-const isWebsitePage = (
-  pathname: string,
-): pathname is keyof typeof websitePages =>
-  Object.hasOwn(websitePages, pathname);
-
-export const websiteAssetPath = (pathname: string, development: boolean) =>
-  isWebsitePage(pathname)
-    ? websitePages[pathname][development ? "development" : "production"]
-    : pathname;
-
 export const isWebsiteRequest = (method: string, pathname: string) =>
   (method === "GET" || method === "HEAD") &&
   (pathname === "/" ||
@@ -112,20 +94,42 @@ export const forwardWebsite = Effect.fnUntraced(
     if (!isWebsiteRequest(request.method, url.pathname))
       return HttpServerResponse.empty({ status: 404 });
 
-    const pathname = websiteAssetPath(url.pathname, development);
+    const pathname = url.pathname;
 
     const target = new URL(pathname, "https://website.internal");
 
     if (development && pathname.startsWith("/assets/")) {
-      for (const key of ["v", "t", "import", "direct", "html-proxy", "index"]) {
+      const query: string[] = [];
+
+      for (const key of [
+        "v",
+        "t",
+        "import",
+        "direct",
+        "html-proxy",
+        "index",
+        "url",
+        "routes",
+        "tsr-split",
+      ]) {
         const value = url.searchParams.get(key);
 
-        if (value !== null) target.searchParams.set(key, value);
+        if (value !== null) {
+          query.push(
+            value === "" ? key : `${key}=${encodeURIComponent(value)}`,
+          );
+        }
       }
+
+      target.search = query.join("&");
     }
 
+    const assetRequest = HttpClientRequest.make(request.method)(target.href);
+
     const response = yield* fetchAsset(
-      HttpClientRequest.make(request.method)(target.href),
+      development && request.headers.accept?.includes("text/css")
+        ? HttpClientRequest.setHeader(assetRequest, "accept", "text/css")
+        : assetRequest,
     );
 
     if (response.status >= 300 && response.status < 400)

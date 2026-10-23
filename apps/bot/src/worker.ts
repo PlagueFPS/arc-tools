@@ -112,7 +112,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
             .pathname;
 
           if (website && isWebsiteRequest(request.method, pathname)) {
-            // Alchemy beta.83's asset-only service binding bypasses Vite's dev middleware.
+            // Browser development modules are served by Vite's HTTP listener.
             const localUrl = yield* website.developmentUrl;
 
             if (
@@ -140,7 +140,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
                     return yield* websiteHttp.execute(
                       HttpClientRequest.setUrl(
                         assetRequest,
-                        new URL(`${url.pathname}${url.search}`, localUrl),
+                        new URL(`${url.pathname}${url.search}`, localUrl).href,
                       ),
                     );
 
