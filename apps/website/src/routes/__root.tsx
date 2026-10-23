@@ -27,13 +27,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
             "ARC Raiders answers, right in Twitch chat. Connect your channel to ARC Tools for item, crafting, and event commands.",
         },
       ],
-      links: [
-        { rel: "stylesheet", href: appCss },
-        {
-          rel: "stylesheet",
-          href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap",
-        },
-      ],
+      links: [{ rel: "stylesheet", href: appCss }],
     }),
     component: App,
     notFoundComponent: NotFound,
@@ -55,7 +49,7 @@ function App() {
 
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <head>
         <HeadContent />
       </head>

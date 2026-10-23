@@ -1,6 +1,6 @@
 # Website development
 
-The website uses TanStack Start, React, TanStack Router file routes, React Query, and Tailwind CSS. Keep page components and their utilities together. `src/styles.css` owns Tailwind theme tokens and global resets; component styling belongs in JSX utility classes.
+The website uses TanStack Start, React, TanStack Router file routes, React Query, Tailwind CSS, and shadcn/ui with Base UI. Keep page components and their utilities together. `src/styles.css` owns Tailwind theme tokens and global resets; component styling belongs in JSX utility classes. Add shadcn components from `apps/website` with its Base UI preset in `components.json`. Use the shared UI components for controls and cards. Navigation remains links styled with button variants. Fontsource Barlow is served locally and supplies sans, heading, and code fonts.
 
 `src/router.tsx` creates a QueryClient per router and passes it through router context. The root route provides it to React Query. Enrollment status is private browser state: enable its query only after mount, decode the shared `@arctools/twitch/enrollment` contract with the workspace Effect version, and pass React Query's AbortSignal to fetch. Do not fetch session state in server loaders, prefetch it during SSG, or poll. Refresh is manual.
 

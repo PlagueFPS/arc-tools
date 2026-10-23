@@ -6,13 +6,9 @@ import {
   guidance,
   useEnrollmentStatus,
 } from "../domain/enrollment";
-import {
-  ConnectLink,
-  Eyebrow,
-  button,
-  contentPage,
-  pageTitle,
-} from "./controls";
+import { ConnectLink, Eyebrow, contentPage, pageTitle } from "./controls";
+import { Button } from "./ui/button";
+import { Card } from "./ui/card";
 
 export function Connection() {
   const query = useEnrollmentStatus();
@@ -24,10 +20,10 @@ export function Connection() {
         ← Back to ARC Tools
       </Link>
       <h1 className={pageTitle}>Your channel connection.</h1>
-      <p className="text-sm leading-[1.8] text-muted">
+      <p className="text-sm leading-[1.8] text-muted-foreground">
         One place to see if your chat is ready for the next raid.
       </p>
-      <div className="mt-[35px] rounded-lg border border-[#49414f] bg-[#211e27] p-[25px] tablet:p-[34px]">
+      <Card className="mt-[35px] gap-0 overflow-visible border border-[#49414f] p-[25px] ring-0 tablet:p-[34px]">
         <div role="status" aria-live="polite" aria-atomic="true">
           {absent ? (
             <StatusHeading
@@ -62,22 +58,23 @@ export function Connection() {
             (!query.isFetching &&
               query.data?.kind === "failed" &&
               canReconnect(query.data.reason))) && <ConnectLink />}
-          <button
+          <Button
+            variant="secondary"
+            size="lg"
             type="button"
             disabled={query.isPending || query.isFetching}
             onClick={() => {
               void query.refetch();
             }}
-            className={`${button} border-[#56505e] bg-[#302c37] text-[#f2efe6] hover:bg-[#40364d]`}
           >
             {query.isPending || query.isFetching ? "Checking…" : "Check status"}
-          </button>
+          </Button>
         </div>
-        <p className="mt-[18px] text-[11px] leading-[1.7] text-muted">
+        <p className="mt-[18px] text-[11px] leading-[1.7] text-muted-foreground">
           Status belongs to this browser session. Check again after completing
           Twitch authorization.
         </p>
-      </div>
+      </Card>
     </section>
   );
 }
@@ -97,7 +94,9 @@ function StatusHeading({
       <h2 className="my-[14px] font-heading text-[28px] tracking-[-1px]">
         {title}
       </h2>
-      <p className="max-w-[550px] text-sm leading-[1.9] text-muted">{copy}</p>
+      <p className="max-w-[550px] text-sm leading-[1.9] text-muted-foreground">
+        {copy}
+      </p>
     </>
   );
 }

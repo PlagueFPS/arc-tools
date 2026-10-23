@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { buttonVariants } from "./ui/button";
+
 export const wrap =
   "mx-auto w-[calc(100%-40px)] tablet:w-[calc(100%-56px)] desktop:w-[min(1184px,calc(100%-96px))]";
 
@@ -8,10 +10,7 @@ export const contentPage = `${wrap} min-h-[calc(100vh-195px)] max-w-[740px] py-[
 export const pageTitle =
   "mt-[35px] mb-[23px] font-heading text-[clamp(36px,5vw,50px)] font-semibold leading-[1.15] tracking-[-2px]";
 
-export const button =
-  "inline-flex min-h-[49px] shrink-0 cursor-pointer whitespace-nowrap items-center justify-center gap-[26px] rounded-[5px] border border-transparent px-[21px] py-[13px] text-[13px] font-bold transition-[background,transform] duration-150 hover:-translate-y-px disabled:cursor-wait disabled:opacity-60";
-
-export const primaryButton = `${button} bg-violet text-[#20182f] hover:bg-[#cdbbff]`;
+export const primaryButton = buttonVariants({ size: "lg" });
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
@@ -23,7 +22,10 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 
 export function ConnectLink({ className = "" }: { className?: string }) {
   return (
-    <a href="/oauth/twitch/enroll" className={`${primaryButton} ${className}`}>
+    <a
+      href="/oauth/twitch/enroll"
+      className={buttonVariants({ size: "lg", className })}
+    >
       Connect Twitch<span aria-hidden="true">↗</span>
     </a>
   );

@@ -20,13 +20,13 @@ export function Landing() {
             <br />
             <span className="text-violet">Raid ready.</span>
           </h1>
-          <p className="max-w-[480px] text-base leading-[1.8] text-muted tablet:max-w-[430px]">
+          <p className="max-w-[480px] text-base leading-[1.8] text-muted-foreground tablet:max-w-[430px]">
             Less alt-tabbing. More raiding. Give your community item, crafting,
             and event answers right in Twitch chat.
           </p>
           <div className="mt-[33px] flex flex-col items-start gap-[14px] desktop:flex-row desktop:items-center desktop:gap-[22px]">
             <ConnectLink />
-            <p className="text-[10px] leading-[1.7] text-muted tablet:text-[11px]">
+            <p className="text-[10px] leading-[1.7] text-muted-foreground tablet:text-[11px]">
               Connect your channel through Twitch.
               <br />
               No downloads. No chat overlay.
@@ -95,7 +95,7 @@ function Capability({
       <h3 className="my-2 font-heading text-[17px] font-medium tracking-[-0.4px] tablet:mt-[13px] tablet:mb-[10px]">
         {title}
       </h3>
-      <p className="text-xs leading-[1.9] text-muted tablet:max-w-[300px]">
+      <p className="text-xs leading-[1.9] text-muted-foreground tablet:max-w-[300px]">
         {children}
       </p>
     </article>

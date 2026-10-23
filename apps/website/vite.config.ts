@@ -5,6 +5,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig(({ command, isPreview }) => ({
   base: command === "serve" && !isPreview ? "/assets/" : "/",
+  resolve: { tsconfigPaths: true },
   plugins: [
     tailwindcss(),
     tanstackStart({
