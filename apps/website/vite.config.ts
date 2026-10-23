@@ -6,6 +6,34 @@ import { defineConfig } from "vitest/config";
 
 const stylexPlugin: Plugin = stylex.vite({ useCSSLayers: true });
 
+// StyleX 0.19.1's dev middleware and runtime ignore Vite's base path.
+const stylexBase: Plugin = {
+  name: "arctools:stylex-base",
+  enforce: "pre",
+  apply: "serve",
+  configureServer(server) {
+    const stylesheet = `${server.config.base}virtual:stylex.css`;
+
+    server.middlewares.use((request, _response, next) => {
+      const url = new URL(request.url ?? "/", "http://vite.internal");
+
+      if (url.pathname === stylesheet) {
+        request.url = `/virtual:stylex.css${url.search}`;
+      }
+
+      next();
+    });
+  },
+  transform(code, id) {
+    if (!id.includes("virtual:stylex:runtime")) return;
+
+    return code.replace(
+      "'/virtual:stylex.css'",
+      "import.meta.env.BASE_URL + 'virtual:stylex.css'",
+    );
+  },
+};
+
 if (process.env.VITEST) {
   // NOTE: StyleX's dev poller requires an HTTP server to clean up; Vitest has none.
   delete stylexPlugin.configureServer;
@@ -92,6 +120,7 @@ const nodeServerEnvironment: Plugin = {
 export default defineConfig(({ command, isPreview }) => ({
   base: command === "serve" && !isPreview ? "/assets/" : "/",
   plugins: [
+    stylexBase,
     stylexPlugin,
     foldkit({
       ssr: {
