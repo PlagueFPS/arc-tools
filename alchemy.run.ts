@@ -5,9 +5,10 @@ import { Stage } from "alchemy/Stage";
 import { Config, Effect, Schema } from "effect";
 
 import { Stage as StageSchema, TestStage } from "./apps/bot/src/config.js";
-import { Bot } from "./apps/bot/src/worker.js";
+import BotLive, { Bot } from "./apps/bot/src/worker.js";
+import { Website } from "./stacks/website.js";
 
-export { Website } from "./stacks/website.js";
+export { Website };
 
 export default Alchemy.Stack(
   "arc-tools",
@@ -135,6 +136,13 @@ export default Alchemy.Stack(
       };
     }
 
-    return { stage, url: bot.url, workerName: bot.workerName };
-  }),
+    const website = yield* Website;
+
+    return {
+      stage,
+      url: bot.url,
+      workerName: bot.workerName,
+      websiteUrl: website.url,
+    };
+  }).pipe(Effect.provide(BotLive)),
 );

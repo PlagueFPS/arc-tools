@@ -1,39 +1,36 @@
 import { ArcCacheDO } from "@arctools/arc-data/cloudflare";
 import { manifestHash } from "@arctools/discord/server";
-import { TwitchAccount, TwitchEnrollment } from "@arctools/twitch/server";
+import { TwitchAccount } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Output from "alchemy/Output";
+import type { HttpEffect } from "alchemy/Http";
+import type { RuntimeContext } from "alchemy/RuntimeContext";
 import { Effect, Layer } from "effect";
 import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
   HttpMiddleware,
   HttpRouter,
   HttpServer,
-  HttpServerRequest,
   HttpServerResponse,
 } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
-import { Website, websiteDevelopment } from "../../../stacks/website.js";
 import { BotApi } from "./api.js";
 import { bindOrigin, buildRevision, runtimeConfig } from "./config.js";
 import { ingressHandlers } from "./ingress.js";
 import { operatorHandlers } from "./operator.js";
+import { botOperations, type BotOperations } from "./rpc.js";
 import { Tenants } from "./tenant-contracts.js";
 import { TenantBoundaryObserver } from "./tenant-diagnostics.js";
 import { bindTenants } from "./tenant.js";
 import { bindAccount, bindEnrollment } from "./twitch.js";
-import {
-  forwardViteSocket,
-  forwardWebsite,
-  isWebsiteRequest,
-} from "./website.js";
 
-export class Bot extends Cloudflare.Worker<Bot>()(
-  "Bot",
+type BotEntrypoint = BotOperations<RuntimeContext> & {
+  readonly fetch: HttpEffect<RuntimeContext | Cloudflare.WorkerServices>;
+};
+
+export class Bot extends Cloudflare.Worker<Bot, BotEntrypoint>()("Bot") {}
+
+export default Bot.make(
   Effect.gen(function* () {
     const { stage } = yield* Stack;
 
@@ -53,30 +50,6 @@ export class Bot extends Cloudflare.Worker<Bot>()(
     const config = yield* runtimeConfig;
     const { identity, operatorSecret } = config;
     const origin = yield* bindOrigin;
-
-    const website =
-      identity.kind === "test"
-        ? null
-        : yield* Effect.gen(function* () {
-            const site = yield* Website;
-
-            const fetch = yield* Cloudflare.Workers.Fetch(site).pipe(
-              Effect.provide(Cloudflare.Workers.FetchBinding),
-            );
-
-            const developmentUrl = yield* Output.named(
-              Output.all(websiteDevelopment, site.url).pipe(
-                Output.map(([dev, url]) => (dev ? (url ?? "") : "")),
-              ),
-              "ARC_WEBSITE_DEV_URL",
-            );
-
-            return { fetch, developmentUrl };
-          });
-
-    const websiteHttp = yield* HttpClient.HttpClient.pipe(
-      Effect.provide(FetchHttpClient.layer),
-    );
 
     const testComposition =
       identity.kind === "test" && identity.stage.startsWith("test-tenant-")
@@ -101,60 +74,17 @@ export class Bot extends Cloudflare.Worker<Bot>()(
     const tenantClient = yield* bindTenants.pipe(Effect.provide(bindings));
 
     return {
+      ...botOperations({
+        account: client,
+        enrollment: enrollmentClient,
+        operatorSecret,
+      }),
       fetch: Effect.gen(function* () {
         const receivedAt = Date.now();
         const observation = testComposition?.botRequestObservation(identity);
 
         const response = yield* Effect.gen(function* () {
-          const request = yield* HttpServerRequest.HttpServerRequest;
-
-          const pathname = new URL(request.url, "https://bot.internal")
-            .pathname;
-
-          const localUrl = website ? yield* website.developmentUrl : "";
-
-          if (
-            website &&
-            isWebsiteRequest(request.method, pathname, localUrl !== "")
-          ) {
-            if (
-              localUrl &&
-              request.headers.upgrade?.toLowerCase() === "websocket"
-            )
-              return yield* forwardViteSocket(localUrl, request).pipe(
-                Effect.provideService(HttpClient.HttpClient, websiteHttp),
-                Effect.catchTag("HttpClientError", () =>
-                  Effect.succeed(
-                    HttpServerResponse.empty({
-                      status: 503,
-                      headers: { "Cache-Control": "no-store" },
-                    }),
-                  ),
-                ),
-              );
-
-            return yield* forwardWebsite(
-              (assetRequest) =>
-                Effect.gen(function* () {
-                  const url = new URL(assetRequest.url);
-
-                  if (localUrl)
-                    return yield* websiteHttp.execute(
-                      HttpClientRequest.setUrl(
-                        assetRequest,
-                        new URL(`${url.pathname}${url.search}`, localUrl).href,
-                      ),
-                    );
-
-                  return yield* website.fetch(assetRequest);
-                }),
-              request,
-              localUrl !== "",
-            );
-          }
-
           const account = yield* client;
-          const enrollment = yield* enrollmentClient;
 
           const tenants = yield* observation
             ? tenantClient.pipe(
@@ -183,7 +113,6 @@ export class Bot extends Cloudflare.Worker<Bot>()(
             Layer.provide(
               operatorHandlers(identity.stage, operatorSecret).pipe(
                 Layer.provide(Layer.succeed(TwitchAccount, account)),
-                Layer.provide(Layer.succeed(TwitchEnrollment, enrollment)),
               ),
             ),
             Layer.provide(
@@ -220,6 +149,4 @@ export class Bot extends Cloudflare.Worker<Bot>()(
       }),
     };
   }),
-) {}
-
-export default Bot;
+);

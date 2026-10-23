@@ -5,7 +5,6 @@ import {
   AccountError,
   EnrollmentStatus,
   TwitchAccount,
-  TwitchEnrollment,
   subscriptionBinding,
 } from "@arctools/twitch/server";
 import { AccountState } from "@arctools/twitch/testing";
@@ -35,12 +34,17 @@ import {
   signTwitch,
   twitchEvent,
 } from "../../../tests/cloud/signatures.js";
+import {
+  enrollmentCookie,
+  enrollmentHead,
+  websiteHttp,
+} from "../../website/src/server/enrollment.js";
 import { BotApi } from "../src/api.js";
 import { EnvironmentConfig } from "../src/config.js";
-import { enrollmentCookie } from "../src/enrollment.js";
 import { ingressHandlers } from "../src/ingress.js";
 import { operatorHandlers } from "../src/operator.js";
 import { discordResponse } from "../src/presentation.js";
+import { botOperations } from "../src/rpc.js";
 import { Tenants } from "../src/tenant-contracts.js";
 
 const { test } = Test.make({ providers: Layer.empty });
@@ -71,7 +75,13 @@ const fixture = Effect.fnUntraced(function* (
     signingSecret: Redacted.make("fixture-signing"),
   });
 
-  const account = yield* h.construct("revision-one", binding);
+  const account = yield* h.construct(
+    "revision-one",
+    binding,
+    identity,
+    "https://website.fixture.invalid",
+  );
+
   const admissions: string[] = [];
   const callbackEntered = yield* Deferred.make<void>();
 
@@ -107,19 +117,6 @@ const fixture = Effect.fnUntraced(function* (
       }),
     ),
     Layer.provide(
-      Layer.succeed(TwitchEnrollment, {
-        ...account.enrollment,
-        complete: (input) =>
-          Deferred.succeed(callbackEntered, undefined).pipe(
-            Effect.andThen(
-              account.enrollment
-                .complete(input)
-                .pipe(Effect.delay(enrollmentDelayMs)),
-            ),
-          ),
-      }),
-    ),
-    Layer.provide(
       Layer.succeed(Tenants, {
         acceptTwitch: (input) =>
           Effect.sync(() => {
@@ -137,14 +134,45 @@ const fixture = Effect.fnUntraced(function* (
   const app = HttpRouter.toWebHandler(handlers, { disableLogger: true });
   yield* Effect.addFinalizer(() => Effect.promise(() => app.dispose()));
 
-  const request = (path: string, cookie?: string) =>
-    Effect.promise(() =>
-      app.handler(
-        new Request(`${origin}${path}`, {
-          headers: cookie ? { cookie } : undefined,
+  const http = websiteHttp(
+    Effect.succeed(
+      botOperations({
+        account: Effect.succeed(account.service),
+        enrollment: Effect.succeed({
+          ...account.enrollment,
+          complete: (input) =>
+            Deferred.succeed(callbackEntered, undefined).pipe(
+              Effect.andThen(
+                account.enrollment
+                  .complete(input)
+                  .pipe(Effect.delay(enrollmentDelayMs)),
+              ),
+            ),
         }),
-      ),
-    );
+        operatorSecret: Redacted.make("operator"),
+      }),
+    ),
+  );
+
+  const request = (path: string, cookie?: string, method = "GET") => {
+    const incoming = new Request(`https://website.fixture.invalid${path}`, {
+      method,
+      headers: cookie ? { cookie } : undefined,
+    });
+
+    if (method === "HEAD") return Effect.succeed(enrollmentHead());
+
+    switch (new URL(incoming.url).pathname) {
+      case "/oauth/twitch/enroll":
+        return http.begin(incoming);
+      case "/oauth/twitch/enroll/status":
+        return http.status(incoming);
+      case "/oauth/twitch/callback":
+        return http.callback(incoming);
+      default:
+        return Effect.succeed(new Response(null, { status: 404 }));
+    }
+  };
 
   const begin = Effect.fnUntraced(function* (previous?: string) {
     const response = yield* request("/oauth/twitch/enroll", previous);
@@ -206,7 +234,7 @@ test(
       privateHeaders(begun.response);
       expect(begun.location.origin).toBe("https://id.twitch.tv");
       expect(begun.location.searchParams.get("redirect_uri")).toBe(
-        `${origin}/oauth/twitch/callback`,
+        "https://website.fixture.invalid/oauth/twitch/callback",
       );
       expect(begun.location.searchParams.get("scope")).toBe("channel:bot");
       expect(begun.state).toMatch(/^enroll\.[a-f0-9]{64}$/);
@@ -228,7 +256,14 @@ test(
         Schema.decodeUnknownSync(AccountState)(f.h.snapshot()).sender,
       ).toEqual(before.sender);
       f.h.control.subscriptionStatus = "webhook_callback_verification_pending";
-      const recovered = yield* f.h.construct("revision-one", f.binding);
+
+      const recovered = yield* f.h.construct(
+        "revision-one",
+        f.binding,
+        identity,
+        "https://website.fixture.invalid",
+      );
+
       f.h.time(initial + 1);
       f.h.consumeAlarm();
       yield* recovered.credentialAlarm();
@@ -457,10 +492,11 @@ test(
         f.h.control.grantScopes =
           new URL(auth.url).searchParams.get("scope")?.split(" ") ?? [];
 
-        const cookie =
-          index === 0
-            ? `${enrollmentCookie}=malformed`
-            : `${enrollmentCookie}=${"a".repeat(64)}`;
+        const cookie = Match.value(index).pipe(
+          Match.when(0, () => ""),
+          Match.when(1, () => `${enrollmentCookie}=malformed`),
+          Match.orElse(() => `${enrollmentCookie}=${"a".repeat(64)}`),
+        );
 
         const response = yield* f.complete(state, cookie);
         expect(response.status).toBe(200);
@@ -578,5 +614,35 @@ test(
       error: "channel-capacity-exceeded",
     });
     privateHeaders(response);
+  }),
+);
+
+test(
+  "Website HEAD never creates an intent and Bot rejects removed browser endpoints",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    yield* f.h
+      .authorize(f.account.service)
+      .pipe(Effect.provideService(Clock.Clock, f.h.clock));
+    const before = f.h.snapshot();
+
+    for (const path of [
+      "/oauth/twitch/enroll",
+      "/oauth/twitch/enroll/status",
+      "/oauth/twitch/callback",
+    ]) {
+      const response = yield* f.request(path, undefined, "HEAD");
+      expect(response.status).toBe(405);
+      expect(response.headers.get("set-cookie")).toBeNull();
+      privateHeaders(response);
+
+      const botResponse = yield* Effect.promise(() =>
+        f.app.handler(new Request(`${origin}${path}`)),
+      );
+
+      expect(botResponse.status).toBe(404);
+    }
+
+    expect(f.h.snapshot()).toEqual(before);
   }),
 );

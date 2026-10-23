@@ -11,6 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ConnectRouteImport } from './routes/connect'
+import { Route as OauthTwitchCallbackRouteImport } from './routes/oauth.twitch.callback'
+import { Route as OauthTwitchEnrollRouteImport } from './routes/oauth.twitch.enroll'
+import { Route as OauthTwitchEnrollStatusRouteImport } from './routes/oauth.twitch.enroll.status'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +25,73 @@ const ConnectRoute = ConnectRouteImport.update({
   path: '/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthTwitchCallbackRoute = OauthTwitchCallbackRouteImport.update({
+  id: '/oauth/twitch/callback',
+  path: '/oauth/twitch/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthTwitchEnrollRoute = OauthTwitchEnrollRouteImport.update({
+  id: '/oauth/twitch/enroll',
+  path: '/oauth/twitch/enroll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthTwitchEnrollStatusRoute = OauthTwitchEnrollStatusRouteImport.update({
+  id: '/status',
+  path: '/status',
+  getParentRoute: () => OauthTwitchEnrollRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/connect': typeof ConnectRoute
+  '/oauth/twitch/callback': typeof OauthTwitchCallbackRoute
+  '/oauth/twitch/enroll': typeof OauthTwitchEnrollRouteWithChildren
+  '/oauth/twitch/enroll/status': typeof OauthTwitchEnrollStatusRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/connect': typeof ConnectRoute
+  '/oauth/twitch/callback': typeof OauthTwitchCallbackRoute
+  '/oauth/twitch/enroll': typeof OauthTwitchEnrollRouteWithChildren
+  '/oauth/twitch/enroll/status': typeof OauthTwitchEnrollStatusRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/connect': typeof ConnectRoute
+  '/oauth/twitch/callback': typeof OauthTwitchCallbackRoute
+  '/oauth/twitch/enroll': typeof OauthTwitchEnrollRouteWithChildren
+  '/oauth/twitch/enroll/status': typeof OauthTwitchEnrollStatusRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/connect'
+  fullPaths:
+    | '/'
+    | '/connect'
+    | '/oauth/twitch/callback'
+    | '/oauth/twitch/enroll'
+    | '/oauth/twitch/enroll/status'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/connect'
-  id: '__root__' | '/' | '/connect'
+  to:
+    | '/'
+    | '/connect'
+    | '/oauth/twitch/callback'
+    | '/oauth/twitch/enroll'
+    | '/oauth/twitch/enroll/status'
+  id:
+    | '__root__'
+    | '/'
+    | '/connect'
+    | '/oauth/twitch/callback'
+    | '/oauth/twitch/enroll'
+    | '/oauth/twitch/enroll/status'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ConnectRoute: typeof ConnectRoute
+  OauthTwitchCallbackRoute: typeof OauthTwitchCallbackRoute
+  OauthTwitchEnrollRoute: typeof OauthTwitchEnrollRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +110,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/twitch/callback': {
+      id: '/oauth/twitch/callback'
+      path: '/oauth/twitch/callback'
+      fullPath: '/oauth/twitch/callback'
+      preLoaderRoute: typeof OauthTwitchCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/twitch/enroll': {
+      id: '/oauth/twitch/enroll'
+      path: '/oauth/twitch/enroll'
+      fullPath: '/oauth/twitch/enroll'
+      preLoaderRoute: typeof OauthTwitchEnrollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/twitch/enroll/status': {
+      id: '/oauth/twitch/enroll/status'
+      path: '/status'
+      fullPath: '/oauth/twitch/enroll/status'
+      preLoaderRoute: typeof OauthTwitchEnrollStatusRouteImport
+      parentRoute: typeof OauthTwitchEnrollRoute
+    }
   }
 }
+
+interface OauthTwitchEnrollRouteChildren {
+  OauthTwitchEnrollStatusRoute: typeof OauthTwitchEnrollStatusRoute
+}
+
+const OauthTwitchEnrollRouteChildren: OauthTwitchEnrollRouteChildren = {
+  OauthTwitchEnrollStatusRoute: OauthTwitchEnrollStatusRoute,
+}
+
+const OauthTwitchEnrollRouteWithChildren =
+  OauthTwitchEnrollRoute._addFileChildren(OauthTwitchEnrollRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConnectRoute: ConnectRoute,
+  OauthTwitchCallbackRoute: OauthTwitchCallbackRoute,
+  OauthTwitchEnrollRoute: OauthTwitchEnrollRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -198,6 +198,7 @@ async function runGuard(
         RELEASE_APPLICATION_ID: app,
         DISCORD_APPLICATION_ID: app,
         ARC_PUBLIC_URL: "https://existing.invalid",
+        ARC_WEBSITE_URL: "https://website.invalid",
         ...overrides,
       },
     },
@@ -577,7 +578,9 @@ describe("executed release origin and revision guard", () => {
       "https://example.invalid/path",
       "http://example.invalid",
       "https://example.invalid/",
-    ])
+    ]) {
       await expect(runGuard({ ARC_PUBLIC_URL: origin })).rejects.toThrow();
+      await expect(runGuard({ ARC_WEBSITE_URL: origin })).rejects.toThrow();
+    }
   });
 });

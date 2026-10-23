@@ -55,6 +55,7 @@ jobs:
       APPLICATION_STAGE: ${{ inputs.stage }}
       ARC_BUILD_REVISION: ${{ inputs.revision || github.sha }}
       ARC_PUBLIC_URL: ${{ vars.ARC_PUBLIC_URL }}
+      ARC_WEBSITE_URL: ${{ vars.ARC_WEBSITE_URL }}
       ARC_ENVIRONMENT: ${{ vars.ARC_ENVIRONMENT }}
       TWITCH_SENDER_KIND: ${{ vars.TWITCH_SENDER_KIND }}
       TWITCH_SENDER_LOGIN: ${{ vars.TWITCH_SENDER_LOGIN }}
@@ -87,6 +88,10 @@ jobs:
             if (!origin) throw new Error('Configure environment ARC_PUBLIC_URL with the exact existing deployed Worker origin');
             const url = new URL(origin);
             if (url.protocol !== 'https:' || url.origin !== origin) throw new Error('ARC_PUBLIC_URL must be the exact HTTPS origin');
+            const website = process.env.ARC_WEBSITE_URL;
+            if (!website) throw new Error('Configure environment ARC_WEBSITE_URL with the exact deployed Website origin');
+            const site = new URL(website);
+            if (site.protocol !== 'https:' || site.origin !== website) throw new Error('ARC_WEBSITE_URL must be the exact HTTPS origin');
             if (context.eventName === 'push') {
               const { data } = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
               if (data.object.sha !== revision) throw new Error('Stale automatic main release rejected before mutations');

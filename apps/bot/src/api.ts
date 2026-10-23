@@ -19,8 +19,5 @@ export class BotApi extends HttpApi.make("arc-tools").add(
   HttpApiGroup.make("operator").add(
     HttpApiEndpoint.post("setup", "/ops/setup"),
     HttpApiEndpoint.post("status", "/ops/status"),
-    HttpApiEndpoint.get("oauth", "/oauth/twitch/callback"),
-    HttpApiEndpoint.get("enroll", "/oauth/twitch/enroll"),
-    HttpApiEndpoint.get("enrollmentStatus", "/oauth/twitch/enroll/status"),
   ),
 ) {}

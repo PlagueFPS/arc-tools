@@ -188,7 +188,7 @@ export const makeFixtureHttp = (
       );
     }
 
-    const value: Schema.Json = yield* Effect.tryPromise({
+    const value: unknown = yield* Effect.tryPromise({
       try: () => response.json(),
       catch: () =>
         new Error(

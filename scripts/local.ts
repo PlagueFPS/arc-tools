@@ -26,6 +26,17 @@ const LocalSettings = Schema.Struct({
       }
     }),
   ),
+  websiteOrigin: Schema.String.check(
+    Schema.makeFilter((value) => {
+      try {
+        publicOrigin("local-", "", value);
+
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  ),
   revision: Schema.String.check(Schema.isPattern(/\S/)),
   profile: Schema.optionalKey(Schema.NonEmptyString),
 });
@@ -75,6 +86,7 @@ export async function localSettings(
     const input = {
       stage: config.identity.stage,
       endpoint: env.ARC_PUBLIC_URL,
+      websiteOrigin: env.ARC_WEBSITE_URL,
       revision: env.ARC_BUILD_REVISION ?? "unreleased",
     };
 
@@ -87,16 +99,18 @@ export async function localSettings(
     const settings = {
       ...decoded,
       endpoint: publicOrigin(decoded.stage, "", decoded.endpoint),
+      websiteOrigin: publicOrigin(decoded.stage, "", decoded.websiteOrigin),
     };
 
     env.ARC_PUBLIC_URL = settings.endpoint;
+    env.ARC_WEBSITE_URL = settings.websiteOrigin;
     env.ARC_BUILD_REVISION = settings.revision;
     env.PATH = `${dirname(process.execPath)}${delimiter}${env.PATH ?? ""}`;
 
     return { settings, env };
   } catch {
     throw new Error(
-      "Invalid local configuration. Check ARC_STAGE and APPLICATION_STAGE (matching local-*), ARC_ENVIRONMENT and TWITCH_SENDER_KIND (both personal or both bot), TWITCH_SENDER_LOGIN and TWITCH_CHANNEL_LOGINS (one own channel for personal; configured channels for bot), ARC_PUBLIC_URL (HTTPS origin), ARC_BUILD_REVISION, ALCHEMY_PROFILE, TWITCH_CLIENT_ID, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, and application secret keys. Values are omitted.",
+      "Invalid local configuration. Check ARC_STAGE and APPLICATION_STAGE (matching local-*), ARC_ENVIRONMENT and TWITCH_SENDER_KIND (both personal or both bot), TWITCH_SENDER_LOGIN and TWITCH_CHANNEL_LOGINS (one own channel for personal; configured channels for bot), ARC_PUBLIC_URL and ARC_WEBSITE_URL (HTTPS origins), ARC_BUILD_REVISION, ALCHEMY_PROFILE, TWITCH_CLIENT_ID, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, and application secret keys. Values are omitted.",
     );
   }
 }
@@ -214,7 +228,7 @@ if (import.meta.main) {
 
     if (action === "dev") {
       console.info(
-        `Set the portal applications manually if the tunnel host changed:\nDiscord interactions endpoint: ${settings.endpoint}/interactions/discord\nTwitch EventSub callback: ${settings.endpoint}/webhooks/twitch\nTwitch OAuth redirect: ${settings.endpoint}/oauth/twitch/callback`,
+        `Set the portal applications manually if the tunnel host changed:\nDiscord interactions endpoint: ${settings.endpoint}/interactions/discord\nTwitch EventSub callback: ${settings.endpoint}/webhooks/twitch\nTwitch OAuth redirect: ${settings.websiteOrigin}/oauth/twitch/callback`,
       );
     }
 

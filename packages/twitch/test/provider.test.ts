@@ -194,8 +194,8 @@ const nativeConfig = {
   clientId: "native-client",
   clientSecret: Redacted.make("native-client-secret"),
   signingSecret: Redacted.make("native-signing-secret"),
-  callback: "https://callback.invalid/webhooks/twitch",
-  redirect: "https://callback.invalid/oauth/twitch/callback",
+  callback: "https://bot.invalid/webhooks/twitch",
+  redirect: "https://website.invalid/oauth/twitch/callback",
 };
 
 const nativeFixture = Effect.fnUntraced(function* (
@@ -239,7 +239,7 @@ const nativeSubscription = {
   condition: { broadcaster_user_id: "200", user_id: "100" },
   transport: {
     method: "webhook",
-    callback: "https://callback.invalid/webhooks/twitch",
+    callback: "https://bot.invalid/webhooks/twitch",
   },
 };
 
@@ -326,6 +326,11 @@ test(
 
         expect(params.get("client_id")).toBe("native-client");
         expect(params.get("client_secret")).toBe("native-client-secret");
+
+        if (params.get("grant_type") === "authorization_code")
+          expect(params.get("redirect_uri")).toBe(
+            "https://website.invalid/oauth/twitch/callback",
+          );
       }
     }
 

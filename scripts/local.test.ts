@@ -24,6 +24,7 @@ const fixtureEnv = {
   APPLICATION_STAGE: "local-fixture",
   ARC_ENVIRONMENT: "personal",
   ARC_PUBLIC_URL: "https://first.invalid",
+  ARC_WEBSITE_URL: "https://website.invalid",
   ARC_BUILD_REVISION: "fixture-revision",
   ALCHEMY_PROFILE: "fixture-profile",
   TWITCH_SENDER_KIND: "personal",
@@ -72,6 +73,7 @@ describe("local settings", () => {
     expect(settings).toEqual({
       stage: "local-fixture",
       endpoint: "https://quoted.invalid",
+      websiteOrigin: fixtureEnv.ARC_WEBSITE_URL,
       revision: "fixture-revision",
       profile: "fixture-profile",
     });
@@ -183,7 +185,9 @@ describe("local package aliases", () => {
 
         if (alias === "dev:local") {
           expect(result.output).toContain(`${origin}/interactions/discord`);
-          expect(result.output).toContain(`${origin}/oauth/twitch/callback`);
+          expect(result.output).toContain(
+            `${fixtureEnv.ARC_WEBSITE_URL}/oauth/twitch/callback`,
+          );
         }
 
         if (alias === "setup:local")

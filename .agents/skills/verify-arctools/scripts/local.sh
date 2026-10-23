@@ -15,6 +15,7 @@ case "${ARC_VERIFY_MODE:-personal}" in
 esac
 export ARC_BUILD_REVISION="$(git rev-parse HEAD)"
 export ARC_PUBLIC_URL=https://local-verify.example
+export ARC_WEBSITE_URL=https://website.local-verify.example
 export TWITCH_SENDER_KIND="$ARC_ENVIRONMENT" TWITCH_SENDER_LOGIN=local_probe TWITCH_CHANNEL_LOGINS=local_probe
 export TWITCH_CLIENT_ID=fixture-twitch DISCORD_APPLICATION_ID=fixture-discord
 export TWITCH_CLIENT_SECRET=fixture-secret

@@ -2,16 +2,16 @@ import { expect, test } from "bun:test";
 
 import { AccountError } from "@arctools/twitch/server";
 import { Effect } from "effect";
-import { HttpServerRequest } from "effect/http";
 
-import { enrollmentCookie, enrollmentHttp } from "../src/enrollment.js";
+import {
+  enrollmentCookie,
+  websiteHttp,
+} from "../../website/src/server/enrollment.js";
 
 const request = (cookie: string) =>
-  HttpServerRequest.fromWeb(
-    new Request("https://bot.invalid/oauth/twitch/enroll/status", {
-      headers: { cookie },
-    }),
-  );
+  new Request("https://bot.invalid/oauth/twitch/enroll/status", {
+    headers: { cookie },
+  });
 
 for (const [label, cookie, error, expected] of [
   ["absent session", "", "provider", 401],
@@ -31,15 +31,18 @@ for (const [label, cookie, error, expected] of [
   ["busy account", `${enrollmentCookie}=${"a".repeat(64)}`, "busy", 503],
 ] as const) {
   test(`status maps ${label} to ${expected}`, async () => {
-    const http = enrollmentHttp({
-      begin: () => Effect.die("unused"),
-      complete: () => Effect.die("unused"),
-      status: () => new AccountError({ code: error }),
-    });
+    const http = websiteHttp(
+      Effect.succeed({
+        enrollmentBegin: () => Effect.die("unused"),
+        enrollmentComplete: () => Effect.die("unused"),
+        completeOperatorOAuth: () => Effect.die("unused"),
+        enrollmentStatus: () => new AccountError({ code: error }),
+      }),
+    );
 
     const response = await http.status(request(cookie)).pipe(Effect.runPromise);
     expect(response.status).toBe(expected);
-    expect(response.headers["cache-control"]).toBe("no-store");
-    expect(response.headers["referrer-policy"]).toBe("no-referrer");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   });
 }

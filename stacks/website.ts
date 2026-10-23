@@ -1,15 +1,23 @@
-import { AlchemyContext } from "alchemy/AlchemyContext";
 import * as Cloudflare from "alchemy/Cloudflare";
-import * as Output from "alchemy/Output";
-import { Effect } from "effect";
+import type { InferEnv } from "alchemy/Cloudflare/Bridge";
+import { Config, Effect } from "effect";
 
-export const websiteDevelopment = Output.named(
-  Output.fromEffect(Effect.map(AlchemyContext, ({ dev }) => dev)),
-  "ARC_WEBSITE_DEV",
-);
+import { Bot } from "../apps/bot/src/worker.js";
 
-export const Website = Cloudflare.Website.Vite("Website", {
-  rootDir: "apps/website",
-  workersDev: false,
-  assets: { htmlHandling: "drop-trailing-slash", notFoundHandling: "none" },
+export const Website = Effect.gen(function* () {
+  const bot = yield* Bot;
+
+  return yield* Cloudflare.Website.Vite("Website", {
+    rootDir: "apps/website",
+    workersDev: true,
+    assets: { htmlHandling: "drop-trailing-slash", notFoundHandling: "none" },
+    env: {
+      BOT: bot,
+      ARC_WEBSITE_URL: Config.NonEmptyString("ARC_WEBSITE_URL"),
+      ARC_WEBSITE_SELF: Cloudflare.Worker.URL,
+      ARC_STAGE: Config.NonEmptyString("ARC_STAGE"),
+    },
+  });
 });
+
+export type WebsiteEnv = InferEnv<typeof Website>;

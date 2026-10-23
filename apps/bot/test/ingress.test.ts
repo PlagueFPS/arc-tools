@@ -6,7 +6,6 @@ import {
   AccountStatus,
   type SubscriptionObservation,
   TwitchAccount,
-  TwitchEnrollment,
 } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
 import { Result, Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
@@ -144,13 +143,6 @@ const fixture = Effect.fnUntraced(function* (
     ),
     Layer.provide(Layer.succeed(TwitchAccount, account)),
     Layer.provide(Layer.succeed(Tenants, tenants)),
-    Layer.provide(
-      Layer.succeed(TwitchEnrollment, {
-        begin: () => new AccountError({ code: "configuration" }),
-        complete: () => new AccountError({ code: "configuration" }),
-        status: () => new AccountError({ code: "configuration" }),
-      }),
-    ),
     Layer.provide(HttpServer.layerServices),
   );
 

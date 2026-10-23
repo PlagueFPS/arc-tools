@@ -5,6 +5,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
+  optimizeDeps: { exclude: ["cloudflare:workers"] },
+  environments: {
+    ssr: { build: { rolldownOptions: { external: ["cloudflare:workers"] } } },
+  },
   plugins: [
     tailwindcss(),
     tanstackStart({

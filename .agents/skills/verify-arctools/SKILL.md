@@ -5,7 +5,7 @@ description: Verify ARCToolsBot's Twitch chat and Discord slash-command HTTP pat
 
 # Verify ARCToolsBot
 
-Read [the feature map](features/README.md) and choose the affected journeys. The primary user interfaces are Twitch chat and Discord guild slash commands. Operator CLIs configure those interfaces. There is no web UI.
+Read [the feature map](features/README.md) and choose the affected journeys. The primary user interfaces are Twitch chat and Discord guild slash commands. Operator CLIs configure those interfaces. The public Website serves the home and connection pages and both OAuth callback flows. Bot serves signed ingress and authenticated operator endpoints.
 
 ## Launch
 
@@ -21,7 +21,7 @@ printf '%s\n' "$VERIFY_STAGE"
 
 Keep this terminal session and its exact stage. In another terminal, set `VERIFY_STAGE` to that printed value. Evidence is `.cloud-tests/verify-arctools/$VERIFY_STAGE/` relative to this checkout.
 
-The helper runs the documented Alchemy development command with an explicit `local-*` stage, the current Git revision, and public fixture credentials. It passes `/dev/null` as the CLI environment file and overrides application configuration with fixture values. By default the personal sender and its sole channel are `local_probe`. Set `ARC_VERIFY_MODE=bot` for launch, Doctor, drive, and cleanup to exercise the dedicated bot startup profile with the same fixture identities. This adds no real grants or live enrollment proof. The public origin is `https://local-verify.example`. No tunnel, provider grants, or command registration exists in this baseline. No migration or seed is needed for Discord PING and unsupported-context rejection. Durable Objects start empty.
+The helper runs the documented Alchemy development command with an explicit `local-*` stage, the current Git revision, and public fixture credentials. It passes `/dev/null` as the CLI environment file and overrides application configuration with fixture values. By default the personal sender and its sole channel are `local_probe`. Set `ARC_VERIFY_MODE=bot` for launch, Doctor, drive, and cleanup to exercise the dedicated bot startup profile with the same fixture identities. This adds no real grants or live enrollment proof. The Bot fixture origin is `https://local-verify.example`; Website OAuth uses `https://website.local-verify.example`. No tunnel, provider grants, or command registration exists in this baseline. No migration or seed is needed for Discord PING and unsupported-context rejection. Durable Objects start empty.
 
 Wait for `[Bot] Started` and the actual HTTP address in `launch.log`, then run Doctor. The default address is `http://localhost:1337`. If Alchemy selects another port, export `ARC_VERIFY_URL` with that exact local HTTP origin in the driving and cleanup terminal. Do not assume the first free port belongs to this run.
 

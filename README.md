@@ -41,11 +41,11 @@ Successful trusted PR checks publish a resident synthetic service preview. A suc
 
 For development, deployment, Twitch authorization, health/status, and Discord registration, follow [the operator guide](docs/operator-guide.md). Copy [.env.example](.env.example) for public configuration placeholders and inject secrets privately.
 
-The website in `apps/website` uses TanStack Start and Tailwind CSS. Its home and connection pages are prerendered at build time. Run `bun run dev:web` for a standalone visual preview at `http://localhost:5180/`. To test enrollment, run the full Bot with `bun run dev:local` and open its HTTPS tunnel URL. OAuth and the browser session belong to that origin.
+The website in `apps/website` uses TanStack Start and Tailwind CSS. Its home and connection pages are prerendered at build time. Run `bun run dev:web` for a standalone visual preview at `http://localhost:5180/`. For full enrollment, run `bun run dev:local` and open the Website HTTPS origin. Website owns OAuth and the browser session, and calls Bot through an internal typed service binding. Standalone preview renders pages but returns private 503 responses when the binding is unavailable. See [the website architecture](docs/website-architecture.md).
 
-For public enrollment with a real test Twitch application, select the dedicated `bot` profile in `.env.local` and follow [local tunnel enrollment](docs/operator-guide.md#exercise-public-enrollment-through-a-local-tunnel). Tunnel the Bot HTTP listener printed by Alchemy.
+For public enrollment with a real test Twitch application, select the dedicated `bot` profile in `.env.local` and follow [local tunnel enrollment](docs/operator-guide.md#exercise-public-enrollment-through-a-local-tunnel). Use separate public Website and Bot origins for OAuth and webhooks. Tunnel their respective listeners printed by Alchemy, or route separate hostnames through named tunnel ingress.
 
-For a new local tunnel session, edit `ARC_PUBLIC_URL` in `.env.local`, run `bun run dev:local` in one terminal, and run `bun run setup:local` in another. Update the portal endpoints manually if the tunnel host changed. Keep setup's OAuth output private.
+For a new local tunnel session, set `ARC_PUBLIC_URL` for Bot and `ARC_WEBSITE_URL` for Website in `.env.local`, run `bun run dev:local` in one terminal, and run `bun run setup:local` in another. Update the portal endpoints manually if the tunnel host changed. Keep setup's OAuth output private.
 
 [Verification records](docs/verification/README.md) distinguish accepted implementation units from unperformed live-provider, privacy, token-expiry, CI, and cost gates. The intended launch is a few quiet channels and guilds. It carries no free-tier cost guarantee.
 
