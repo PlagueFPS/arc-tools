@@ -9,12 +9,25 @@ import {
   HttpServerResponse,
 } from "effect/http";
 
-export const isWebsiteRequest = (method: string, pathname: string) =>
+const isDevelopmentAsset = (pathname: string) =>
+  ["/@vite/client", "/@react-refresh", "/@tanstack-start/styles.css"].includes(
+    pathname,
+  ) ||
+  ["/src/", "/node_modules/", "/@id/", "/@fs/"].some((prefix) =>
+    pathname.startsWith(prefix),
+  );
+
+export const isWebsiteRequest = (
+  method: string,
+  pathname: string,
+  development = false,
+) =>
   (method === "GET" || method === "HEAD") &&
   (pathname === "/" ||
     pathname === "/connect" ||
     pathname === "/favicon.ico" ||
-    pathname.startsWith("/assets/"));
+    pathname.startsWith("/assets/") ||
+    (development && isDevelopmentAsset(pathname)));
 
 export const forwardViteSocket = Effect.fnUntraced(function* (
   origin: string,
@@ -24,13 +37,13 @@ export const forwardViteSocket = Effect.fnUntraced(function* (
 
   if (
     request.method !== "GET" ||
-    incoming.pathname !== "/assets/" ||
+    incoming.pathname !== "/" ||
     request.headers.upgrade?.toLowerCase() !== "websocket" ||
     request.headers["sec-websocket-protocol"] !== "vite-hmr"
   )
     return HttpServerResponse.empty({ status: 404 });
 
-  const target = new URL("/assets/", origin);
+  const target = new URL("/", origin);
   const token = incoming.searchParams.get("token");
 
   if (token !== null) target.searchParams.set("token", token);
@@ -91,14 +104,17 @@ export const forwardWebsite = Effect.fnUntraced(
   ) {
     const url = new URL(request.url, "https://website.internal");
 
-    if (!isWebsiteRequest(request.method, url.pathname))
+    if (!isWebsiteRequest(request.method, url.pathname, development))
       return HttpServerResponse.empty({ status: 404 });
 
     const pathname = url.pathname;
 
     const target = new URL(pathname, "https://website.internal");
 
-    if (development && pathname.startsWith("/assets/")) {
+    if (
+      development &&
+      (pathname.startsWith("/assets/") || isDevelopmentAsset(pathname))
+    ) {
       const query: string[] = [];
 
       for (const key of [

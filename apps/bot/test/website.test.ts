@@ -48,6 +48,24 @@ for (const path of [
   test(`API or unknown path ${path} stays with Bot routing`, () => {
     expect(isWebsiteRequest("GET", path)).toBe(false);
     expect(isWebsiteRequest("HEAD", path)).toBe(false);
+    expect(isWebsiteRequest("GET", path, true)).toBe(false);
+  });
+}
+
+for (const path of [
+  "/src/router.tsx",
+  "/node_modules/.vite/deps/react.js",
+  "/@vite/client",
+  "/@react-refresh",
+  "/@id/virtual:tanstack-start-dev-client-entry",
+  "/@fs/workspace/node_modules/react/index.js",
+  "/@tanstack-start/styles.css",
+]) {
+  test(`Vite module ${path} is forwarded only during development`, () => {
+    expect(isWebsiteRequest("GET", path)).toBe(false);
+    expect(isWebsiteRequest("GET", path, true)).toBe(true);
+    expect(isWebsiteRequest("HEAD", path, true)).toBe(true);
+    expect(isWebsiteRequest("POST", path, true)).toBe(false);
   });
 }
 
@@ -125,7 +143,7 @@ test("Vite stylesheets retain CSS negotiation and public module queries without 
     const result = await forwardWebsite(
       (request) => {
         expect(request.url).toBe(
-          "https://website.internal/assets/src/styles.css?url&routes=__root__%2C%2F",
+          "https://website.internal/src/styles.css?url&routes=__root__%2C%2F",
         );
         expect(request.headers).toEqual(
           accept.startsWith("text/css")
@@ -139,7 +157,7 @@ test("Vite stylesheets retain CSS negotiation and public module queries without 
       },
       HttpServerRequest.fromWeb(
         new Request(
-          "https://bot.invalid/assets/src/styles.css?url&routes=__root__%2C%2F&code=private&state=private&token=private",
+          "https://bot.invalid/src/styles.css?url&routes=__root__%2C%2F&code=private&state=private&token=private",
           {
             headers: {
               accept,
@@ -263,9 +281,9 @@ test("Vite sockets reject other paths, methods and protocols before fetching", a
   for (const [method, path, protocol, upgrade] of [
     ["GET", "/oauth/twitch/enroll", "vite-hmr", "websocket"],
     ["GET", "/assets/src/entry.ts", "vite-hmr", "websocket"],
-    ["POST", "/assets/", "vite-hmr", "websocket"],
-    ["GET", "/assets/", "other-protocol", "websocket"],
-    ["GET", "/assets/", "vite-hmr", "other-upgrade"],
+    ["POST", "/", "vite-hmr", "websocket"],
+    ["GET", "/", "other-protocol", "websocket"],
+    ["GET", "/", "vite-hmr", "other-upgrade"],
   ] as const) {
     const response = await forwardViteSocket(
       "https://must-not-connect.invalid",
@@ -293,7 +311,7 @@ test("Vite sockets forward only the Vite token and protocol with an origin for t
     port: 0,
     fetch(request) {
       const url = new URL(request.url);
-      expect(url.pathname).toBe("/assets/");
+      expect(url.pathname).toBe("/");
       expect(url.search).toBe("?token=vite-token");
       expect(request.headers.get("origin")).toBe(url.origin);
       expect(request.headers.get("upgrade")).toBe("websocket");
@@ -309,18 +327,15 @@ test("Vite sockets forward only the Vite token and protocol with an origin for t
     const response = await forwardViteSocket(
       server.url.href,
       HttpServerRequest.fromWeb(
-        new Request(
-          "https://bot.invalid/assets/?token=vite-token&code=private",
-          {
-            headers: {
-              Upgrade: "websocket",
-              "Sec-WebSocket-Protocol": "vite-hmr",
-              Cookie: "private",
-              Authorization: "private",
-              Origin: "https://unexpected.invalid",
-            },
+        new Request("https://bot.invalid/?token=vite-token&code=private", {
+          headers: {
+            Upgrade: "websocket",
+            "Sec-WebSocket-Protocol": "vite-hmr",
+            Cookie: "private",
+            Authorization: "private",
+            Origin: "https://unexpected.invalid",
           },
-        ),
+        }),
       ),
     ).pipe(Effect.provide(FetchHttpClient.layer), Effect.runPromise);
 
@@ -335,7 +350,7 @@ test("Vite sockets forward only the Vite token and protocol with an origin for t
 
 const viteSocketRequest = () =>
   HttpServerRequest.fromWeb(
-    new Request("https://bot.invalid/assets/?token=vite-token&code=private", {
+    new Request("https://bot.invalid/?token=vite-token&code=private", {
       headers: {
         Upgrade: "websocket",
         "Sec-WebSocket-Protocol": "vite-hmr",
@@ -352,7 +367,7 @@ test("Vite sockets use the injected HttpClient with sanitized requests and manua
   const client = HttpClient.make((request, url, _signal, fiber) => {
     calls++;
     expect(request.method).toBe("GET");
-    expect(url.href).toBe("https://vite.invalid/assets/?token=vite-token");
+    expect(url.href).toBe("https://vite.invalid/?token=vite-token");
     expect(request.headers.origin).toBe("https://vite.invalid");
     expect(request.headers.upgrade).toBe("websocket");
     expect(request.headers["sec-websocket-protocol"]).toBe("vite-hmr");
@@ -421,7 +436,7 @@ test("Vite redirects are returned without contacting their destination", async (
     hostname: "127.0.0.1",
     port: 0,
     fetch(request) {
-      if (new URL(request.url).pathname === "/assets/")
+      if (new URL(request.url).pathname === "/")
         return new Response(null, {
           status: 302,
           headers: { Location: "/must-not-follow" },

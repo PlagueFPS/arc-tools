@@ -3,13 +3,11 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-export default defineConfig(({ command, isPreview }) => ({
-  base: command === "serve" && !isPreview ? "/assets/" : "/",
+export default defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
     tailwindcss(),
     tanstackStart({
-      router: { basepath: "/" },
       prerender: {
         enabled: true,
         autoSubfolderIndex: true,
@@ -26,4 +24,4 @@ export default defineConfig(({ command, isPreview }) => ({
     environment: "happy-dom",
     setupFiles: ["./src/test-setup.ts"],
   },
-}));
+});

@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5180",
+    "dev": "vite --port 5180",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 5180 --strictPort",
+    "preview": "vite preview --port 5180 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

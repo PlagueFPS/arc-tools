@@ -111,10 +111,12 @@ export class Bot extends Cloudflare.Worker<Bot>()(
           const pathname = new URL(request.url, "https://bot.internal")
             .pathname;
 
-          if (website && isWebsiteRequest(request.method, pathname)) {
-            // Browser development modules are served by Vite's HTTP listener.
-            const localUrl = yield* website.developmentUrl;
+          const localUrl = website ? yield* website.developmentUrl : "";
 
+          if (
+            website &&
+            isWebsiteRequest(request.method, pathname, localUrl !== "")
+          ) {
             if (
               localUrl &&
               request.headers.upgrade?.toLowerCase() === "websocket"
