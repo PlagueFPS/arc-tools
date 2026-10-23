@@ -19,9 +19,10 @@ import { fixtureConfig, harness, initial } from "./account-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 
-const production = {
+const bot = {
   ...fixtureConfig,
-  kind: "production",
+  senderKind: "bot",
+  stage: "local-enrollment",
 } satisfies Parameters<typeof harness>[0];
 
 export const enrollmentInput = Effect.fnUntraced(function* (
@@ -62,11 +63,25 @@ const enroll = Effect.fnUntraced(function* (
 const snapshot = (h: Effect.Success<ReturnType<typeof harness>>) =>
   Schema.decodeUnknownSync(AccountState)(h.snapshot());
 
-for (const kind of ["personal", "test"] as const) {
+test(
+  "a local dedicated bot cannot begin enrollment before sender authorization",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    const input = yield* enrollmentInput();
+    expect((yield* h.enrollment.begin(input).pipe(Effect.flip)).code).toBe(
+      "configuration",
+    );
+    expect(snapshot(h).publicMembers).toEqual([]);
+    expect(snapshot(h).enrollments).toEqual([]);
+    expect(h.control.exchanges).toBe(0);
+  }),
+);
+
+for (const senderKind of ["personal", "synthetic"] as const) {
   test(
-    `production public membership stays dormant after a ${kind} transition and can be reauthorized in production`,
+    `bot public membership stays dormant after a ${senderKind} transition and can be reauthorized in bot`,
     Effect.gen(function* () {
-      const source = yield* harness(production);
+      const source = yield* harness(bot);
       yield* Effect.gen(function* () {
         yield* source.authorize();
         yield* enroll(source);
@@ -76,7 +91,7 @@ for (const kind of ["personal", "test"] as const) {
 
       const h = yield* harness({
         ...fixtureConfig,
-        kind,
+        senderKind,
         channelLogins: [fixtureConfig.senderLogin],
       });
 
@@ -84,7 +99,7 @@ for (const kind of ["personal", "test"] as const) {
       h.control.remote = structuredClone(source.control.remote);
       h.control.creates = source.control.creates;
       yield* Effect.gen(function* () {
-        const restored = yield* h.construct(`${kind}-revision`);
+        const restored = yield* h.construct(`${senderKind}-revision`);
         yield* h.authorize(restored.service);
         expect(
           (yield* restored.service.status()).channels.map((c) => c.login),
@@ -114,15 +129,15 @@ for (const kind of ["personal", "test"] as const) {
         expect(h.control.sends).toBe(0);
       }).pipe(Effect.provideService(Clock.Clock, h.clock));
 
-      const returned = yield* harness(production);
+      const returned = yield* harness(bot);
       returned.restore(snapshot(h));
       returned.control.creates = h.control.creates;
       yield* Effect.gen(function* () {
-        const restored = yield* returned.construct("returned-production");
+        const restored = yield* returned.construct("returned-bot");
         yield* returned.authorize(restored.service);
         expect(
           (yield* restored.service.status()).channels.map((c) => c.login),
-        ).toEqual(["public_channel", ...production.channelLogins]);
+        ).toEqual(["public_channel", ...bot.channelLogins]);
         expect(snapshot(returned).publicMembers).toEqual(
           snapshot(source).publicMembers,
         );
@@ -156,69 +171,79 @@ for (const kind of ["personal", "test"] as const) {
   );
 }
 
-test(
-  "public membership preserves sender, revision, other grants and shared limits and setup retains membership",
-  Effect.gen(function* () {
-    const h = yield* harness(production);
-    yield* Effect.gen(function* () {
-      yield* h.authorize();
-      yield* h.account.dispatch(h.send("before-public"));
-      const before = snapshot(h);
-      const input = yield* enroll(h);
-      const saved = snapshot(h);
-      expect(saved.sender).toEqual(before.sender);
-      expect(saved.revision).toBe(before.revision);
-      expect(saved.authGeneration).toBe(before.authGeneration);
-      expect(saved.grants).toEqual({
-        ...before.grants,
-        "400": ["channel:bot"],
+for (const stage of ["local-enrollment", "staging", "prod"]) {
+  test(
+    `${stage} bot membership preserves sender, grants and limits through alarm, dispatch and repeated setup`,
+    Effect.gen(function* () {
+      const h = yield* harness({
+        ...bot,
+        stage,
+        twitchClientId: `controlled-${stage}-application`,
       });
-      expect(saved.attempts).toEqual(before.attempts);
-      expect(saved.reservations).toEqual(before.reservations);
-      expect(saved.repair.kind).toBe("scheduled");
-      expect(h.nativeAlarmAt()).toBe(initial + 1);
-      expect(JSON.stringify(h.snapshot())).not.toContain("canary-user-token");
-      expect(JSON.stringify(h.snapshot())).not.toContain(input.state);
-      expect(yield* h.enrollment.status(input.session)).toEqual({
-        kind: "pending",
-      });
-      h.time(initial + 1);
-      h.consumeAlarm();
-      yield* h.alarm();
-      expect(yield* h.enrollment.status(input.session)).toEqual({
-        kind: "ready",
-        login: "public_channel",
-      });
-      expect(
-        (yield* h.account.dispatch(h.send("public-send", "400"))).kind,
-      ).toBe("sent");
-      expect(
-        (yield* h.account.setup("operator-digest")).status.channels.map(
-          (channel) => String(channel.id),
-        ),
-      ).toEqual(["400", "200", "300"]);
-      expect(snapshot(h).publicMembers).toEqual([
-        {
-          id: BroadcasterId.make("400"),
+
+      yield* Effect.gen(function* () {
+        yield* h.authorize();
+        yield* h.account.dispatch(h.send("before-public"));
+        const before = snapshot(h);
+        const input = yield* enroll(h);
+        const saved = snapshot(h);
+        expect(saved.sender).toEqual(before.sender);
+        expect(saved.revision).toBe(before.revision);
+        expect(saved.authGeneration).toBe(before.authGeneration);
+        expect(saved.grants).toEqual({
+          ...before.grants,
+          "400": ["channel:bot"],
+        });
+        expect(saved.attempts).toEqual(before.attempts);
+        expect(saved.reservations).toEqual(before.reservations);
+        expect(saved.repair.kind).toBe("scheduled");
+        expect(h.nativeAlarmAt()).toBe(initial + 1);
+        expect(JSON.stringify(h.snapshot())).not.toContain("canary-user-token");
+        expect(JSON.stringify(h.snapshot())).not.toContain(input.state);
+        expect(yield* h.enrollment.status(input.session)).toEqual({
+          kind: "pending",
+        });
+        h.time(initial + 1);
+        h.consumeAlarm();
+        yield* h.alarm();
+        expect(yield* h.enrollment.status(input.session)).toEqual({
+          kind: "ready",
           login: "public_channel",
-          revocationGeneration: 0,
-        },
-      ]);
-      const exchanges = h.control.exchanges;
-      expect(
-        (yield* h.enrollment
-          .complete({ ...input, outcome: { kind: "accepted", code: "replay" } })
-          .pipe(Effect.flip)).code,
-      ).toBe("state");
-      expect(h.control.exchanges).toBe(exchanges);
-    }).pipe(Effect.provideService(Clock.Clock, h.clock));
-  }),
-);
+        });
+        expect(
+          (yield* h.account.dispatch(h.send("public-send", "400"))).kind,
+        ).toBe("sent");
+        expect(
+          (yield* h.account.setup("operator-digest")).status.channels.map(
+            (channel) => String(channel.id),
+          ),
+        ).toEqual(["400", "200", "300"]);
+        expect(snapshot(h).publicMembers).toEqual([
+          {
+            id: BroadcasterId.make("400"),
+            login: "public_channel",
+            revocationGeneration: 0,
+          },
+        ]);
+        const exchanges = h.control.exchanges;
+        expect(
+          (yield* h.enrollment
+            .complete({
+              ...input,
+              outcome: { kind: "accepted", code: "replay" },
+            })
+            .pipe(Effect.flip)).code,
+        ).toBe("state");
+        expect(h.control.exchanges).toBe(exchanges);
+      }).pipe(Effect.provideService(Clock.Clock, h.clock));
+    }),
+  );
+}
 
 test(
   "wrong session and state cannot consume valid authorization or denial; expiry and denial exchange nothing",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enrollmentInput();
@@ -280,7 +305,7 @@ for (const mismatch of [
   test(
     `public callback rejects ${mismatch} and never changes sender or grants`,
     Effect.gen(function* () {
-      const h = yield* harness(production);
+      const h = yield* harness(bot);
       yield* Effect.gen(function* () {
         yield* h.authorize();
         const input = yield* enrollmentInput();
@@ -328,7 +353,7 @@ test(
   "one claim exchanges once and lease, generation, revision and expiry fence late completion",
   Effect.gen(function* () {
     for (const fence of ["lease", "generation", "revision", "expiry"]) {
-      const h = yield* harness(production);
+      const h = yield* harness(bot);
       yield* Effect.gen(function* () {
         yield* h.authorize();
         const input = yield* enrollmentInput();
@@ -382,7 +407,7 @@ test(
   "intent capacity is reclaimed by TTL and browser rotation; channel capacity is admitted atomically",
   Effect.gen(function* () {
     const identity = {
-      ...production,
+      ...bot,
       channelLogins: Array.from(
         { length: 31 },
         (_, i) => `fixture_channel_${i}`,
@@ -438,7 +463,7 @@ test(
           Result.isFailure(result) ? [result.failure.code] : [],
         ),
       ).toEqual(["capacity"]);
-      expect(desiredChannels(snapshot(h), production.kind).length).toBe(32);
+      expect(desiredChannels(snapshot(h), bot.senderKind).length).toBe(32);
       expect(snapshot(h).publicMembers.length).toBe(1);
       const member = snapshot(h).publicMembers[0];
 
@@ -451,7 +476,7 @@ test(
         ...reauth,
         outcome: { kind: "accepted", code: "reauth" },
       });
-      expect(desiredChannels(snapshot(h), production.kind).length).toBe(32);
+      expect(desiredChannels(snapshot(h), bot.senderKind).length).toBe(32);
       h.time(initial + policy.oauthMs);
       yield* h.enrollment.begin(yield* enrollmentInput());
       expect(
@@ -466,7 +491,7 @@ test(
 test(
   "current keyed membership survives reconstruction and revision while previous sessions require reauthorization",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
 
@@ -507,7 +532,7 @@ test(
 test(
   "reconstruction and alarms repair unknown receipts without polling, then require confirmed enabled observations",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enroll(h);
@@ -562,7 +587,7 @@ test(
 test(
   "repair retries are bounded and app credential invalidation preserves its native alarm",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enroll(h);
@@ -594,7 +619,7 @@ test(
 test(
   "revocation stops readiness and a new grant reinstalls without replacing sender; personal environments deny mutation",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enroll(h);
@@ -626,33 +651,39 @@ test(
       expect(snapshot(h).sender?.id).toBe("100");
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
 
-    const personal = yield* harness({
-      ...fixtureConfig,
-      kind: "personal",
-      stage: "staging",
-      senderLogin: "personal",
-      channelLogins: ["personal"],
-    });
+    for (const senderKind of ["personal", "synthetic"] as const) {
+      const restricted = yield* harness({
+        ...fixtureConfig,
+        senderKind,
+        stage: senderKind === "personal" ? "staging" : fixtureConfig.stage,
+        senderLogin: "personal",
+        channelLogins: ["personal"],
+      });
 
-    const input = yield* enrollmentInput();
-    const before = personal.snapshot();
-    expect(
-      (yield* personal.enrollment.begin(input).pipe(Effect.flip)).code,
-    ).toBe("configuration");
-    expect(
-      (yield* personal.enrollment
-        .complete({ ...input, outcome: { kind: "accepted", code: "secret" } })
-        .pipe(Effect.flip)).code,
-    ).toBe("configuration");
-    expect(personal.snapshot()).toEqual(before);
-    expect(personal.control.exchanges).toBe(0);
+      const input = yield* enrollmentInput();
+      const before = restricted.snapshot();
+      expect(
+        (yield* restricted.enrollment.begin(input).pipe(Effect.flip)).code,
+      ).toBe("configuration");
+      expect(
+        (yield* restricted.enrollment
+          .complete({ ...input, outcome: { kind: "accepted", code: "secret" } })
+          .pipe(Effect.flip)).code,
+      ).toBe("configuration");
+      expect(restricted.snapshot()).toEqual(before);
+      expect(restricted.control.exchanges).toBe(0);
+      expect(yield* restricted.enrollment.status(input.session)).toEqual({
+        kind: "failed",
+        reason: "unavailable",
+      });
+    }
   }),
 );
 
 test(
   "a held repair preserves a newer enrollment's repair id and schedule across completion and retries",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       yield* enroll(h);
@@ -721,7 +752,7 @@ test(
 test(
   "operator setup and alarm use one lease while retaining newly enrolled membership and proofs",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enroll(h);
@@ -762,7 +793,7 @@ test(
 test(
   "reconciliation preserves other callback and sender subscriptions while replacing only managed unknown receipts",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enroll(h);
@@ -804,7 +835,7 @@ test(
 test(
   "public revocation isolates sender, other members and pending enrollment, then reauthorizes without operator OAuth",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const first = yield* enroll(h);
@@ -881,7 +912,7 @@ test(
 test(
   "public revocation fences held reconciliation and an affected exchange while an unrelated in-flight exchange survives",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       yield* enroll(h);
@@ -958,7 +989,7 @@ test(
   "enrollment permits three individually valid slow calls and rejects completion beyond its total budget",
   Effect.gen(function* () {
     for (const elapsed of [11_700, 14_001]) {
-      const h = yield* harness(production);
+      const h = yield* harness(bot);
       yield* Effect.gen(function* () {
         yield* h.authorize();
         const input = yield* enrollmentInput();
@@ -998,10 +1029,10 @@ test(
   "setup reports capacity for expanded or replaced configuration without dropping stored membership",
   Effect.gen(function* () {
     for (const channelLogins of [
-      [...production.channelLogins, "expanded"],
+      [...bot.channelLogins, "expanded"],
       ["replacement_a", "replacement_b", "replacement_c"],
     ]) {
-      const h = yield* harness(production);
+      const h = yield* harness(bot);
       yield* Effect.gen(function* () {
         yield* h.authorize();
 
@@ -1016,10 +1047,10 @@ test(
         }
 
         const before = snapshot(h);
-        expect(desiredChannels(before, production.kind).length).toBe(32);
+        expect(desiredChannels(before, bot.senderKind).length).toBe(32);
 
         const changed = yield* h.construct("revision-one", "fixture-binding", {
-          ...production,
+          ...bot,
           channelLogins,
         });
 
@@ -1040,7 +1071,7 @@ test(
 test(
   "a public revocation before a delayed create receipt prevents late proof persistence",
   Effect.gen(function* () {
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enroll(h);
@@ -1092,7 +1123,7 @@ test(
   "the total enrollment deadline cancels a held exchange and replay cannot commit later",
   Effect.gen(function* () {
     const clock = yield* Clock.Clock;
-    const h = yield* harness(production);
+    const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enrollmentInput();

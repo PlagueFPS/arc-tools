@@ -400,10 +400,10 @@ export function reserveAt(
 
 export function desiredChannels(
   state: Pick<AccountState, "channels" | "publicMembers">,
-  kind: AccountIdentity["kind"],
+  senderKind: AccountIdentity["senderKind"],
 ) {
   const channels = new Map<string, AccountState["channels"][number]>(
-    (kind === "production" ? state.publicMembers : []).map((channel) => [
+    (senderKind === "bot" ? state.publicMembers : []).map((channel) => [
       channel.id,
       channel,
     ]),

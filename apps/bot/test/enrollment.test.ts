@@ -51,9 +51,10 @@ const callback = `${origin}/webhooks/twitch`;
 
 const identity = Schema.decodeUnknownSync(EnvironmentConfig)({
   ...fixtureConfig,
-  kind: "production",
-  stage: "prod",
-  applicationStage: "prod",
+  kind: "bot",
+  stage: "local-enrollment",
+  applicationStage: "local-enrollment",
+  twitchClientId: "independent-test-application",
   senderKind: "bot",
   discordApplicationId: "controlled-discord",
 });
@@ -80,14 +81,14 @@ const fixture = Effect.fnUntraced(function* (
         handlers.handle("health", () =>
           Effect.succeed({
             status: "ready",
-            stage: "prod",
+            stage: identity.stage,
             revision: "controlled",
             manifestHash: "controlled",
           }),
         ),
       ),
     ),
-    Layer.provide(operatorHandlers("prod", Redacted.make("operator"))),
+    Layer.provide(operatorHandlers(identity.stage, Redacted.make("operator"))),
     Layer.provide(
       ingressHandlers({
         identity,
@@ -315,6 +316,37 @@ test(
         kind: "ready",
         login: "public_channel",
       });
+
+      const selfBody = new TextEncoder().encode(
+        JSON.stringify({
+          ...notification,
+          event: {
+            ...notification.event,
+            message_id: "self-command",
+            chatter_user_id: "100",
+          },
+        }),
+      );
+
+      const selfHeaders = yield* signTwitch(
+        selfBody,
+        "self-delivery",
+        initial + 1,
+        "notification",
+      );
+
+      const selfResponse = yield* Effect.promise(() =>
+        f.app.handler(
+          new Request(`${origin}/webhooks/twitch`, {
+            method: "POST",
+            body: selfBody,
+            headers: selfHeaders,
+          }),
+        ),
+      );
+
+      expect(selfResponse.status).toBe(204);
+      expect(f.admissions).toEqual(["400"]);
       const unrelated = yield* f.begin();
       expect(yield* f.status(unrelated.cookie)).toEqual({ kind: "pending" });
       const exchanges = f.h.control.exchanges;
@@ -535,7 +567,7 @@ test(
             authorization: "Bearer operator",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ stage: "prod" }),
+          body: JSON.stringify({ stage: identity.stage }),
         }),
       ),
     );

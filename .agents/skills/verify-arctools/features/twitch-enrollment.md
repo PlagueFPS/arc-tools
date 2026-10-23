@@ -8,7 +8,7 @@ A broadcaster authorizes `channel:bot` through the existing bot Worker. The envi
 - Return through `GET /oauth/twitch/callback` in the same browser.
 - Read only that installation at `GET /oauth/twitch/enroll/status` with its cookie.
 
-Public enrollment requires a production identity, an operator-resolved bot sender with valid sender grants, and webhook readiness. The personal local baseline and synthetic application environments reject enrollment. The root environment schema continues enforcing stage, application, and sender isolation. Live verification needs an explicitly authorized production application or a separately reviewed live fixture arrangement. Do not relabel a personal environment or add request-selectable provider endpoints.
+Public enrollment requires a dedicated bot identity, an operator-resolved bot sender with valid sender grants, and webhook readiness. The personal local baseline and synthetic application environments reject enrollment. The root environment schema continues enforcing stage, application, and sender isolation. Live verification uses a separately configured real test application on a local bot profile through an HTTPS tunnel, or the deployed staging bot profile. Follow the operator guide. Keep production on `prod` and reserve `test-*` for synthetic fixtures. Do not add request-selectable provider endpoints.
 
 ## Drive controlled journeys
 

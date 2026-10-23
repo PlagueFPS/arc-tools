@@ -30,7 +30,7 @@ import { Clock, Deferred, Effect, Exit, Schema, Semaphore } from "effect";
 export const initial = 1_000_000_000_000;
 
 export const fixtureConfig = {
-  kind: "test",
+  senderKind: "synthetic",
   stage: "test-account-0123456789ab",
   senderLogin: "fixture_sender",
   channelLogins: ["fixture_channel", "fixture_other"],

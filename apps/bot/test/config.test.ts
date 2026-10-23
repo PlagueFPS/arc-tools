@@ -23,6 +23,34 @@ const fixture = {
 
 const decode = Schema.decodeUnknownSync(EnvironmentConfig);
 
+for (const stage of ["local-enrollment", "staging"] as const) {
+  test(`dedicated bots can use their own real application in ${stage}`, () => {
+    const bot = {
+      ...fixture,
+      kind: "bot",
+      stage,
+      applicationStage: stage,
+      senderKind: "bot",
+      senderLogin: "test_bot",
+      channelLogins: ["test_channel"],
+      twitchClientId: "independent-test-application",
+      discordApplicationId: "independent-discord-application",
+    } satisfies EnvironmentConfig;
+
+    expect(decode(bot)).toEqual(bot);
+
+    for (const overrides of [
+      { applicationStage: "local-other" },
+      { senderKind: "personal" },
+      { senderKind: "synthetic" },
+      { stage: fixture.stage, applicationStage: fixture.stage },
+      { stage: "prod", applicationStage: "prod" },
+      { channelLogins: [] },
+    ])
+      expect(() => decode({ ...bot, ...overrides })).toThrow();
+  });
+}
+
 test("personal environments subscribe only to the sender channel", () => {
   const personal = {
     ...fixture,
@@ -144,6 +172,43 @@ test("request observers are isolated and reject personal or production compositi
 });
 
 const effects = Test.make({ providers: Layer.empty });
+
+for (const stage of ["local-enrollment", "staging"]) {
+  effects.test(
+    `runtime accepts the ${stage} bot profile without provider I/O`,
+    Effect.gen(function* () {
+      const config = yield* runtimeConfig.pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromUnknown({
+            ARC_STAGE: stage,
+            APPLICATION_STAGE: stage,
+            ARC_ENVIRONMENT: "bot",
+            TWITCH_SENDER_KIND: "bot",
+            TWITCH_SENDER_LOGIN: "development_bot",
+            TWITCH_CHANNEL_LOGINS: "development_channel,other_channel",
+            TWITCH_CLIENT_ID: "independent-test-application",
+            DISCORD_APPLICATION_ID: "independent-discord-application",
+            TWITCH_CLIENT_SECRET: "controlled-client-secret",
+            TWITCH_SIGNING_SECRET: "controlled-signing-secret",
+            DISCORD_BOT_TOKEN: "controlled-discord-token",
+            DISCORD_PUBLIC_KEY: "a".repeat(64),
+            OPERATOR_SECRET: "controlled-operator-secret",
+          }),
+        ),
+      );
+
+      expect(config.identity).toMatchObject({
+        stage,
+        applicationStage: stage,
+        kind: "bot",
+        senderKind: "bot",
+        twitchClientId: "independent-test-application",
+        channelLogins: ["development_channel", "other_channel"],
+      });
+    }),
+  );
+}
 
 effects.test(
   "runtime configuration resolves declared bindings without provider I/O",
