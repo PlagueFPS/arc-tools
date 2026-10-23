@@ -10,6 +10,7 @@
     "build": "turbo run build",
     "test": "turbo run test && bun --no-env-file test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-response.test.ts ./tests/cloud/discord-failure.test.ts ./tests/cloud/alarm-attribution.test.ts ./scripts/local.test.ts ./scripts/preview.test.ts ./scripts/preview-workflows.test.ts",
     "dev": "alchemy dev",
+    "dev:web": "turbo run dev --filter=@arctools/website",
     "dev:local": "bun run scripts/local.ts dev",
     "setup:local": "bun run scripts/local.ts setup",
     "status:local": "bun run scripts/local.ts status",

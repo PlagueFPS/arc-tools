@@ -41,7 +41,7 @@ Successful trusted PR checks publish a resident synthetic service preview. A suc
 
 For development, deployment, Twitch authorization, health/status, and Discord registration, follow [the operator guide](docs/operator-guide.md). Copy [.env.example](.env.example) for public configuration placeholders and inject secrets privately.
 
-The website in `apps/website` uses TanStack Start and Tailwind CSS. Its home and connection pages are prerendered at build time. Run `bun run --cwd apps/website dev` for a standalone visual preview. To test enrollment, run the full Bot with `bun run dev:local` and open its HTTPS tunnel URL. OAuth and the browser session belong to that origin.
+The website in `apps/website` uses TanStack Start and Tailwind CSS. Its home and connection pages are prerendered at build time. Run `bun run dev:web` for a standalone visual preview at `http://127.0.0.1:5180/`. To test enrollment, run the full Bot with `bun run dev:local` and open its HTTPS tunnel URL. OAuth and the browser session belong to that origin.
 
 For public enrollment with a real test Twitch application, select the dedicated `bot` profile in `.env.local` and follow [local tunnel enrollment](docs/operator-guide.md#exercise-public-enrollment-through-a-local-tunnel). Tunnel the Bot HTTP listener printed by Alchemy.
 
