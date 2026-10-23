@@ -16,14 +16,17 @@ export function Connection() {
 
   return (
     <section className={contentPage}>
-      <Link to="/" className="text-xs text-[#bbb3c7] hover:text-violet">
+      <Link
+        to="/"
+        className="text-xs text-muted-foreground hover:text-foreground"
+      >
         ← Back to ARC Tools
       </Link>
       <h1 className={pageTitle}>Your channel connection.</h1>
       <p className="text-sm leading-[1.8] text-muted-foreground">
         One place to see if your chat is ready for the next raid.
       </p>
-      <Card className="mt-[35px] gap-0 overflow-visible border border-[#49414f] p-[25px] ring-0 tablet:p-[34px]">
+      <Card className="mt-[35px] gap-0 overflow-visible border border-border p-[25px] ring-0 tablet:p-[34px]">
         <div role="status" aria-live="polite" aria-atomic="true">
           {absent ? (
             <StatusHeading
@@ -47,7 +50,7 @@ export function Connection() {
             />
           )}
           {query.isError && query.data && !absent && (
-            <p className="mt-5 text-[13px] leading-[1.8] text-[#e2ca9b]">
+            <p className="mt-5 text-[13px] leading-[1.8] text-foreground">
               Status could not be refreshed. The last known status is shown.
               Check again in a moment.
             </p>
@@ -119,11 +122,11 @@ function EnrollmentDetails({ status }: { status: EnrollmentStatus }) {
             title="You're raid ready."
             copy={`ARC Tools is ready in ${status.login}'s Twitch chat.`}
           />
-          <div className="mt-[25px] flex flex-wrap gap-[15px] rounded border border-[#514262] bg-[#2e263b] p-[18px]">
+          <div className="mt-[25px] flex flex-wrap gap-[15px] rounded border border-border bg-muted p-[18px]">
             <span className="self-center text-[9px] tracking-[1.2px]">
               TRY IT IN YOUR CHAT
             </span>
-            <code className="text-sm text-[#d1c2fb]">!find sensors</code>
+            <code className="text-sm text-foreground">!find sensors</code>
           </div>
         </>
       );

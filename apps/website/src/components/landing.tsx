@@ -11,14 +11,14 @@ export function Landing() {
           <Eyebrow>
             <span
               aria-hidden="true"
-              className="size-[6px] rounded-full bg-violet"
+              className="size-[6px] rounded-full bg-primary"
             />
             BUILT FOR ARC RAIDERS · ON TWITCH
           </Eyebrow>
           <h1 className="my-[23px] font-heading text-[64px] leading-[1.05] font-semibold tracking-[-3px] tablet:text-[clamp(54px,6.2vw,86px)] desktop:tracking-[-5px] max-[380px]:text-[56px]">
             Your chat.
             <br />
-            <span className="text-violet">Raid ready.</span>
+            <span className="text-foreground">Raid ready.</span>
           </h1>
           <p className="max-w-[480px] text-base leading-[1.8] text-muted-foreground tablet:max-w-[430px]">
             Less alt-tabbing. More raiding. Give your community item, crafting,
@@ -32,8 +32,8 @@ export function Landing() {
               No downloads. No chat overlay.
             </p>
           </div>
-          <div className="mt-9 flex items-center gap-[13px] text-[10px] text-[#8d8997] tablet:items-start desktop:items-center">
-            <code className="text-[11px] whitespace-nowrap text-[#d1c2fb]">
+          <div className="mt-9 flex items-center gap-[13px] text-[10px] text-muted-foreground tablet:items-start desktop:items-center">
+            <code className="text-[11px] whitespace-nowrap text-foreground">
               !find sensors
             </code>
             <span>A little less searching. A lot more playing.</span>
@@ -43,7 +43,7 @@ export function Landing() {
       </section>
       <section
         aria-label="How ARC Tools works"
-        className={`${wrap} border-t border-line pt-[35px] pb-[52px] tablet:pt-11`}
+        className={`${wrap} border-t border-border pt-[35px] pb-[52px] tablet:pt-11`}
       >
         <Eyebrow>YOUR COMMUNITY'S FIELD GUIDE</Eyebrow>
         <h2 className="mt-2 font-heading text-[29px] tracking-[-1px]">
@@ -63,12 +63,12 @@ export function Landing() {
             playing. Everyone keeps up.
           </Capability>
         </div>
-        <div className="mt-[35px] flex flex-wrap items-center gap-4 rounded-[5px] border border-line px-5 py-4 tablet:gap-[26px]">
-          <span className="mr-auto w-full text-[9px] tracking-[1.5px] text-[#9e97a8] tablet:w-auto">
+        <div className="mt-[35px] flex flex-wrap items-center gap-4 rounded-lg border border-border px-5 py-4 tablet:gap-[26px]">
+          <span className="mr-auto w-full text-[9px] tracking-[1.5px] text-muted-foreground tablet:w-auto">
             IN YOUR CHAT
           </span>
           {["!find sensors", "!craft sensors", "!active"].map((command) => (
-            <code key={command} className="text-[11px] text-[#d1c2fb]">
+            <code key={command} className="text-[11px] text-foreground">
               {command}
             </code>
           ))}
@@ -89,7 +89,7 @@ function Capability({
 }) {
   return (
     <article>
-      <p className="text-[9px] font-bold tracking-[1.8px] text-[#8f869e]">
+      <p className="text-[9px] font-bold tracking-[1.8px] text-muted-foreground">
         {number}
       </p>
       <h3 className="my-2 font-heading text-[17px] font-medium tracking-[-0.4px] tablet:mt-[13px] tablet:mb-[10px]">

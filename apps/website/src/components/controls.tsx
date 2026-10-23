@@ -14,7 +14,7 @@ export const primaryButton = buttonVariants({ size: "lg" });
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <p className="flex items-center gap-2 text-[10px] font-bold leading-[1.7] tracking-[1.8px] text-violet">
+    <p className="flex items-center gap-2 text-[10px] font-bold leading-[1.7] tracking-[1.8px] text-foreground">
       {children}
     </p>
   );

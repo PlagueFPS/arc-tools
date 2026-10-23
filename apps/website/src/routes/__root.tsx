@@ -19,7 +19,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         { charSet: "utf-8" },
         { name: "viewport", content: "width=device-width, initial-scale=1" },
         { title: "ARC Tools · Your chat, raid ready." },
-        { name: "theme-color", content: "#151517" },
+        { name: "theme-color", content: "#130918" },
         { name: "referrer", content: "no-referrer" },
         {
           name: "description",
