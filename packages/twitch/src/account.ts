@@ -86,6 +86,11 @@ const CallbackUrl = Schema.String.check(
   }),
 );
 
+const OAuthRedirectUrl = Schema.Union([
+  CallbackUrl,
+  Schema.Literal("http://localhost:3000/oauth/twitch/callback"),
+]);
+
 const liveSubscription = (status: string) =>
   status === "enabled" || status === "webhook_callback_verification_pending";
 
@@ -637,7 +642,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     if (
       config.identity.channelLogins.length > policy.maxChannels ||
       !Schema.is(CallbackUrl)(config.callback) ||
-      !Schema.is(CallbackUrl)(config.redirect)
+      !Schema.is(OAuthRedirectUrl)(config.redirect)
     )
       return yield* new AccountError({ code: "configuration" });
     const now = yield* Clock.currentTimeMillis;
@@ -982,7 +987,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       config.identity.senderKind !== "bot" ||
       !config.webhookReady ||
       !Schema.is(CallbackUrl)(config.callback) ||
-      !Schema.is(CallbackUrl)(config.redirect)
+      !Schema.is(OAuthRedirectUrl)(config.redirect)
     )
       return yield* new AccountError({ code: "configuration" });
     const now = yield* Clock.currentTimeMillis;

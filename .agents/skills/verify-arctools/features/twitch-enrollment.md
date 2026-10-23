@@ -4,11 +4,11 @@ A broadcaster authorizes `channel:bot` through the public Website, which calls B
 
 ## Entry points and prerequisites
 
-- Begin at `GET /oauth/twitch/enroll` on the Website HTTPS origin configured by `ARC_WEBSITE_URL`.
+- Begin at `GET /oauth/twitch/enroll` on the Website origin, defaulting to `http://localhost:3000` outside production.
 - Return through `GET /oauth/twitch/callback` in the same browser.
 - Read only that installation at `GET /oauth/twitch/enroll/status` with its cookie.
 
-Public enrollment requires a dedicated bot identity, an operator-resolved bot sender with valid sender grants, and webhook readiness. The personal local baseline and synthetic application environments reject enrollment. The root environment schema continues enforcing stage, application, and sender isolation. Live verification uses a separately configured real test application on a local bot profile through separate Website and Bot HTTPS tunnel origins, or the deployed staging bot profile. Follow the operator guide. Keep production on `prod` and reserve `test-*` for synthetic fixtures. Do not add request-selectable provider endpoints.
+Public enrollment requires a dedicated bot identity, an operator-resolved bot sender with valid sender grants, and webhook readiness. The personal local baseline and synthetic application environments reject enrollment. The root environment schema continues enforcing stage, application, and sender isolation. Live verification uses a separately configured real test application on a local bot profile with Website at localhost and a Bot HTTPS tunnel. Deployed staging OAuth defaults to localhost and needs a local Website instance connected to that Bot; alternatively configure a staging HTTPS Website origin. Follow the operator guide. Keep production on `prod` and reserve `test-*` for synthetic fixtures. Do not add request-selectable provider endpoints.
 
 ## Drive controlled journeys
 

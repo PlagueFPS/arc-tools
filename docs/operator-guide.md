@@ -15,21 +15,21 @@ Keep the Cloudflare state control backend. It stores deployment state separately
 
 The stack reads these names. The worker captures ordinary configuration and uses `Config.Redacted` for application secrets.
 
-| Public name                      | Value                                                                                                                                                                                                                  |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ARC_STAGE`, `APPLICATION_STAGE` | The same explicit stage.                                                                                                                                                                                               |
-| `ARC_ENVIRONMENT`                | `personal` or `bot` for local/staging; `production` for prod.                                                                                                                                                          |
-| `ARC_BUILD_REVISION`             | The deployed Git revision. Health and registration compare it exactly. Default is `unreleased` for development.                                                                                                        |
-| `ARC_PUBLIC_URL`                 | Bot webhook and operator HTTPS origin. Deployed stages pin it to the actual Bot Worker URL. Local stages use the Bot tunnel origin.                                                                                    |
-| `ARC_WEBSITE_URL`                | Website HTTPS OAuth origin for both operator and public enrollment. Required for real environments. Deployed Website handlers check it against their self URL. Local stages use the Website tunnel origin.             |
-| `TWITCH_SENDER_KIND`             | `personal` in personal mode; `bot` in bot or production mode.                                                                                                                                                          |
-| `TWITCH_SENDER_LOGIN`            | Lowercase sender login. Setup resolves it to an ID.                                                                                                                                                                    |
-| `TWITCH_CHANNEL_LOGINS`          | Comma-separated lowercase manual logins. Personal mode requires exactly the sender login. Bot mode requires a nonempty configured set and supports up to 32 desired channels across configured and public memberships. |
-| `TWITCH_CLIENT_ID`               | This environment's Twitch application.                                                                                                                                                                                 |
-| `DISCORD_APPLICATION_ID`         | This environment's Discord application.                                                                                                                                                                                |
-| `DISCORD_PUBLIC_KEY`             | That application's 64-hex-character Ed25519 verification key.                                                                                                                                                          |
-| `CLOUDFLARE_ACCOUNT_ID`          | Target Cloudflare account.                                                                                                                                                                                             |
-| `ALCHEMY_PROFILE`                | Optional authentication-profile selection when no explicit `--profile` is passed.                                                                                                                                      |
+| Public name                      | Value                                                                                                                                                                                                                            |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ARC_STAGE`, `APPLICATION_STAGE` | The same explicit stage.                                                                                                                                                                                                         |
+| `ARC_ENVIRONMENT`                | `personal` or `bot` for local/staging; `production` for prod.                                                                                                                                                                    |
+| `ARC_BUILD_REVISION`             | The deployed Git revision. Health and registration compare it exactly. Default is `unreleased` for development.                                                                                                                  |
+| `ARC_BOT_URL`                    | Bot webhook and operator HTTPS origin. Deployed stages pin it to the actual Bot Worker URL. Local stages use the Bot tunnel origin.                                                                                              |
+| `ARC_WEBSITE_URL`                | OAuth origin for both flows. Defaults to `http://localhost:3000` outside production; that exact origin is the only HTTP exception. HTTPS overrides remain supported. Production requires the actual HTTPS Website Worker origin. |
+| `TWITCH_SENDER_KIND`             | `personal` in personal mode; `bot` in bot or production mode.                                                                                                                                                                    |
+| `TWITCH_SENDER_LOGIN`            | Lowercase sender login. Setup resolves it to an ID.                                                                                                                                                                              |
+| `TWITCH_CHANNEL_LOGINS`          | Comma-separated lowercase manual logins. Personal mode requires exactly the sender login. Bot mode requires a nonempty configured set and supports up to 32 desired channels across configured and public memberships.           |
+| `TWITCH_CLIENT_ID`               | This environment's Twitch application.                                                                                                                                                                                           |
+| `DISCORD_APPLICATION_ID`         | This environment's Discord application.                                                                                                                                                                                          |
+| `DISCORD_PUBLIC_KEY`             | That application's 64-hex-character Ed25519 verification key.                                                                                                                                                                    |
+| `CLOUDFLARE_ACCOUNT_ID`          | Target Cloudflare account.                                                                                                                                                                                                       |
+| `ALCHEMY_PROFILE`                | Optional authentication-profile selection when no explicit `--profile` is passed.                                                                                                                                                |
 
 Inject `TWITCH_CLIENT_SECRET`, `TWITCH_SIGNING_SECRET`, `DISCORD_BOT_TOKEN`, and `OPERATOR_SECRET` privately. Cloudflare API-token authentication additionally uses `CLOUDFLARE_API_TOKEN`. The Discord bot token remains required for CLI command registration and drift checks even though interaction replies use the incoming HTTP response.
 
@@ -39,21 +39,21 @@ Bun's `--env-file` loads the environment for the operator scripts, which do not 
 
 ## Develop with local workerd
 
-Set both stage fields to `local-yourname`, `ARC_ENVIRONMENT=personal`, `TWITCH_SENDER_KIND=personal`, and both login fields to your own login. Use separate local portal applications. Set `ARC_PUBLIC_URL` to the Bot HTTPS origin and `ARC_WEBSITE_URL` to the Website HTTPS origin. Both must omit paths, queries, fragments, and credentials.
+Set both stage fields to `local-yourname`, `ARC_ENVIRONMENT=personal`, `TWITCH_SENDER_KIND=personal`, and both login fields to your own login. Use separate local portal applications. Set `ARC_BOT_URL` to the Bot HTTPS tunnel origin. Website OAuth defaults to `http://localhost:3000`; omit `ARC_WEBSITE_URL` or set it to that exact value. Origins must omit paths, queries, fragments, and credentials.
 
-For each new tunnel session, configure both origins in the repository root's protected `.env.local`. Use two tunnels or separate hostnames routed to the Bot and Website listeners through named tunnel ingress. Keep those processes running separately. In terminal 1, start development:
+For each new tunnel session, configure `ARC_BOT_URL` in the repository root's protected `.env.local`. Only Bot needs an HTTPS tunnel. Twitch returns the browser to Website on your computer; Twitch's servers send EventSub requests to Bot. Keep the Bot tunnel running separately. In terminal 1, start development:
 
 ```bash
 bun run dev:local
 ```
 
-Alchemy prints separate Bot and Website HTTP addresses. Route each public hostname to its corresponding listener. The shortcut prints these public routes for you to paste into the corresponding portal applications:
+Alchemy prints the Bot HTTP address. Tunnel that listener. Website listens on strict port 3000 without an explicit host override. The shortcut prints these public routes for you to paste into the corresponding portal applications:
 
 - Discord interactions endpoint is `https://YOUR_BOT_ORIGIN/interactions/discord`.
 - Twitch EventSub callback is `https://YOUR_BOT_ORIGIN/webhooks/twitch`.
-- Twitch OAuth redirect is `https://YOUR_WEBSITE_ORIGIN/oauth/twitch/callback`.
+- Twitch OAuth redirect is `http://localhost:3000/oauth/twitch/callback`.
 
-If the tunnel host changed, update the Discord interactions endpoint and Twitch OAuth redirect manually. Editing either origin does not change a portal. Setup uses the configured EventSub callback when it repairs subscriptions.
+If the Bot tunnel host changes, update the Discord interactions endpoint manually. The localhost Twitch OAuth redirect stays the same. Editing an origin does not change a portal. Setup uses the configured EventSub callback when it repairs subscriptions.
 
 In terminal 2, register Discord commands and run Twitch setup:
 
@@ -75,22 +75,22 @@ A placeholder HTTPS origin can exercise health and signed PING locally without a
 
 Use a separate real Twitch application and dedicated test bot account. A real test application uses ordinary provider credentials and `ARC_STAGE=local-yourname`. Reserved `test-*` stages are synthetic fixtures with fixed IDs and credentials. They cannot exercise live public enrollment.
 
-Existing production and personal configurations must add `ARC_WEBSITE_URL` and register the Website callback for both OAuth flows. To switch a local personal file to a dedicated bot, change both `ARC_ENVIRONMENT` and `TWITCH_SENDER_KIND` to `bot`. Replace the sender, configured channels, and application credentials with those for the test application. Keep `ARC_STAGE` and `APPLICATION_STAGE` on the same `local-*` value. Stage metadata does not prove application ownership, and no Twitch client ID identifies production in code. Changing identity, secrets, or either origin changes the account revision and requires renewed grants and setup. Stored public memberships survive, but their grants must be renewed.
+Rename the Bot URL key to `ARC_BOT_URL` in protected files and GitHub environment variables manually. Production must configure `ARC_WEBSITE_URL`; nonproduction defaults to localhost. Register the Website callback for both OAuth flows. To switch a local personal file to a dedicated bot, change both `ARC_ENVIRONMENT` and `TWITCH_SENDER_KIND` to `bot`. Replace the sender, configured channels, and application credentials with those for the test application. Keep `ARC_STAGE` and `APPLICATION_STAGE` on the same `local-*` value. Stage metadata does not prove application ownership, and no Twitch client ID identifies production in code. Changing identity, secrets, or either origin changes the account revision and requires renewed grants and setup. Stored public memberships survive, but their grants must be renewed.
 
 1. Copy `.env.example` to the ignored, protected `.env.local`. Select `ARC_ENVIRONMENT=bot` and `TWITCH_SENDER_KIND=bot`. Supply the test bot login, at least one configured channel login, and separate Twitch and Discord application credentials privately. Keep all Discord bindings because the full Bot and `setup:local` require them.
-2. Set `ARC_PUBLIC_URL` to your Bot HTTPS origin and `ARC_WEBSITE_URL` to your Website HTTPS origin. An existing stable named tunnel avoids callback changes between sessions. Do not create or reconfigure a remote tunnel as part of this setup without authorization.
-3. Run `bun run dev:local`. Read the **Bot** and **Website** listeners from Alchemy's output. Route two HTTPS tunnels, or two hostnames in named tunnel ingress, to their respective listeners. A standalone `dev:web` preview has no Bot binding and returns private unavailable responses for account operations. If a hostname changes, update the corresponding origin and restart development. Leave existing user processes alone.
-4. Register exactly `https://YOUR_WEBSITE_ORIGIN/oauth/twitch/callback` as an OAuth redirect on the **test Twitch application**. Configure the separate Discord application's interactions endpoint as printed by `dev:local`. Portal edits are manual and require the application's operator. See [Twitch application registration](https://dev.twitch.tv/docs/authentication/register-app/).
+2. Set `ARC_BOT_URL` to your Bot HTTPS tunnel origin. Keep `ARC_WEBSITE_URL` absent or set to `http://localhost:3000`. An existing stable named tunnel avoids callback changes between sessions. Do not create or reconfigure a remote tunnel as part of this setup without authorization.
+3. Run `bun run dev:local`. Tunnel the **Bot** listener printed by Alchemy. Open Website at `http://localhost:3000` on the computer running the browser. Port 3000 must be free; startup fails instead of silently choosing another port. A standalone `dev:web` preview renders pages but has no Bot binding, so account operations return private unavailable responses. Leave existing user processes alone.
+4. Register exactly `http://localhost:3000/oauth/twitch/callback` as an OAuth redirect on the **test Twitch application**. Configure the separate Discord application's interactions endpoint as printed by `dev:local`. Portal edits are manual and require the application's operator. See [Twitch application registration](https://dev.twitch.tv/docs/authentication/register-app/).
 5. Run `bun run setup:local` privately. Authorize the sender link as the dedicated test bot and each configured broadcaster link as its broadcaster. Repeat setup after grants complete. The sender requires `user:read:chat`, `user:write:chat`, and `user:bot`. Broadcasters require `channel:bot`. Use `bun run status:local` to inspect setup and subscription state. If Discord registration is unavailable, the existing `ops setup` CLI can prepare Twitch alone with the same local stage and HTTPS endpoint, as described below.
-6. In a broadcaster browser session, open `https://YOUR_WEBSITE_ORIGIN/oauth/twitch/enroll`. Authorize `channel:bot` as that broadcaster. Keep the session in the same browser through the callback. Open `/oauth/twitch/enroll/status` on that origin. It reports `pending` until the alarm repairs the subscription and confirmed enabled evidence arrives, then `ready` with the broadcaster login. A webhook verification challenge alone leaves it pending.
+6. In a broadcaster browser session, open `http://localhost:3000/oauth/twitch/enroll`. Authorize `channel:bot` as that broadcaster. Keep the session in the same browser through the callback. Open `/oauth/twitch/enroll/status` on that origin. It reports `pending` until the alarm repairs the subscription and confirmed enabled evidence arrives, then `ready` with the broadcaster login. A webhook verification challenge alone leaves it pending.
 
-Keep both workers and tunnel routes running for alarm repair and callbacks. A changed hostname requires its matching origin setting, relevant portal update, restart, and renewed setup. Staging dedicated bots use `ARC_ENVIRONMENT=bot`, the deployed Bot origin in `ARC_PUBLIC_URL`, and the deployed Website origin in `ARC_WEBSITE_URL`. Tunnel overrides remain restricted to `local-*`, and Alchemy development still rejects `prod`.
+Keep both workers and the Bot tunnel running for alarm repair and callbacks. A changed Bot hostname requires `ARC_BOT_URL`, the Discord portal update, restart, and renewed setup. Staging dedicated bots use `ARC_ENVIRONMENT=bot` and the deployed Bot origin in `ARC_BOT_URL`. Staging OAuth also defaults to localhost. That redirect requires a Website instance on the browser user's computer connected to the intended Bot through a service binding; a deployed staging page alone does not supply that local application. For onboarding through the deployed staging Website, explicitly configure its HTTPS origin instead. Tunnel overrides remain restricted to `local-*`, and Alchemy development still rejects `prod`.
 
 Live grants, portal edits, remote tunnel creation, deployment, and chat sends require separate authorization. Controlled tests establish protocol and state behavior. They do not establish live Twitch onboarding or tunnel reachability.
 
 ## Deploy and register a release
 
-Set both stage fields to `staging` and use the staging portal applications. Select both mode fields as `personal` for own-channel operation or `bot` for dedicated-bot public enrollment. Set `ARC_BUILD_REVISION` to the intended commit. Configure both deployed origins before release and register the Website OAuth callback. The stack retains `url` as the Bot operator endpoint and adds `websiteUrl` for browser entry. For production, set both stage fields to `prod`, `ARC_ENVIRONMENT=production`, and `TWITCH_SENDER_KIND=bot`; supply the dedicated sender and manual channel logins.
+Set both stage fields to `staging` and use the staging portal applications. Select both mode fields as `personal` for own-channel operation or `bot` for dedicated-bot public enrollment. Set `ARC_BUILD_REVISION` to the intended commit. Configure the deployed Bot origin before release. Staging defaults to the localhost OAuth redirect; an HTTPS Website override supports remote browser onboarding. Production requires the deployed HTTPS Website origin. Register the chosen Website callback. The stack retains `url` as the Bot operator endpoint and adds `websiteUrl` for browser entry. For production, set both stage fields to `prod`, `ARC_ENVIRONMENT=production`, and `TWITCH_SENDER_KIND=bot`; supply the dedicated sender and manual channel logins.
 
 ```bash
 bun run build
@@ -101,7 +101,7 @@ bun run test
 bun run deploy --stage staging --profile default --env-file .env.staging --yes
 ```
 
-Keep `ARC_PUBLIC_URL` equal to the exact working deployed origin. Do not guess a workers.dev hostname or overwrite the existing production value. Missing `ARC_PUBLIC_URL` caused the first production runtime failure. Setting the exact URL and redeploying repaired it. For a new cloud service, read the actual stack output, configure that exact origin, and redeploy before registration. Inspect `/health` and compare stage, revision, and manifest hash.
+Keep `ARC_BOT_URL` equal to the exact working deployed origin. Do not guess a workers.dev hostname or overwrite the existing production value. Missing `ARC_BOT_URL` caused the first production runtime failure. Setting the exact URL and redeploying repaired it. For a new cloud service, read the actual stack output, configure that exact origin, and redeploy before registration. Inspect `/health` and compare stage, revision, and manifest hash.
 
 The Release workflow accepts only explicit `staging` or `prod` and an application ID. Successful CI on a `main` push calls the same workflow with the exact checked SHA and repository variable `PROD_DISCORD_APPLICATION_ID`. Manual production dispatch must select `main`; staging dispatch uses its existing environment. Both paths serialize by application ID and require the environment's `DISCORD_APPLICATION_ID` to match the input. Automatic releases recheck the current main head after acquiring the lock and immediately before deployment. The workflow checks out the exact revision, deploys it, and registers the global manifest. Registration checks the deployed stage, revision, ready status, and hash before and after operations. It compares all global commands with full localization dictionaries and reads back an overwrite. A partial release leaves the deployment running and reports incomplete registration. Repair through the same Release workflow at the intended branch revision.
 
@@ -112,12 +112,12 @@ Keep `TWITCH_CLIENT_SECRET`, `TWITCH_SIGNING_SECRET`, `DISCORD_BOT_TOKEN`, `OPER
 For manual registration or repair, export the actual deployed origin and the exact revision that just deployed. The protected file must agree with them. If you deployed the current checkout:
 
 ```bash
-export ARC_PUBLIC_URL=https://YOUR_DEPLOYED_ORIGIN
+export ARC_BOT_URL=https://YOUR_DEPLOYED_ORIGIN
 export ARC_BUILD_REVISION="$(git rev-parse HEAD)"
-bun --env-file=.env.staging run sync:discord --stage staging --endpoint "$ARC_PUBLIC_URL" --revision "$ARC_BUILD_REVISION" --wait
+bun --env-file=.env.staging run sync:discord --stage staging --endpoint "$ARC_BOT_URL" --revision "$ARC_BUILD_REVISION" --wait
 ```
 
-The shell must already export `ARC_PUBLIC_URL` and `ARC_BUILD_REVISION` for those argument expansions. Alternatively replace the two arguments with the actual public origin and exact commit. Bun loads the script's application ID and bot token from the protected file or environment. `--wait` bounds readiness polling to 60 attempts; it does not bypass the revision fence. Serialize manual registration with releases for the same application.
+The shell must already export `ARC_BOT_URL` and `ARC_BUILD_REVISION` for those argument expansions. Alternatively replace the two arguments with the actual public origin and exact commit. Bun loads the script's application ID and bot token from the protected file or environment. `--wait` bounds readiness polling to 60 attempts; it does not bypass the revision fence. Serialize manual registration with releases for the same application.
 
 Discord uses raw REST API requests for global command synchronization. Install the application in guilds with command permissions, and configure the interactions URL. Guild IDs come from signed interactions. There is no guild enrollment, guild allowlist, DM command mode, or Discord prefix bot.
 
@@ -126,9 +126,9 @@ Discord uses raw REST API requests for global command synchronization. Install t
 Export the public endpoint and revision arguments as described above. Then run:
 
 ```bash
-bun --env-file=.env.staging run ops setup --stage staging --endpoint "$ARC_PUBLIC_URL"
-bun --env-file=.env.staging run ops status --stage staging --endpoint "$ARC_PUBLIC_URL"
-bun --env-file=.env.staging run ops status --stage staging --endpoint "$ARC_PUBLIC_URL" --discord --revision "$ARC_BUILD_REVISION"
+bun --env-file=.env.staging run ops setup --stage staging --endpoint "$ARC_BOT_URL"
+bun --env-file=.env.staging run ops status --stage staging --endpoint "$ARC_BOT_URL"
+bun --env-file=.env.staging run ops status --stage staging --endpoint "$ARC_BOT_URL" --discord --revision "$ARC_BUILD_REVISION"
 ```
 
 The operator scripts send the secret bearer credential to `/ops/setup` or `/ops/status`. Keep setup output private because authorization links contain one-time OAuth state. Setup resolves logins to IDs and returns links for the sender's `user:read:chat`, `user:write:chat`, and `user:bot` grants and each broadcaster's `channel:bot` grant. When sender and broadcaster are the same personal account, the authorization requests their combined scopes.
@@ -182,7 +182,7 @@ Replace the example with the exact printed stage. Recovery requires `.cloud-test
 
 A trusted PR gets a resident synthetic service after all CI checks, including the random disposable cloud suite, pass. Its seven Workers use the existing tenant test composition. No real Twitch or Discord application is registered or authorized. The marked PR comment records the URL, checked merge SHA, PR head SHA, and stage. Fixture data belongs to that PR and may survive pushes and reopening.
 
-Each preview first deploys to obtain the actual output URL, then redeploys with that exact `ARC_PUBLIC_URL`. Publication requires health at the checked revision. This path does not assume that a blank origin works at runtime. Fork PRs run local checks and explicitly skip cloud acceptance and preview deployment.
+Each preview first deploys to obtain the actual output URL, then redeploys with that exact `ARC_BOT_URL`. Publication requires health at the checked revision. This path does not assume that a blank origin works at runtime. Fork PRs run local checks and explicitly skip cloud acceptance and preview deployment.
 
 Closing a same-repository PR requests cleanup independently of CI through `pull_request_target: closed`. This trigger supports conflicted PRs. Cleanup checks out trusted `main` code and never checks out the PR head or merge revision. Fork PRs skip the cleanup job. Cleanup reads the current PR state, derives the same stage without old artifacts, and verifies zero Workers, zero namespaces, and absent stage state and output. It keeps the shared state backend. Deploy and cleanup share a repository and PR lock. A queued deploy that observes closure performs cleanup instead. A changed head or merge revision stops URL publication.
 

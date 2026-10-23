@@ -7,8 +7,9 @@ import { cloudSettings } from "../../../scripts/cloud-settings.js";
 import { botRequestObservation } from "../../../tests/cloud/bot-composition.js";
 import {
   EnvironmentConfig,
+  configuredWebsiteOrigin,
   runtimeConfig,
-  publicOrigin,
+  botOrigin,
   websiteOrigin,
 } from "../src/config.js";
 import { CommandInput, GuildId, tenantName } from "../src/contracts.js";
@@ -246,14 +247,14 @@ effects.test(
 );
 
 test("Bot and Website deployed origins are pinned independently, with local HTTPS overrides", () => {
-  expect(
-    publicOrigin("prod", "https://bot.invalid", "https://bot.invalid"),
-  ).toBe("https://bot.invalid");
+  expect(botOrigin("prod", "https://bot.invalid", "https://bot.invalid")).toBe(
+    "https://bot.invalid",
+  );
   expect(
     websiteOrigin("prod", "https://website.invalid", "https://website.invalid"),
   ).toBe("https://website.invalid");
   expect(() =>
-    publicOrigin("prod", "https://bot.invalid", "https://website.invalid"),
+    botOrigin("prod", "https://bot.invalid", "https://website.invalid"),
   ).toThrow();
   expect(() =>
     websiteOrigin("prod", "https://website.invalid", "https://bot.invalid"),
@@ -261,7 +262,7 @@ test("Bot and Website deployed origins are pinned independently, with local HTTP
   expect(
     websiteOrigin(
       "local-test",
-      "http://localhost:5180",
+      "http://localhost:3000",
       "https://website-tunnel.invalid",
     ),
   ).toBe("https://website-tunnel.invalid");
@@ -305,3 +306,52 @@ effects.test(
     ).not.toBe(revision);
   }),
 );
+
+test("Website defaults to localhost outside prod and only prod pins its actual self URL", async () => {
+  for (const stage of ["local-test", "staging"]) {
+    const configured = await Effect.runPromise(
+      configuredWebsiteOrigin.pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromUnknown({ ARC_STAGE: stage }),
+        ),
+      ),
+    );
+
+    expect(configured).toBe("http://localhost:3000");
+    expect(
+      websiteOrigin(stage, "https://deployed-staging.invalid", configured),
+    ).toBe("http://localhost:3000");
+  }
+
+  await expect(
+    Effect.runPromise(
+      configuredWebsiteOrigin.pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromUnknown({ ARC_STAGE: "prod" }),
+        ),
+      ),
+    ),
+  ).rejects.toBeDefined();
+  expect(() =>
+    websiteOrigin(
+      "prod",
+      "https://production.invalid",
+      "http://localhost:3000",
+    ),
+  ).toThrow();
+
+  for (const origin of [
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://remote.invalid",
+    "http://user@localhost:3000",
+    "http://localhost:3000?x=1",
+    "http://localhost:3000/extra",
+  ]) {
+    expect(() =>
+      websiteOrigin("staging", "https://staging.invalid", origin),
+    ).toThrow();
+  }
+});

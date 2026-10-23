@@ -22,7 +22,7 @@ import {
   twitchEvent,
 } from "../../../tests/cloud/signatures.js";
 import { BotApi } from "../src/api.js";
-import { publicOrigin } from "../src/config.js";
+import { botOrigin } from "../src/config.js";
 import {
   ingressHandlers,
   ingressPolicy,
@@ -587,10 +587,10 @@ describe("signed HttpApi ingress", () => {
     "one deployed origin controls callbacks and local tunnels must be explicit validated HTTPS origins",
     Effect.sync(() => {
       expect(
-        publicOrigin("prod", "https://bot.example/", "https://bot.example"),
+        botOrigin("prod", "https://bot.example/", "https://bot.example"),
       ).toBe("https://bot.example");
       expect(
-        publicOrigin(
+        botOrigin(
           "local-angel",
           "http://localhost:8787",
           "https://tunnel.example",
@@ -604,13 +604,13 @@ describe("signed HttpApi ingress", () => {
         "https://other.example?x=1",
       ])
         expect(() =>
-          publicOrigin("prod", "https://bot.example", origin),
+          botOrigin("prod", "https://bot.example", origin),
         ).toThrow();
       expect(() =>
-        publicOrigin("prod", "https://bot.example", "https://other.example"),
+        botOrigin("prod", "https://bot.example", "https://other.example"),
       ).toThrow();
       expect(() =>
-        publicOrigin("local-angel", "http://localhost:8787", ""),
+        botOrigin("local-angel", "http://localhost:8787", ""),
       ).toThrow();
     }),
   );

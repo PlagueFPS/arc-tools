@@ -8,10 +8,25 @@ import {
 import { digest } from "@arctools/utils/http";
 import { Effect, Schema, Struct } from "effect";
 
+import { localWebsiteOrigin } from "../../../bot/src/origins.js";
 import type { BotOperations } from "../../../bot/src/rpc.js";
 import type { WebsiteUnavailable } from "./errors.js";
 
 export const enrollmentCookie = "__Host-arctools-enrollment";
+
+export const localEnrollmentCookie = "arctools-enrollment-local";
+
+export const enrollmentCookiePolicy = (request: Request) => {
+  const url = new URL(request.url);
+
+  if (url.origin === localWebsiteOrigin)
+    return { name: localEnrollmentCookie, secure: false };
+
+  if (url.protocol === "https:")
+    return { name: enrollmentCookie, secure: true };
+
+  return null;
+};
 
 const headers = {
   "Cache-Control": "no-store",
@@ -29,6 +44,9 @@ const randomCredential = () =>
   ).join("");
 
 const readSession = Effect.fnUntraced(function* (request: Request) {
+  const policy = enrollmentCookiePolicy(request);
+
+  if (!policy) return yield* new AccountError({ code: "input" });
   const cookie = request.headers.get("cookie") ?? "";
 
   if (cookie.length > 4096) return yield* new AccountError({ code: "input" });
@@ -36,12 +54,12 @@ const readSession = Effect.fnUntraced(function* (request: Request) {
   const values = cookie
     .split(";")
     .map((entry) => entry.trim())
-    .filter((entry) => entry.split("=", 1)[0] === enrollmentCookie);
+    .filter((entry) => entry.split("=", 1)[0] === policy.name);
 
   if (values.length === 0) return null;
 
   if (values.length !== 1) return yield* new AccountError({ code: "input" });
-  const value = values[0]?.slice(enrollmentCookie.length + 1);
+  const value = values[0]?.slice(policy.name.length + 1);
 
   const valid = yield* Schema.decodeUnknownEffect(BrowserSession)(value).pipe(
     Effect.mapError(() => new AccountError({ code: "input" })),
@@ -68,6 +86,9 @@ export const websiteHttp = <R>(
       function* (request: Request) {
         if (request.url.length > 4096)
           return yield* new AccountError({ code: "input" });
+        const policy = enrollmentCookiePolicy(request);
+
+        if (!policy) return yield* new AccountError({ code: "input" });
         const previousSession = yield* readSession(request);
         const credential = randomCredential();
         const state = `enroll.${randomCredential()}`;
@@ -84,7 +105,7 @@ export const websiteHttp = <R>(
           headers: {
             ...headers,
             Location: location,
-            "Set-Cookie": `${enrollmentCookie}=${credential}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=86400`,
+            "Set-Cookie": `${policy.name}=${credential}; Path=/${policy.secure ? "; Secure" : ""}; HttpOnly; SameSite=Lax; Max-Age=86400`,
           },
         });
       },

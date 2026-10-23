@@ -37,6 +37,7 @@ import {
 import {
   enrollmentCookie,
   enrollmentHead,
+  localEnrollmentCookie,
   websiteHttp,
 } from "../../website/src/server/enrollment.js";
 import { BotApi } from "../src/api.js";
@@ -66,6 +67,7 @@ const identity = Schema.decodeUnknownSync(EnvironmentConfig)({
 const fixture = Effect.fnUntraced(function* (
   enrollmentDelayMs = 0,
   setupCapacity = false,
+  websiteOrigin = "https://website.fixture.invalid",
 ) {
   const h = yield* harness(identity);
 
@@ -79,7 +81,7 @@ const fixture = Effect.fnUntraced(function* (
     "revision-one",
     binding,
     identity,
-    "https://website.fixture.invalid",
+    websiteOrigin,
   );
 
   const admissions: string[] = [];
@@ -155,7 +157,7 @@ const fixture = Effect.fnUntraced(function* (
   );
 
   const request = (path: string, cookie?: string, method = "GET") => {
-    const incoming = new Request(`https://website.fixture.invalid${path}`, {
+    const incoming = new Request(`${websiteOrigin}${path}`, {
       method,
       headers: cookie ? { cookie } : undefined,
     });
@@ -200,6 +202,7 @@ const fixture = Effect.fnUntraced(function* (
 
   return {
     h,
+    http,
     account,
     binding,
     admissions,
@@ -474,54 +477,59 @@ test(
   }),
 );
 
-test(
-  "operator callback works with unrelated valid or malformed enrollment cookies and public state never enters operator completion",
-  Effect.gen(function* () {
-    const f = yield* fixture();
-    yield* Effect.gen(function* () {
-      const setup = yield* f.account.service.setup(yield* digest("operator"));
+for (const websiteOrigin of [
+  "https://website.fixture.invalid",
+  "http://localhost:3000",
+]) {
+  test(
+    `operator callback at ${websiteOrigin} ignores enrollment cookies and public state never enters operator completion`,
+    Effect.gen(function* () {
+      const f = yield* fixture(0, false, websiteOrigin);
+      yield* Effect.gen(function* () {
+        const setup = yield* f.account.service.setup(yield* digest("operator"));
 
-      for (const [index, auth] of setup.authorizations.entries()) {
-        const state = new URL(auth.url).searchParams.get("state") ?? "";
-        f.h.control.grantLogin = auth.login;
-        f.h.control.grantUser = Match.value(auth.login).pipe(
-          Match.when("fixture_sender", () => "100"),
-          Match.when("fixture_channel", () => "200"),
-          Match.orElse(() => "300"),
+        for (const [index, auth] of setup.authorizations.entries()) {
+          const state = new URL(auth.url).searchParams.get("state") ?? "";
+          f.h.control.grantLogin = auth.login;
+          f.h.control.grantUser = Match.value(auth.login).pipe(
+            Match.when("fixture_sender", () => "100"),
+            Match.when("fixture_channel", () => "200"),
+            Match.orElse(() => "300"),
+          );
+          f.h.control.grantScopes =
+            new URL(auth.url).searchParams.get("scope")?.split(" ") ?? [];
+
+          const cookie = Match.value(index).pipe(
+            Match.when(0, () => ""),
+            Match.when(1, () => `${enrollmentCookie}=malformed`),
+            Match.orElse(() => `${enrollmentCookie}=${"a".repeat(64)}`),
+          );
+
+          const response = yield* f.complete(state, cookie);
+          expect(response.status).toBe(200);
+          privateHeaders(response);
+          expect(yield* Effect.promise(() => response.text())).toContain(
+            "Authorization recorded",
+          );
+        }
+
+        const status = yield* f.account.service.status();
+        expect(Schema.is(AccountStatus)(status)).toBeTrue();
+        expect(status.sender?.authorized).toBeTrue();
+        const begun = yield* f.begin();
+        const exchanges = f.h.control.exchanges;
+
+        const rejected = yield* f.request(
+          `/oauth/twitch/callback?state=${begun.state}&code=controlled`,
         );
-        f.h.control.grantScopes =
-          new URL(auth.url).searchParams.get("scope")?.split(" ") ?? [];
 
-        const cookie = Match.value(index).pipe(
-          Match.when(0, () => ""),
-          Match.when(1, () => `${enrollmentCookie}=malformed`),
-          Match.orElse(() => `${enrollmentCookie}=${"a".repeat(64)}`),
-        );
-
-        const response = yield* f.complete(state, cookie);
-        expect(response.status).toBe(200);
-        privateHeaders(response);
-        expect(yield* Effect.promise(() => response.text())).toContain(
-          "Authorization recorded",
-        );
-      }
-
-      const status = yield* f.account.service.status();
-      expect(Schema.is(AccountStatus)(status)).toBeTrue();
-      expect(status.sender?.authorized).toBeTrue();
-      const begun = yield* f.begin();
-      const exchanges = f.h.control.exchanges;
-
-      const rejected = yield* f.request(
-        `/oauth/twitch/callback?state=${begun.state}&code=controlled`,
-      );
-
-      expect(rejected.status).toBe(400);
-      expect(f.h.control.exchanges).toBe(exchanges);
-      expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
-    }).pipe(Effect.provideService(Clock.Clock, f.h.clock));
-  }),
-);
+        expect(rejected.status).toBe(400);
+        expect(f.h.control.exchanges).toBe(exchanges);
+        expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
+      }).pipe(Effect.provideService(Clock.Clock, f.h.clock));
+    }),
+  );
+}
 
 test(
   "raw begin is unavailable before sender authorization and never allocates a browser session",
@@ -646,3 +654,118 @@ test(
     expect(f.h.snapshot()).toEqual(before);
   }),
 );
+
+test(
+  "localhost HTTP enrollment completes with its own HttpOnly cookie and preserves denial and replay fencing",
+  Effect.gen(function* () {
+    const f = yield* fixture(0, false, "http://localhost:3000");
+    yield* Effect.gen(function* () {
+      yield* f.h.authorize(f.account.service);
+      const begun = yield* f.begin();
+      expect(begun.location.searchParams.get("redirect_uri")).toBe(
+        "http://localhost:3000/oauth/twitch/callback",
+      );
+      expect(begun.cookie).toMatch(/^arctools-enrollment-local=[a-f0-9]{64}$/);
+      const flags = begun.response.headers.get("set-cookie") ?? "";
+      expect(flags).toContain("Path=/; HttpOnly; SameSite=Lax; Max-Age=86400");
+      expect(flags).not.toContain("Secure");
+      expect(flags).not.toContain("Domain=");
+      expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
+      const other = yield* f.begin();
+      const exchanges = f.h.control.exchanges;
+      expect((yield* f.complete(begun.state, other.cookie)).status).toBe(400);
+      expect(f.h.control.exchanges).toBe(exchanges);
+      grant(f.h);
+      expect((yield* f.complete(begun.state, begun.cookie)).status).toBe(303);
+      expect(f.h.control.exchanges).toBe(exchanges + 1);
+      expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
+      expect((yield* f.complete(begun.state, begun.cookie)).status).toBe(400);
+      expect(f.h.control.exchanges).toBe(exchanges + 1);
+      const denied = yield* f.begin();
+      const denial = `/oauth/twitch/callback?state=${denied.state}&error=access_denied`;
+      expect((yield* f.request(denial, other.cookie)).status).toBe(400);
+      expect((yield* f.request(denial, denied.cookie)).status).toBe(303);
+      expect(yield* f.status(denied.cookie)).toEqual({
+        kind: "failed",
+        reason: "denied",
+      });
+      expect((yield* f.request(denial, denied.cookie)).status).toBe(400);
+      expect(f.h.control.exchanges).toBe(exchanges + 1);
+    }).pipe(Effect.provideService(Clock.Clock, f.h.clock));
+  }),
+);
+
+test(
+  "local enrollment cookies never authorize HTTPS or other HTTP origins and HTTPS cookies never authorize HTTP localhost",
+  Effect.gen(function* () {
+    const f = yield* fixture(0, false, "http://localhost:3000");
+    yield* f.h
+      .authorize(f.account.service)
+      .pipe(Effect.provideService(Clock.Clock, f.h.clock));
+    const local = yield* f.begin();
+
+    for (const origin of [
+      "https://website.fixture.invalid",
+      "https://localhost:3000",
+      "http://localhost:3001",
+      "http://127.0.0.1:3000",
+      "http://remote.invalid:3000",
+    ]) {
+      const response = yield* f.http.status(
+        new Request(`${origin}/oauth/twitch/enroll/status`, {
+          headers: { cookie: local.cookie },
+        }),
+      );
+
+      expect(response.status).toBe(401);
+      privateHeaders(response);
+    }
+
+    const secure = `${enrollmentCookie}=${local.cookie.slice(localEnrollmentCookie.length + 1)}`;
+    expect(
+      (yield* f.request("/oauth/twitch/enroll/status", secure)).status,
+    ).toBe(401);
+    const before = f.h.snapshot();
+
+    for (const origin of [
+      "http://localhost:3001",
+      "http://127.0.0.1:3000",
+      "http://remote.invalid:3000",
+    ]) {
+      const response = yield* f.http.begin(
+        new Request(`${origin}/oauth/twitch/enroll`, {
+          headers: { cookie: local.cookie },
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("set-cookie")).toBeNull();
+    }
+
+    expect(f.h.snapshot()).toEqual(before);
+  }),
+);
+
+for (const origin of [
+  "http://remote.invalid",
+  "http://127.0.0.1:3000",
+  "http://localhost:3001",
+  "http://localhost",
+  "http://user@localhost:3000",
+  "http://localhost:3000?x=1",
+  "http://localhost:3000#fragment",
+  "http://localhost:3000/other",
+]) {
+  test(
+    `account rejects noncanonical HTTP OAuth redirect origin ${origin}`,
+    Effect.gen(function* () {
+      const f = yield* fixture(0, false, origin);
+
+      const error = yield* f.account.service
+        .setup("operator-digest")
+        .pipe(Effect.flip);
+
+      expect(error.code).toBe("configuration");
+    }),
+  );
+}

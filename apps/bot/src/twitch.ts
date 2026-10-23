@@ -10,13 +10,13 @@ import { digest } from "@arctools/utils/http";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer, Option, Redacted } from "effect";
 
-import { bindOrigin, oauthOrigin, runtimeConfig } from "./config.js";
+import { bindBotOrigin, oauthOrigin, runtimeConfig } from "./config.js";
 
 export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()(
   "TwitchAccount",
   Effect.gen(function* () {
     const configuration = yield* runtimeConfig.pipe(Effect.orDie);
-    const origin = yield* bindOrigin.pipe(Effect.orDie);
+    const origin = yield* bindBotOrigin.pipe(Effect.orDie);
     const configuredOAuthOrigin = yield* oauthOrigin.pipe(Effect.orDie);
     const endpoints = yield* Effect.serviceOption(AccountEndpoints);
 

@@ -15,7 +15,7 @@ import {
 import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
-import { bindOrigin, buildRevision, runtimeConfig } from "./config.js";
+import { bindBotOrigin, buildRevision, runtimeConfig } from "./config.js";
 import { ingressHandlers } from "./ingress.js";
 import { operatorHandlers } from "./operator.js";
 import { botOperations, type BotOperations } from "./rpc.js";
@@ -49,7 +49,7 @@ export default Bot.make(
   Effect.gen(function* () {
     const config = yield* runtimeConfig;
     const { identity, operatorSecret } = config;
-    const origin = yield* bindOrigin;
+    const origin = yield* bindBotOrigin;
 
     const testComposition =
       identity.kind === "test" && identity.stage.startsWith("test-tenant-")

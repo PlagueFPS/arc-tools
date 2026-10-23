@@ -152,7 +152,7 @@ async function main() {
     ...syntheticEnvironment(process.env, settings),
     ARC_BUILD_REVISION:
       "checked" in request ? request.checked.revision : "unreleased",
-    ARC_PUBLIC_URL: "",
+    ARC_BOT_URL: "",
     GITHUB_TOKEN: undefined,
     GH_TOKEN: undefined,
   };
@@ -179,7 +179,7 @@ async function main() {
       ],
       {
         cwd: fileURLToPath(directory),
-        env: { ...env, ARC_PUBLIC_URL: origin },
+        env: { ...env, ARC_BOT_URL: origin },
         stdin: "ignore",
         stdout: "inherit",
         stderr: "inherit",

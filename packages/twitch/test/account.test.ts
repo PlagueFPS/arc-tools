@@ -833,3 +833,42 @@ test(
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
+
+test(
+  "localhost OAuth support never permits HTTP or non-443 webhook callbacks",
+  Effect.gen(function* () {
+    const h = yield* harness();
+
+    const local = yield* h.construct(
+      "local-oauth",
+      "fixture-binding",
+      fixtureConfig,
+      "http://localhost:3000",
+    );
+
+    expect(
+      (yield* local.service.setup("operator-digest")).authorizations.length,
+    ).toBeGreaterThan(0);
+
+    for (const webhook of [
+      "http://localhost:3000",
+      "http://remote.invalid",
+      "https://remote.invalid:3000",
+      "https://user@remote.invalid",
+      "https://remote.invalid?x=1",
+    ]) {
+      const account = yield* h.construct(
+        "bad-webhook",
+        "fixture-binding",
+        fixtureConfig,
+        "http://localhost:3000",
+        webhook,
+      );
+
+      expect(
+        (yield* account.service.setup("operator-digest").pipe(Effect.flip))
+          .code,
+      ).toBe("configuration");
+    }
+  }),
+);

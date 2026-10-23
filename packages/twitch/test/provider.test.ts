@@ -200,6 +200,7 @@ const nativeConfig = {
 
 const nativeFixture = Effect.fnUntraced(function* (
   respond: (request: HttpClientRequest.HttpClientRequest, url: URL) => Response,
+  config = nativeConfig,
 ) {
   const requests: {
     request: HttpClientRequest.HttpClientRequest;
@@ -214,7 +215,7 @@ const nativeFixture = Effect.fnUntraced(function* (
     return Effect.succeed(HttpClientResponse.fromWeb(request, response));
   });
 
-  const provider = yield* makeProvider(nativeConfig).pipe(
+  const provider = yield* makeProvider(config).pipe(
     Effect.provideService(HttpClient.HttpClient, client),
   );
 
@@ -515,3 +516,32 @@ for (const remaining of [250, 8000])
       expect(aborted).toEqual([Math.min(remaining, 4000)]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
+
+test(
+  "localhost OAuth exchanges use the exact redirect registered for browser authorization",
+  Effect.gen(function* () {
+    const f = yield* nativeFixture(
+      () =>
+        Response.json({
+          access_token: "controlled-token",
+          expires_in: 3600,
+          token_type: "bearer",
+        }),
+      {
+        ...nativeConfig,
+        redirect: "http://localhost:3000/oauth/twitch/callback",
+      },
+    );
+
+    yield* f.provider.exchange("controlled-code");
+    const body = f.requests[0]?.request.body;
+
+    if (!body || !Predicate.isTagged(body, "Uint8Array"))
+      return yield* Effect.die("Expected form request");
+    const params = new URLSearchParams(new TextDecoder().decode(body.body));
+    expect(params.get("redirect_uri")).toBe(
+      "http://localhost:3000/oauth/twitch/callback",
+    );
+    expect(params.get("grant_type")).toBe("authorization_code");
+  }),
+);

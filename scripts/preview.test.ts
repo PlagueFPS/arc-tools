@@ -188,7 +188,7 @@ describe("preview identity and boundaries", () => {
         TWITCH_UNKNOWN: "PROD",
         DISCORD_BOT_TOKEN: "PROD",
         DISCORD_EXTRA: "PROD",
-        ARC_PUBLIC_URL: "https://prod.invalid",
+        ARC_BOT_URL: "https://prod.invalid",
         ARC_BUILD_REVISION: "PROD",
         ARC_UNKNOWN: "PROD",
         OPERATOR_SECRET: "PROD",
@@ -200,7 +200,7 @@ describe("preview identity and boundaries", () => {
     );
 
     expect(Object.values(env)).not.toContain("PROD");
-    expect(env.ARC_PUBLIC_URL).toBeUndefined();
+    expect(env.ARC_BOT_URL).toBeUndefined();
     expect(env.ARC_BUILD_REVISION).toBeUndefined();
     expect(env.ARC_STAGE).toBe(preview.stage);
     expect(env.APPLICATION_STAGE).toBe(preview.stage);
@@ -362,7 +362,7 @@ async function launcher() {
   );
   await writeFile(
     join(directory, ".env"),
-    "ARC_PUBLIC_URL=https://CANARY.invalid\nTWITCH_CLIENT_SECRET=CANARY\n",
+    "ARC_BOT_URL=https://CANARY.invalid\nTWITCH_CLIENT_SECRET=CANARY\n",
   );
   await writeFile(
     join(directory, "scripts/preview-cloud.ts"),
@@ -430,7 +430,7 @@ globalThis.fetch = async (input, init) => {
             CLOUDFLARE_ACCOUNT_ID: "fixture-account",
             CLOUDFLARE_API_TOKEN: "fixture-cloud",
             TWITCH_UNKNOWN: "CANARY",
-            ARC_PUBLIC_URL: "https://CANARY.invalid",
+            ARC_BOT_URL: "https://CANARY.invalid",
             DISCORD_BOT_TOKEN: "CANARY",
             OPERATOR_EXTRA: "CANARY",
             ...extra,
@@ -470,7 +470,7 @@ test("real controller CLI writes recovery before children, strips secrets, redep
   const calls = await f.calls();
   const deployments = calls.filter((call) => call.type === "deploy");
   expect(deployments).toHaveLength(2);
-  expect(deployments.map((call) => call.env.ARC_PUBLIC_URL)).toEqual([
+  expect(deployments.map((call) => call.env.ARC_BOT_URL)).toEqual([
     "",
     "https://fixture.invalid",
   ]);

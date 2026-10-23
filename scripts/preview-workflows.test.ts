@@ -164,7 +164,7 @@ const guard = step(
 );
 
 async function runGuard(
-  overrides: Record<string, string> = {},
+  overrides: Record<string, string | undefined> = {},
   eventName = "push",
   ref = "refs/heads/main",
   currentHead = revision,
@@ -197,7 +197,7 @@ async function runGuard(
         ARC_BUILD_REVISION: revision,
         RELEASE_APPLICATION_ID: app,
         DISCORD_APPLICATION_ID: app,
-        ARC_PUBLIC_URL: "https://existing.invalid",
+        ARC_BOT_URL: "https://existing.invalid",
         ARC_WEBSITE_URL: "https://website.invalid",
         ...overrides,
       },
@@ -548,6 +548,36 @@ describe("executed release origin and revision guard", () => {
       "refs/heads/repair",
     );
   });
+  test("staging accepts or defaults localhost OAuth while production requires an HTTPS Website origin", async () => {
+    for (const website of ["http://localhost:3000", undefined]) {
+      await runGuard(
+        { ARC_STAGE: "staging", ARC_WEBSITE_URL: website },
+        "workflow_dispatch",
+        "refs/heads/repair",
+      );
+      await expect(runGuard({ ARC_WEBSITE_URL: website })).rejects.toThrow(
+        "ARC_WEBSITE_URL",
+      );
+    }
+
+    for (const website of [
+      "http://localhost:3001",
+      "http://127.0.0.1:3000",
+      "http://remote.invalid",
+      "http://user@localhost:3000",
+      "http://localhost:3000?x=1",
+      "http://localhost:3000/extra",
+    ]) {
+      await expect(
+        runGuard(
+          { ARC_STAGE: "staging", ARC_WEBSITE_URL: website },
+          "workflow_dispatch",
+          "refs/heads/repair",
+        ),
+      ).rejects.toThrow("ARC_WEBSITE_URL");
+    }
+  });
+
   test("PR origins, stale automatic commits, arbitrary revisions, wrong application IDs, and missing or invalid origins fail", async () => {
     for (const event of ["pull_request", "pull_request_target", "workflow_run"])
       await expect(runGuard({}, event)).rejects.toThrow("PR origins");
@@ -579,7 +609,7 @@ describe("executed release origin and revision guard", () => {
       "http://example.invalid",
       "https://example.invalid/",
     ]) {
-      await expect(runGuard({ ARC_PUBLIC_URL: origin })).rejects.toThrow();
+      await expect(runGuard({ ARC_BOT_URL: origin })).rejects.toThrow();
       await expect(runGuard({ ARC_WEBSITE_URL: origin })).rejects.toThrow();
     }
   });

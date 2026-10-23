@@ -23,7 +23,7 @@ const fixtureEnv = {
   ARC_STAGE: "local-fixture",
   APPLICATION_STAGE: "local-fixture",
   ARC_ENVIRONMENT: "personal",
-  ARC_PUBLIC_URL: "https://first.invalid",
+  ARC_BOT_URL: "https://first.invalid",
   ARC_WEBSITE_URL: "https://website.invalid",
   ARC_BUILD_REVISION: "fixture-revision",
   ALCHEMY_PROFILE: "fixture-profile",
@@ -53,14 +53,14 @@ describe("local settings", () => {
     const envFile = join(directory, ".env.local");
     await writeFile(
       envFile,
-      `${dotenv(fixtureEnv)}\nARC_PUBLIC_URL='https://quoted.invalid' # public\nEXTRA_SECRET="fixture-file-secret"\nEXTRA_SECRET_999999="fixture-numbered-secret"\nEMPTY_SECRET=\n`,
+      `${dotenv(fixtureEnv)}\nARC_BOT_URL='https://quoted.invalid' # public\nEXTRA_SECRET="fixture-file-secret"\nEXTRA_SECRET_999999="fixture-numbered-secret"\nEMPTY_SECRET=\n`,
     );
 
     const { settings, env } = await localSettings(envFile, {
       ...fixtureEnv,
       ARC_STAGE: "prod",
       APPLICATION_STAGE: "staging",
-      ARC_PUBLIC_URL: "https://stale.invalid",
+      ARC_BOT_URL: "https://stale.invalid",
       ARC_BUILD_REVISION: "stale-revision",
       ALCHEMY_PROFILE: "stale-profile",
       TWITCH_CLIENT_SECRET: "stale-secret",
@@ -79,14 +79,14 @@ describe("local settings", () => {
     });
     expect(env).toMatchObject({
       ...fixtureEnv,
-      ARC_PUBLIC_URL: settings.endpoint,
+      ARC_BOT_URL: settings.endpoint,
       EXTRA_SECRET: "fixture-file-secret",
       EXTRA_SECRET_999999: "fixture-numbered-secret",
       EMPTY_SECRET: "",
       CLOUDFLARE_API_TOKEN: "fixture-shell-token",
       UNRELATED: "fixture-unrelated",
     });
-    await writeFile(envFile, "ARC_PUBLIC_URL=https://second.invalid\n");
+    await writeFile(envFile, "ARC_BOT_URL=https://second.invalid\n");
     expect((await localSettings(envFile, fixtureEnv)).settings.endpoint).toBe(
       "https://second.invalid",
     );
@@ -112,6 +112,31 @@ describe("local settings", () => {
       "ARC_BUILD_REVISION",
     );
   });
+  test("Website defaults to localhost and only its exact HTTP origin is accepted", async () => {
+    const directory = await temporary();
+    const envFile = join(directory, ".env.local");
+    const { ARC_WEBSITE_URL: _website, ...env } = fixtureEnv;
+    await writeFile(envFile, dotenv(env));
+    const local = await localSettings(envFile, {});
+    expect(local.settings.websiteOrigin).toBe("http://localhost:3000");
+    expect(local.env.ARC_WEBSITE_URL).toBe("http://localhost:3000");
+    expect(plan("setup", local.settings)[1]).toContain(fixtureEnv.ARC_BOT_URL);
+
+    for (const website of [
+      "http://localhost:3001",
+      "http://127.0.0.1:3000",
+      "http://remote.invalid:3000",
+      "http://user@localhost:3000",
+      "http://localhost:3000?x=1",
+      "http://localhost:3000/extra",
+      "",
+    ]) {
+      await writeFile(envFile, dotenv({ ...env, ARC_WEBSITE_URL: website }));
+      await expect(localSettings(envFile, {})).rejects.toThrow(
+        "Invalid local configuration",
+      );
+    }
+  });
 });
 
 describe("local package aliases", () => {
@@ -125,7 +150,7 @@ describe("local package aliases", () => {
       TWITCH_SENDER_LOGIN: "development_bot",
       TWITCH_CHANNEL_LOGINS: "development_channel,another_channel",
       TWITCH_CLIENT_ID: "independent-test-application",
-      ARC_PUBLIC_URL: "https://bot-tunnel.invalid",
+      ARC_BOT_URL: "https://bot-tunnel.invalid",
     };
 
     await writeFile(join(fixture.directory, ".env.local"), dotenv(bot));
@@ -150,7 +175,7 @@ describe("local package aliases", () => {
 
     for (const call of calls) expect(call.env).toEqual(bot);
     expect(calls[0]?.args).toContain("local-fixture");
-    expect(calls[2]?.args).toContain(bot.ARC_PUBLIC_URL);
+    expect(calls[2]?.args).toContain(bot.ARC_BOT_URL);
   });
 
   test("changing only the file twice updates every child, setup orders sync before private OAuth output, and all aliases work", async () => {
@@ -160,7 +185,7 @@ describe("local package aliases", () => {
       ...fixtureEnv,
       ARC_STAGE: "prod",
       APPLICATION_STAGE: "prod",
-      ARC_PUBLIC_URL: "https://stale.invalid",
+      ARC_BOT_URL: "https://stale.invalid",
       ARC_BUILD_REVISION: "stale-revision",
       ALCHEMY_PROFILE: "stale-profile",
       OPERATOR_SECRET: "stale-operator",
@@ -170,7 +195,7 @@ describe("local package aliases", () => {
     for (const origin of ["https://first.invalid", "https://second.invalid"]) {
       await writeFile(
         join(fixture.directory, ".env.local"),
-        dotenv({ ...fixtureEnv, ARC_PUBLIC_URL: origin }),
+        dotenv({ ...fixtureEnv, ARC_BOT_URL: origin }),
       );
 
       for (const alias of [
@@ -207,7 +232,7 @@ describe("local package aliases", () => {
       ]);
 
       for (const call of latest) {
-        expect(call.env).toEqual({ ...fixtureEnv, ARC_PUBLIC_URL: origin });
+        expect(call.env).toEqual({ ...fixtureEnv, ARC_BOT_URL: origin });
         expect(call.cwd).toBe(fixture.directory);
         expect(call.execPath).toBe(process.execPath);
         expect(call.args).not.toContain("fixture-operator");
@@ -287,7 +312,7 @@ describe("local package aliases", () => {
         "https://fixture.invalid/#CANARY",
         "https://CANARY:password@fixture.invalid",
         "CANARY-NOT-URL",
-      ].map((ARC_PUBLIC_URL) => ({ ARC_PUBLIC_URL })),
+      ].map((ARC_BOT_URL) => ({ ARC_BOT_URL })),
       { ARC_BUILD_REVISION: "" },
       { ALCHEMY_PROFILE: "" },
       { DISCORD_PUBLIC_KEY: "CANARY-BAD-KEY" },
@@ -433,7 +458,7 @@ async function launcherFixture() {
   );
   await writeFile(
     join(directory, "apps/bot/src/config.js"),
-    `export { publicOrigin, runtimeConfig } from ${JSON.stringify(join(root, "apps/bot/src/config.ts"))};`,
+    `export { botOrigin, runtimeConfig, localWebsiteOrigin, websiteOAuthOrigin } from ${JSON.stringify(join(root, "apps/bot/src/config.ts"))};`,
   );
   await copyFile(
     join(root, "scripts/local.ts"),

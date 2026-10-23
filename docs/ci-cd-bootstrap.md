@@ -112,10 +112,10 @@ Set these public variables manually in environment `prod`, using the current wor
 - `TWITCH_CHANNEL_LOGINS` contains comma-separated lowercase channel logins, such as `channel_one,channel_two`. Do not enter a JSON array.
 - `TWITCH_CLIENT_ID` is the existing Twitch application client ID.
 - `DISCORD_PUBLIC_KEY` is the existing production Discord application public key.
-- `ARC_PUBLIC_URL` is the exact Bot origin of the working production deployment.
-- `ARC_WEBSITE_URL` is the exact public Website origin. Register its `/oauth/twitch/callback` for both OAuth flows.
+- `ARC_BOT_URL` is the exact Bot origin of the working production deployment.
+- `ARC_WEBSITE_URL` is the exact HTTPS production Website origin. Nonproduction defaults to `http://localhost:3000`; production requires this setting. Register its `/oauth/twitch/callback` for both OAuth flows.
 
-Preserve the exact working `ARC_PUBLIC_URL`. The first production deployment failed at runtime until that URL was set and the release was rerun. A blank value is not a verified production configuration. Copy the existing origin from the operator's known working configuration, and confirm that it matches the deployed stack's `url` output. Configure Website independently using `websiteUrl`. Do not derive a replacement from an account subdomain or change portal callbacks to accommodate this bootstrap.
+Preserve the exact working `ARC_BOT_URL`. The first production deployment failed at runtime until that URL was set and the release was rerun. A blank value is not a verified production configuration. Copy the existing origin from the operator's known working configuration, and confirm that it matches the deployed stack's `url` output. Configure Website independently using `websiteUrl`. Do not derive a replacement from an account subdomain or change portal callbacks to accommodate this bootstrap.
 
 After reviewing the workflow changes and completing these inputs, use the repository's release workflow to deploy. The bootstrap itself never triggers a workflow. A failed Discord sync after a successful Worker deployment needs a release rerun of that deployed revision, as described in the [operator guide](operator-guide.md).
 
