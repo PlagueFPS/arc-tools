@@ -587,11 +587,11 @@ test(
         reason: "revoked",
       });
       h.control.sendGate = yield* Deferred.make<void>();
+      h.control.sendStarted = yield* Deferred.make<void>();
       const input = h.send("interrupted-keyed");
       const sending = yield* h.account.dispatch(input).pipe(Effect.forkChild);
 
-      for (let i = 0; i < 100 && h.control.sends === 0; i++)
-        yield* Effect.yieldNow;
+      yield* Deferred.await(h.control.sendStarted);
       expect(h.control.sends).toBe(1);
       expect(h.memory.values.has(`account:tombstone:v1/${proof.id}`)).toBe(
         false,

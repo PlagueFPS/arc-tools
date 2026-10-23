@@ -44,7 +44,7 @@ export const senderScopes = ["user:read:chat", "user:write:chat", "user:bot"];
 export const broadcasterScopes = ["channel:bot"];
 
 export interface AccountIdentity {
-  readonly kind: "production" | "personal" | "test";
+  readonly senderKind: "bot" | "personal" | "synthetic";
   readonly stage: string;
   readonly twitchClientId: string;
   readonly senderLogin: string;
@@ -107,7 +107,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     record: AccountState["subscriptions"][string],
   ) =>
     current(state) &&
-    desiredChannels(state, config.identity.kind).some(
+    desiredChannels(state, config.identity.senderKind).some(
       (channel) => channel.id === record.broadcasterId,
     ) &&
     state.sender?.id === record.senderId &&
@@ -134,7 +134,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     if (
       !current(state) ||
       !state.sender ||
-      !desiredChannels(state, config.identity.kind).some(
+      !desiredChannels(state, config.identity.senderKind).some(
         (channel) => channel.id === id,
       )
     )
@@ -401,11 +401,12 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const result = yield* store.update((state) => {
         reclaim(state, now);
 
-        const decisions = desiredChannels(state, config.identity.kind).map(
-          (channel) => decideChannel(state, channel.id),
-        );
+        const decisions = desiredChannels(
+          state,
+          config.identity.senderKind,
+        ).map((channel) => decideChannel(state, channel.id));
 
-        const channels = desiredChannels(state, config.identity.kind).map(
+        const channels = desiredChannels(state, config.identity.senderKind).map(
           (channel, index) => ({
             ...channel,
             authorized: granted(state, channel.id, broadcasterScopes),
@@ -594,7 +595,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           !state.sender ||
           !granted(state, state.sender.id, senderScopes) ||
           !granted(state, channel, broadcasterScopes) ||
-          !desiredChannels(state, config.identity.kind).some(
+          !desiredChannels(state, config.identity.senderKind).some(
             (entry) => entry.id === channel,
           )
         )
@@ -714,7 +715,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
               channels: resolved,
               publicMembers: state.publicMembers,
             },
-            config.identity.kind,
+            config.identity.senderKind,
           ).length > policy.maxChannels
         )
           return "capacity";
@@ -814,7 +815,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
             session.token,
             sender.id,
             yield* store.update((state) =>
-              desiredChannels(state, config.identity.kind)
+              desiredChannels(state, config.identity.senderKind)
                 .filter((channel) => {
                   const decision = decideChannel(state, channel.id);
 
@@ -917,7 +918,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     return yield* store.update((state): EnrollmentStatus => {
       const entry = state.enrollments.find((entry) => entry.session === valid);
 
-      if (config.identity.kind !== "production")
+      if (config.identity.senderKind !== "bot")
         return { kind: "failed", reason: "unavailable" };
 
       if (!entry || entry.expiresAt <= now)
@@ -943,9 +944,10 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         case "member": {
           const id = entry.phase.broadcasterId;
 
-          const member = desiredChannels(state, config.identity.kind).find(
-            (channel) => channel.id === id,
-          );
+          const member = desiredChannels(
+            state,
+            config.identity.senderKind,
+          ).find((channel) => channel.id === id);
 
           if (
             !member ||
@@ -977,7 +979,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
 
     if (
-      config.identity.kind !== "production" ||
+      config.identity.senderKind !== "bot" ||
       !config.webhookReady ||
       !Schema.is(CallbackUrl)(config.callback) ||
       !Schema.is(CallbackUrl)(config.redirect)
@@ -1053,7 +1055,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       input,
     ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
 
-    if (config.identity.kind !== "production")
+    if (config.identity.senderKind !== "bot")
       return yield* new AccountError({ code: "configuration" });
     const clock = yield* Clock.Clock;
     const nonce = yield* digest(valid.state);
@@ -1165,13 +1167,14 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         )
           return "state";
 
-        const existing = desiredChannels(state, config.identity.kind).find(
-          (channel) => channel.id === userId,
-        );
+        const existing = desiredChannels(
+          state,
+          config.identity.senderKind,
+        ).find((channel) => channel.id === userId);
 
         if (
           !existing &&
-          desiredChannels(state, config.identity.kind).length >=
+          desiredChannels(state, config.identity.senderKind).length >=
             policy.maxChannels
         ) {
           state.enrollments = state.enrollments.map((candidate) =>
@@ -1289,7 +1292,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       }
 
       if (
-        config.identity.kind !== "production" ||
+        config.identity.senderKind !== "bot" ||
         !config.webhookReady ||
         !state.sender ||
         !granted(state, state.sender.id, senderScopes)
@@ -1310,7 +1313,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         id: state.repair.id,
         generation: state.authGeneration,
         sender: state.sender.id,
-        channels: desiredChannels(state, config.identity.kind)
+        channels: desiredChannels(state, config.identity.senderKind)
           .filter((channel) => granted(state, channel.id, broadcasterScopes))
           .map((channel) => channel.id),
         attempts: state.repair.attempts + 1,
@@ -1355,7 +1358,10 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
             if (state.repair.id !== claim.id) return;
 
-            const ready = desiredChannels(state, config.identity.kind).every(
+            const ready = desiredChannels(
+              state,
+              config.identity.senderKind,
+            ).every(
               (channel) => decideChannel(state, channel.id).kind === "ready",
             );
 
@@ -1389,7 +1395,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           valid.binding !== config.subscriptionBinding ||
           valid.callback !== config.callback ||
           state.sender?.id !== valid.senderId ||
-          !desiredChannels(state, config.identity.kind).some(
+          !desiredChannels(state, config.identity.senderKind).some(
             (channel) => channel.id === valid.broadcasterId,
           )
         )
@@ -1531,7 +1537,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           return { kind: "outcome", outcome: { kind: "expired" } } as const;
         }
 
-        const channel = desiredChannels(state, config.identity.kind).find(
+        const channel = desiredChannels(state, config.identity.senderKind).find(
           (channel) => channel.id === valid.broadcasterId,
         );
 

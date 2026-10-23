@@ -11,6 +11,11 @@ export const Stage = Schema.Union([
   TestStage,
 ]);
 
+const NonProductionStage = Schema.Union([
+  Schema.Literal("staging"),
+  Schema.String.check(Schema.isPattern(/^local-[a-z0-9-]+$/)),
+]);
+
 const login = Schema.String.check(Schema.isPattern(/^[a-z0-9_]{1,25}$/));
 
 const application = Schema.NonEmptyString;
@@ -32,11 +37,16 @@ export const EnvironmentConfig = Schema.Union([
   }),
   Schema.Struct({
     ...common,
+    kind: Schema.Literal("bot"),
+    stage: NonProductionStage,
+    senderKind: Schema.Literal("bot"),
+    senderLogin: login,
+    channelLogins: Schema.NonEmptyArray(login),
+  }),
+  Schema.Struct({
+    ...common,
     kind: Schema.Literal("personal"),
-    stage: Schema.Union([
-      Schema.Literal("staging"),
-      Schema.String.check(Schema.isPattern(/^local-[a-z0-9-]+$/)),
-    ]),
+    stage: NonProductionStage,
     senderKind: Schema.Literal("personal"),
     senderLogin: login,
     channelLogins: Schema.Tuple([login]),
@@ -64,7 +74,7 @@ export const runtimeConfig = Effect.gen(function* () {
   const applicationStage = yield* Config.schema(Stage, "APPLICATION_STAGE");
 
   const kind = yield* Config.Literals(
-    ["production", "personal", "test"],
+    ["production", "bot", "personal", "test"],
     "ARC_ENVIRONMENT",
   );
 

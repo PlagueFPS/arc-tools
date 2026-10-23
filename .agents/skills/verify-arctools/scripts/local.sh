@@ -9,9 +9,13 @@ if [[ ! "$stage" =~ ^local-verify-[a-z0-9-]+$ ]]; then
 fi
 # Public fixture values intentionally replace any loaded application configuration.
 export ARC_STAGE="$stage" APPLICATION_STAGE="$stage"
-export ARC_ENVIRONMENT=personal ARC_BUILD_REVISION="$(git rev-parse HEAD)"
+case "${ARC_VERIFY_MODE:-personal}" in
+  personal|bot) export ARC_ENVIRONMENT="${ARC_VERIFY_MODE:-personal}" ;;
+  *) echo 'ARC_VERIFY_MODE must be personal or bot' >&2; exit 1 ;;
+esac
+export ARC_BUILD_REVISION="$(git rev-parse HEAD)"
 export ARC_PUBLIC_URL=https://local-verify.example
-export TWITCH_SENDER_KIND=personal TWITCH_SENDER_LOGIN=local_probe TWITCH_CHANNEL_LOGINS=local_probe
+export TWITCH_SENDER_KIND="$ARC_ENVIRONMENT" TWITCH_SENDER_LOGIN=local_probe TWITCH_CHANNEL_LOGINS=local_probe
 export TWITCH_CLIENT_ID=fixture-twitch DISCORD_APPLICATION_ID=fixture-discord
 export TWITCH_CLIENT_SECRET=fixture-secret
 export TWITCH_SIGNING_SECRET=fixture-signing DISCORD_BOT_TOKEN=fixture-token OPERATOR_SECRET=fixture-operator

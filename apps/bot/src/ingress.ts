@@ -428,7 +428,7 @@ export const ingressHandlers = (config: IngressConfig) =>
               if (!event) return yield* new IngressError({ status: 400 });
 
               if (
-                config.identity.kind === "production" &&
+                config.identity.senderKind === "bot" &&
                 event.chatter_user_id === sender.id
               )
                 return HttpServerResponse.empty({ status: 204 });
