@@ -2,71 +2,22 @@ import {
   EnrollmentFailure,
   EnrollmentStatus,
 } from "@arctools/twitch/enrollment";
-import { queryOptions, useQuery } from "@tanstack/react-query";
 import { Schema } from "effect";
-import { useEffect, useState } from "react";
+import { AsyncData } from "foldkit";
+import { defineTaggedUnion } from "foldkit/schema";
 
-export class EnrollmentCheckError extends Error {
-  constructor() {
-    super("Status unavailable");
-    this.name = "EnrollmentCheckError";
-  }
-}
+export { EnrollmentStatus };
 
-async function checkEnrollment(
-  signal: AbortSignal,
-): Promise<EnrollmentStatus | null> {
-  try {
-    const response = await fetch("/oauth/twitch/enroll/status", {
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-      redirect: "error",
-      signal,
-    });
+export const RequestId = Schema.Int.pipe(Schema.brand("EnrollmentRequestId"));
 
-    if (response.status === 401) {
-      return null;
-    }
-
-    if (response.status !== 200) {
-      throw new EnrollmentCheckError();
-    }
-
-    const payload: unknown = await response.json();
-
-    return Schema.decodeUnknownSync(EnrollmentStatus)(payload);
-  } catch (error) {
-    if (signal.aborted || error instanceof EnrollmentCheckError) {
-      throw error;
-    }
-
-    throw new EnrollmentCheckError();
-  }
-}
-
-export const enrollmentQuery = queryOptions<
-  EnrollmentStatus | null,
-  EnrollmentCheckError
->({
-  queryKey: ["enrollment-status"],
-  queryFn: ({ signal }) => checkEnrollment(signal),
-  retry: false,
-  staleTime: Infinity,
-  gcTime: 0,
-  refetchOnWindowFocus: false,
-  refetchOnReconnect: false,
+export const CheckError = defineTaggedUnion({
+  Absent: {},
+  Unavailable: {},
 });
 
-export function useEnrollmentStatus() {
-  const [mounted, setMounted] = useState(false);
+export type CheckError = typeof CheckError.Type;
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  return useQuery({ ...enrollmentQuery, enabled: mounted });
-}
+export const Enrollment = AsyncData.Schema(EnrollmentStatus, CheckError);
 
 const failureGuidance: Readonly<Record<typeof EnrollmentFailure.Type, string>> =
   {

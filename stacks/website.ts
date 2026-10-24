@@ -10,7 +10,7 @@ export const Website = Effect.gen(function* () {
   const bot = yield* Bot;
   const stage = yield* Stage;
 
-  return yield* Cloudflare.Website.Vite("Website", {
+  return yield* Cloudflare.Website.Foldkit("Website", {
     name: `arc-tools-website-${stage}`,
     rootDir: "apps/website",
     workersDev: true,

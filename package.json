@@ -49,12 +49,16 @@
     "@arctools/utils": "workspace:*",
     "@arctools/discord": "workspace:*",
     "@alchemy.run/cloudflare": "2.0.0-beta.84",
-    "@alchemy.run/github": "2.0.0-beta.84"
+    "@alchemy.run/github": "2.0.0-beta.84",
+    "@foldkit/oxlint-plugin": "0.15.3"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.5",
     "@effect/sql-sqlite-do": "4.0.5",
-    "@effect/sql-d1": "4.0.5"
+    "@effect/sql-d1": "4.0.5",
+    "effect": "4.0.5",
+    "@effect/platform-browser": "4.0.5",
+    "@effect/platform-node": "4.0.5"
   },
   "type": "module"
 }

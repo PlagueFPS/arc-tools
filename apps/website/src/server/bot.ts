@@ -1,6 +1,5 @@
 import type { toRpcAsync } from "@alchemy.run/cloudflare/Bridge";
 import { AccountError } from "@arctools/twitch/server";
-import { createServerOnlyFn } from "@tanstack/react-start";
 import { Effect, Option, Schema } from "effect";
 
 import { websiteOrigin } from "../../../bot/src/origins.js";
@@ -9,13 +8,13 @@ import type { Bot } from "../../../bot/src/worker.js";
 import type {} from "../env.js";
 import { WebsiteUnavailable } from "./errors.js";
 
-const getBot = createServerOnlyFn(async () => {
+const getBot = async () => {
   const { env } = await import("cloudflare:workers");
   websiteOrigin(env.ARC_STAGE, env.ARC_WEBSITE_SELF, env.ARC_WEBSITE_URL);
   const { toRpcAsync } = await import("@alchemy.run/cloudflare/Bridge");
 
   return toRpcAsync<Bot>(env.BOT);
-});
+};
 
 const call = Effect.fnUntraced(function* <A>(operation: () => Promise<A>) {
   return yield* Effect.tryPromise({

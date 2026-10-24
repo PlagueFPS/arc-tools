@@ -1,8 +1,10 @@
+import foldkit from "@foldkit/oxlint-plugin";
 import { defineConfig } from "oxlint";
 
 export default defineConfig({
   plugins: ["typescript", "unicorn", "oxc"],
   jsPlugins: [
+    { name: "foldkit", specifier: "@foldkit/oxlint-plugin" },
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
     {
       name: "anti-slop-effect",
@@ -38,8 +40,18 @@ export default defineConfig({
   categories: {
     correctness: "error",
   },
+  overrides: [
+    {
+      files: [
+        "apps/website/src/*.ts",
+        "apps/website/src/view/**/*.ts",
+        "apps/website/src/components/**/*.ts",
+        "apps/website/src/domain/**/*.ts",
+      ],
+      rules: foldkit.configs.recommended.rules,
+    },
+  ],
   ignorePatterns: [
-    "apps/website/src/routeTree.gen.ts",
     "**/dist/**",
     "**/.turbo/**",
     ".repos/**",
