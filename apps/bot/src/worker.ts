@@ -1,5 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ArcCacheDO } from "@arctools/arc-data/cloudflare";
+import type { BotOperations } from "@arctools/bot-contracts";
 import { manifestHash } from "@arctools/discord/server";
 import { TwitchAccount } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
@@ -18,7 +19,7 @@ import { BotApi } from "./api.js";
 import { bindBotOrigin, buildRevision, runtimeConfig } from "./config.js";
 import { ingressHandlers } from "./ingress.js";
 import { operatorHandlers } from "./operator.js";
-import { botOperations, type BotOperations } from "./rpc.js";
+import { botOperations } from "./rpc.js";
 import { Tenants } from "./tenant-contracts.js";
 import { TenantBoundaryObserver } from "./tenant-diagnostics.js";
 import { bindTenants } from "./tenant.js";

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { Server } from "foldkit/experimental";
 import { expect, test, vi } from "vitest";
 
@@ -84,8 +85,10 @@ test("unknown pages remain 404 and unsupported page methods are 405", async () =
     ).status,
   ).toBe(405);
   expect(
-    await enrollmentResponse(
-      new Request("https://site.invalid/oauth/twitch/unknown"),
+    await Effect.runPromise(
+      enrollmentResponse(
+        new Request("https://site.invalid/oauth/twitch/unknown"),
+      ),
     ),
   ).toBeUndefined();
 });

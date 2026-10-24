@@ -11,12 +11,14 @@ const handlers = new Map([
   ["/oauth/twitch/callback", http.callback],
 ]);
 
-export const enrollmentResponse = async (request: Request) => {
+export const enrollmentResponse = Effect.fnUntraced(function* (
+  request: Request,
+) {
   const handler = handlers.get(new URL(request.url).pathname);
 
   if (!handler) return undefined;
 
   if (request.method !== "GET") return enrollmentHead();
 
-  return Effect.runPromise(handler(request));
-};
+  return yield* handler(request);
+});

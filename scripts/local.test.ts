@@ -456,9 +456,14 @@ async function launcherFixture() {
     join(root, "node_modules/effect"),
     join(directory, "node_modules/effect"),
   );
+  await mkdir(join(directory, "node_modules/@arctools"), { recursive: true });
+  await symlink(
+    join(root, "packages/bot-contracts"),
+    join(directory, "node_modules/@arctools/bot-contracts"),
+  );
   await writeFile(
     join(directory, "apps/bot/src/config.js"),
-    `export { botOrigin, runtimeConfig, localWebsiteOrigin, websiteOAuthOrigin } from ${JSON.stringify(join(root, "apps/bot/src/config.ts"))};`,
+    `export { runtimeConfig } from ${JSON.stringify(join(root, "apps/bot/src/config.ts"))};`,
   );
   await copyFile(
     join(root, "scripts/local.ts"),

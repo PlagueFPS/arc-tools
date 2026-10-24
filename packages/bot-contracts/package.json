@@ -1,0 +1,21 @@
+{
+  "name": "@arctools/bot-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./origins": "./src/origins.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@arctools/twitch": "workspace:*",
+    "effect": "4.0.5"
+  },
+  "devDependencies": {
+    "@arctools/typescript-config": "workspace:*",
+    "typescript": "7.0.2"
+  }
+}

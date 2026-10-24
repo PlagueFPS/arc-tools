@@ -1,19 +1,10 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import { Config, Effect, Redacted, Schema } from "effect";
-
 import {
   localWebsiteOrigin,
   websiteOAuthOrigin,
   botOrigin,
-} from "./origins.js";
-
-export {
-  httpsOrigin,
-  botOrigin,
-  websiteOrigin,
-  localWebsiteOrigin,
-  websiteOAuthOrigin,
-} from "./origins.js";
+} from "@arctools/bot-contracts/origins";
+import { Config, Effect, Redacted, Schema } from "effect";
 
 export const TestStage = Schema.String.check(
   Schema.isPattern(/^test-[a-z0-9-]{1,24}-[a-f0-9]{12}$/),

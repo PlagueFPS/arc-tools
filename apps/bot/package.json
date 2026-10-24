@@ -14,7 +14,8 @@
     "@arctools/twitch": "workspace:*",
     "@arctools/utils": "workspace:*",
     "@arctools/discord": "workspace:*",
-    "@alchemy.run/cloudflare": "2.0.0-beta.84"
+    "@alchemy.run/cloudflare": "2.0.0-beta.84",
+    "@arctools/bot-contracts": "workspace:*"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*"

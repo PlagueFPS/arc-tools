@@ -1,3 +1,5 @@
+import type { BotOperations } from "@arctools/bot-contracts";
+import { localWebsiteOrigin } from "@arctools/bot-contracts/origins";
 import {
   AccountError,
   EnrollmentNonce,
@@ -8,8 +10,6 @@ import {
 import { digest } from "@arctools/utils/http";
 import { Effect, Schema, Struct } from "effect";
 
-import { localWebsiteOrigin } from "../../../bot/src/origins.js";
-import type { BotOperations } from "../../../bot/src/rpc.js";
 import type { WebsiteUnavailable } from "./errors.js";
 
 export const enrollmentCookie = "__Host-arctools-enrollment";

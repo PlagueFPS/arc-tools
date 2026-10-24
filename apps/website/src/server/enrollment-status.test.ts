@@ -1,12 +1,8 @@
-import { expect, test } from "bun:test";
-
 import { AccountError } from "@arctools/twitch/server";
 import { Effect } from "effect";
+import { expect, test } from "vitest";
 
-import {
-  enrollmentCookie,
-  websiteHttp,
-} from "../../website/src/server/enrollment.js";
+import { enrollmentCookie, websiteHttp } from "./enrollment.js";
 
 const request = (cookie: string) =>
   new Request("https://bot.invalid/oauth/twitch/enroll/status", {

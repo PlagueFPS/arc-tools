@@ -1,6 +1,6 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 
-import { buttonSizes, buttonVariants } from "../components/ui/button";
+import { buttonVariants } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import type { Message } from "../message";
 import { enrollmentPath } from "../route";
@@ -16,11 +16,7 @@ export const contentPage = cn(
 export const pageTitle =
   "mt-[35px] mb-[23px] font-heading text-[clamp(36px,5vw,50px)] font-semibold leading-[1.15] tracking-[-2px]";
 
-export const primaryButton = cn(
-  "inline-flex items-center justify-center gap-2 rounded-lg border border-transparent font-medium whitespace-nowrap transition-all",
-  buttonVariants.default,
-  buttonSizes.lg,
-);
+export const primaryButton = buttonVariants({ size: "lg" });
 
 export const eyebrow = (
   { children }: { children: Html | string | ReadonlyArray<Html | string> },

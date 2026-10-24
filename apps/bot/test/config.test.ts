@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { botOrigin, websiteOrigin } from "@arctools/bot-contracts/origins";
 import * as Test from "alchemy/Test/Bun";
 import { ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
 
@@ -9,8 +10,6 @@ import {
   EnvironmentConfig,
   configuredWebsiteOrigin,
   runtimeConfig,
-  botOrigin,
-  websiteOrigin,
 } from "../src/config.js";
 import { CommandInput, GuildId, tenantName } from "../src/contracts.js";
 import { accountRevision } from "../src/twitch.js";

@@ -29,24 +29,24 @@ import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { TestClock } from "effect/testing";
 
-import {
-  discordPublicKey,
-  signTwitch,
-  twitchEvent,
-} from "../../../tests/cloud/signatures.js";
+import { BotApi } from "../../apps/bot/src/api.js";
+import { EnvironmentConfig } from "../../apps/bot/src/config.js";
+import { ingressHandlers } from "../../apps/bot/src/ingress.js";
+import { operatorHandlers } from "../../apps/bot/src/operator.js";
+import { discordResponse } from "../../apps/bot/src/presentation.js";
+import { botOperations } from "../../apps/bot/src/rpc.js";
+import { Tenants } from "../../apps/bot/src/tenant-contracts.js";
 import {
   enrollmentCookie,
   enrollmentHead,
   localEnrollmentCookie,
   websiteHttp,
-} from "../../website/src/server/enrollment.js";
-import { BotApi } from "../src/api.js";
-import { EnvironmentConfig } from "../src/config.js";
-import { ingressHandlers } from "../src/ingress.js";
-import { operatorHandlers } from "../src/operator.js";
-import { discordResponse } from "../src/presentation.js";
-import { botOperations } from "../src/rpc.js";
-import { Tenants } from "../src/tenant-contracts.js";
+} from "../../apps/website/src/server/enrollment.js";
+import {
+  discordPublicKey,
+  signTwitch,
+  twitchEvent,
+} from "../cloud/signatures.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 

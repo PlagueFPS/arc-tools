@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  appType: "mpa",
   server: { port: 3000, strictPort: true },
   preview: { port: 3000, strictPort: true },
   resolve: { tsconfigPaths: true },

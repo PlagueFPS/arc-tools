@@ -5,14 +5,14 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 
-import { ConfigProvider, Effect, Schema } from "effect";
-
 import {
   botOrigin,
-  runtimeConfig,
   localWebsiteOrigin,
   websiteOAuthOrigin,
-} from "../apps/bot/src/config.js";
+} from "@arctools/bot-contracts/origins";
+import { ConfigProvider, Effect, Schema } from "effect";
+
+import { runtimeConfig } from "../apps/bot/src/config.js";
 
 const LocalAction = Schema.Literals(["dev", "setup", "status", "sync"]);
 

@@ -1,5 +1,6 @@
 import { describe, expect } from "bun:test";
 
+import { botOrigin } from "@arctools/bot-contracts/origins";
 import {
   type Account,
   AccountError,
@@ -22,7 +23,6 @@ import {
   twitchEvent,
 } from "../../../tests/cloud/signatures.js";
 import { BotApi } from "../src/api.js";
-import { botOrigin } from "../src/config.js";
 import {
   ingressHandlers,
   ingressPolicy,

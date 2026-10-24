@@ -1,14 +1,12 @@
-import { expect, test } from "bun:test";
-
-import { toRpcAsync } from "@alchemy.run/cloudflare/Bridge";
+import { makeRpcStub } from "@alchemy.run/cloudflare/Bridge";
 import { handleRpcExit } from "@alchemy.run/cloudflare/Workers/WorkerBridge";
+import type { BotOperations } from "@arctools/bot-contracts";
 import { AccountError } from "@arctools/twitch/server";
 import { Effect, Exit } from "effect";
+import { expect, test } from "vitest";
 
-import { botOperationsClient } from "../../website/src/server/bot.js";
-import { websiteHttp } from "../../website/src/server/enrollment.js";
-import { WebsiteUnavailable } from "../../website/src/server/errors.js";
-import type { Bot } from "../src/worker.js";
+import { websiteHttp } from "./enrollment.js";
+import { WebsiteUnavailable } from "./errors.js";
 
 for (const [code, expected] of [
   ["state", 401],
@@ -17,13 +15,16 @@ for (const [code, expected] of [
   ["busy", 503],
 ] as const) {
   test(`serialized RPC AccountError ${code} is an HTTP ${expected}, never successful status`, async () => {
-    const bot = toRpcAsync<Bot>({
-      enrollmentStatus: () =>
-        handleRpcExit(Exit.fail(new AccountError({ code }))),
-    });
+    const bot = makeRpcStub<BotOperations>(
+      {
+        enrollmentStatus: () =>
+          handleRpcExit(Exit.fail(new AccountError({ code }))),
+      },
+      { errors: [AccountError] },
+    );
 
     const response = await Effect.runPromise(
-      websiteHttp(Effect.succeed(botOperationsClient(bot))).status(
+      websiteHttp(Effect.succeed(bot)).status(
         new Request("https://website.invalid/oauth/twitch/enroll/status", {
           headers: { cookie: `__Host-arctools-enrollment=${"a".repeat(64)}` },
         }),
