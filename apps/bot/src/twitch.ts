@@ -1,3 +1,4 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   makeAccountClient,
   makeAccountRuntime,
@@ -7,7 +8,6 @@ import {
 } from "@arctools/twitch/cloudflare";
 import { TwitchAccount } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer, Option, Redacted } from "effect";
 
 import { bindBotOrigin, oauthOrigin, runtimeConfig } from "./config.js";

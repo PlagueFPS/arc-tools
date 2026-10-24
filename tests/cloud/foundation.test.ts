@@ -1,9 +1,9 @@
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
 
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { manifestHash } from "@arctools/discord/server";
 import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
-import * as Cloudflare from "alchemy/Cloudflare";
 import * as Test from "alchemy/Test/Bun";
 import * as Core from "alchemy/Test/Core";
 import { Effect, Schedule, Schema, Stream } from "effect";

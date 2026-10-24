@@ -1,4 +1,4 @@
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Cause, Effect, Exit } from "effect";
 import { HttpServerResponse } from "effect/http";
 

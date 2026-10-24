@@ -1,5 +1,5 @@
-import * as Cloudflare from "alchemy/Cloudflare";
-import type { DurableObjectStorageError } from "alchemy/Cloudflare/Workers/DurableObjectStorage";
+import * as Cloudflare from "@alchemy.run/cloudflare";
+import type { DurableObjectStorageError } from "@alchemy.run/cloudflare/Workers/DurableObjectStorage";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Context, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/http";

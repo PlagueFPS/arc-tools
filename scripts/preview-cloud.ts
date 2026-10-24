@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
-import * as Cloudflare from "alchemy/Cloudflare";
 import * as Core from "alchemy/Test/Core";
 import { Effect, Schema, Stream } from "effect";
 

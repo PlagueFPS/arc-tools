@@ -1,6 +1,6 @@
+import type { toRpcAsync } from "@alchemy.run/cloudflare/Bridge";
 import { AccountError } from "@arctools/twitch/server";
 import { createServerOnlyFn } from "@tanstack/react-start";
-import type { toRpcAsync } from "alchemy/Cloudflare/Bridge";
 import { Effect, Option, Schema } from "effect";
 
 import { websiteOrigin } from "../../../bot/src/origins.js";
@@ -12,7 +12,7 @@ import { WebsiteUnavailable } from "./errors.js";
 const getBot = createServerOnlyFn(async () => {
   const { env } = await import("cloudflare:workers");
   websiteOrigin(env.ARC_STAGE, env.ARC_WEBSITE_SELF, env.ARC_WEBSITE_URL);
-  const { toRpcAsync } = await import("alchemy/Cloudflare/Bridge");
+  const { toRpcAsync } = await import("@alchemy.run/cloudflare/Bridge");
 
   return toRpcAsync<Bot>(env.BOT);
 });

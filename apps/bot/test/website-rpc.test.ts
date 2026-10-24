@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 
+import { toRpcAsync } from "@alchemy.run/cloudflare/Bridge";
+import { handleRpcExit } from "@alchemy.run/cloudflare/Workers/WorkerBridge";
 import { AccountError } from "@arctools/twitch/server";
-import { toRpcAsync } from "alchemy/Cloudflare/Bridge";
-import { handleRpcExit } from "alchemy/Cloudflare/Workers/WorkerBridge";
 import { Effect, Exit } from "effect";
 
 import { botOperationsClient } from "../../website/src/server/bot.js";

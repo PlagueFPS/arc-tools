@@ -1,5 +1,5 @@
-import * as Cloudflare from "alchemy/Cloudflare";
-import type { InferEnv } from "alchemy/Cloudflare/Bridge";
+import * as Cloudflare from "@alchemy.run/cloudflare";
+import type { InferEnv } from "@alchemy.run/cloudflare/Bridge";
 import { Stage } from "alchemy/Stage";
 import { Config, Effect } from "effect";
 

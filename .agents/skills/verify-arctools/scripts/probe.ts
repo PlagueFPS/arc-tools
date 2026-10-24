@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { State } from "alchemy/State";
 import * as Core from "alchemy/Test/Core";
 import { Effect, Schema } from "effect";

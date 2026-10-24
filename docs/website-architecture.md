@@ -15,7 +15,7 @@ The callback dispatches `enroll.` states to session-bound public completion. Oth
 
 Bot schema-decodes every RPC input and resolves its existing account or enrollment client per invocation. Durable Object references remain deferred until the invocation's runtime context exists. The service binding authorizes Website as a caller; account policy still validates sessions, nonces, replay, grants, capacity, and readiness.
 
-Website loads `cloudflare:workers` inside its server-only binding accessor and wraps `env.BOT` with `toRpcAsync<Bot>` from `alchemy/Cloudflare/Bridge`. That wrapper decodes Effect error envelopes instead of returning them as successful data. The HTTP adapter reconstructs tagged account errors for 401 session errors and 503 unavailable responses. Missing runtime bindings also produce private 503 responses. Bot resource imports in Website runtime code are type-only.
+Website loads `cloudflare:workers` inside its server-only binding accessor and wraps `env.BOT` with `toRpcAsync<Bot>` from `@alchemy.run/cloudflare/Bridge`. That wrapper decodes Effect error envelopes instead of returning them as successful data. The HTTP adapter reconstructs tagged account errors for 401 session errors and 503 unavailable responses. Missing runtime bindings also produce private 503 responses. Bot resource imports in Website runtime code are type-only.
 
 Bot HTTP retains health, signed Twitch and Discord ingress, and bearer-plus-stage operator setup and status. Browser enrollment and OAuth callback paths return 404 on Bot. CLI operations continue targeting Bot.
 

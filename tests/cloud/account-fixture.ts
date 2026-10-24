@@ -1,3 +1,4 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { AccountRpc, accountRpcLayer } from "@arctools/twitch/cloudflare";
 import {
   subscriptionBinding,
@@ -13,7 +14,6 @@ import {
 } from "@arctools/twitch/testing";
 import { providerTransport } from "@arctools/utils/http";
 import { Stack } from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { Cause, Clock, Effect, Layer, Logger, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
