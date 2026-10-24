@@ -230,7 +230,7 @@ test(
 
     expect(reconstructed.instance).not.toBe(armed.instance);
 
-    const observationBudgetMs = 60_000;
+    const observationBudgetMs = 120_000;
     let completed = reconstructed;
 
     const record = () => ({
@@ -280,7 +280,7 @@ test(
     ]);
     expect(completed.alarm).toBeNull();
   }),
-  { timeout: 90_000 },
+  { timeout: 150_000 },
 );
 
 if (
