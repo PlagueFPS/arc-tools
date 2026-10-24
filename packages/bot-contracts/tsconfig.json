@@ -1,0 +1,7 @@
+{
+  "extends": "@arctools/typescript-config/base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src"]
+}

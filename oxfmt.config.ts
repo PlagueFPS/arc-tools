@@ -7,6 +7,7 @@ export default defineConfig({
   sortImports: {},
   sortPackageJson: false,
   ignorePatterns: [
+    "apps/website/src/routeTree.gen.ts",
     "**/dist/**",
     "**/.turbo/**",
     ".repos/**",

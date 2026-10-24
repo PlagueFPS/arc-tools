@@ -60,7 +60,7 @@ Expect one account-owned token, `arc-tools-ci`. Its policy grants the following 
 - `Secrets Store Read` permits [inspection of the state backend's Secrets Store](https://developers.cloudflare.com/api/resources/secrets_store/subresources/stores/methods/list/).
 - `Secrets Store Write` permits creation and update of state backend secrets. The [Secrets Store create endpoint](https://developers.cloudflare.com/api/resources/secrets_store/subresources/stores/subresources/secrets/methods/create/) requires it.
 
-The permission selection comes from the pinned `Cloudflare/Workers/WorkerProvider.ts`, `Cloudflare/StateStore/State.ts`, `Cloudflare/StateStore/Token.ts`, and `Cloudflare/SecretsStore` providers under `node_modules/alchemy/src`. The Worker provider uploads script settings and Durable Object bindings. The state provider adopts or creates its account Worker and ensures its bearer secret exists in Secrets Store. The cloud tests also list Durable Object namespaces.
+The permission selection comes from the pinned `Workers/WorkerProvider.ts`, `StateStore/State.ts`, `StateStore/Token.ts`, and `SecretsStore` providers under `node_modules/@alchemy.run/cloudflare/src`. The Worker provider uploads script settings and Durable Object bindings. The state provider adopts or creates its account Worker and ensures its bearer secret exists in Secrets Store. The cloud tests also list Durable Object namespaces.
 
 These groups are the proposed minimum for this repository. Local typechecking and the API permission documentation do not prove a complete deployment succeeds. No remote bootstrap or cloud deployment was run to verify them. If an authorized run fails, inspect the failed endpoint before adding permissions. The stack grants no Account Settings groups or token-management groups to CI.
 
@@ -112,9 +112,12 @@ Set these public variables manually in environment `prod`, using the current wor
 - `TWITCH_CHANNEL_LOGINS` contains comma-separated lowercase channel logins, such as `channel_one,channel_two`. Do not enter a JSON array.
 - `TWITCH_CLIENT_ID` is the existing Twitch application client ID.
 - `DISCORD_PUBLIC_KEY` is the existing production Discord application public key.
-- `ARC_PUBLIC_URL` is the exact origin of the working production deployment.
+- `ARC_BOT_URL` is the exact Bot origin of the working production deployment.
+- `ARC_WEBSITE_URL` is the exact HTTPS production Website origin. Nonproduction defaults to `http://localhost:3000`; production requires this setting. Register its `/oauth/twitch/callback` for both OAuth flows.
 
-Preserve the exact working `ARC_PUBLIC_URL`. The first production deployment failed at runtime until that URL was set and the release was rerun. A blank value is not a verified production configuration. Copy the existing origin from the operator's known working configuration, and confirm that it matches the deployed stack's `url` output. Do not derive a replacement from an account subdomain or change portal callbacks to accommodate this bootstrap.
+Website has the stable name `arc-tools-website-prod`. In the existing `plague.workers.dev` account, set `ARC_WEBSITE_URL` to `https://arc-tools-website-prod.plague.workers.dev` before merging the Website release. Add its Twitch OAuth callback while keeping the existing Bot callback registered. Keep the legacy `ARC_PUBLIC_URL` variable alongside `ARC_BOT_URL` until the old main workflow is no longer needed; the legacy name is not read by the new application. After the merged release is healthy and operator setup succeeds, remove the obsolete variable and callback.
+
+Preserve the exact working `ARC_BOT_URL`. The first production deployment failed at runtime until that URL was set and the release was rerun. A blank value is not a verified production configuration. Copy the existing origin from the operator's known working configuration, and confirm that it matches the deployed stack's `url` output. Configure Website independently using `websiteUrl`. Do not derive a replacement Bot URL from an account subdomain or change the existing Bot callback to accommodate this bootstrap.
 
 After reviewing the workflow changes and completing these inputs, use the repository's release workflow to deploy. The bootstrap itself never triggers a workflow. A failed Discord sync after a successful Worker deployment needs a release rerun of that deployed revision, as described in the [operator guide](operator-guide.md).
 

@@ -15,11 +15,11 @@
   "dependencies": {
     "@arctools/commands": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "effect": "4.0.4"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",
-    "alchemy": "2.0.0-beta.83",
+    "alchemy": "2.0.0-beta.84",
     "typescript": "7.0.2"
   }
 }

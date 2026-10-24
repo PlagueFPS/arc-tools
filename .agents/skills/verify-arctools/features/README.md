@@ -10,7 +10,7 @@ The canonical `bun run test:cloud` supplies controlled Metaforge and Twitch prov
 
 ## Driving conventions
 
-Use the real `/interactions/discord` and `/webhooks/twitch` routes with signed bytes. Use the operator CLI for setup and registration. Test controls arrange external-provider data or inspect results. They do not replace ingress or operator actions. The cloud suite runs as a whole because its journeys share setup and ordered state.
+Use Website for `/oauth/twitch/enroll`, `/oauth/twitch/enroll/status`, and `/oauth/twitch/callback`. Use the real Bot `/interactions/discord` and `/webhooks/twitch` routes with signed bytes. Use the operator CLI for setup and registration. Test controls arrange external-provider data or inspect results. They do not replace ingress or operator actions. The cloud suite runs as a whole because its journeys share setup and ordered state.
 
 ## Proof and skip reporting
 

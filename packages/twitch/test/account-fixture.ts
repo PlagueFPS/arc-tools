@@ -435,6 +435,8 @@ export const harness = Effect.fnUntraced(function* (
     revision = "revision-one",
     subscriptionBinding = "fixture-binding",
     configuredIdentity = identity,
+    oauthOrigin = "https://fixture.invalid",
+    webhookOrigin = "https://fixture.invalid",
   ) => {
     control.binding = subscriptionBinding;
 
@@ -445,8 +447,8 @@ export const harness = Effect.fnUntraced(function* (
           webhookReady,
           subscriptionBinding,
           revision,
-          callback: "https://fixture.invalid/webhooks/twitch",
-          redirect: "https://fixture.invalid/oauth/twitch/callback",
+          callback: `${webhookOrigin}/webhooks/twitch`,
+          redirect: `${oauthOrigin}/oauth/twitch/callback`,
         }),
       ),
     ).pipe(

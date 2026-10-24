@@ -1,12 +1,12 @@
 import { describe, expect } from "bun:test";
 
+import { botOrigin } from "@arctools/bot-contracts/origins";
 import {
   type Account,
   AccountError,
   AccountStatus,
   type SubscriptionObservation,
   TwitchAccount,
-  TwitchEnrollment,
 } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
 import { Result, Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
@@ -23,7 +23,6 @@ import {
   twitchEvent,
 } from "../../../tests/cloud/signatures.js";
 import { BotApi } from "../src/api.js";
-import { publicOrigin } from "../src/config.js";
 import {
   ingressHandlers,
   ingressPolicy,
@@ -144,13 +143,6 @@ const fixture = Effect.fnUntraced(function* (
     ),
     Layer.provide(Layer.succeed(TwitchAccount, account)),
     Layer.provide(Layer.succeed(Tenants, tenants)),
-    Layer.provide(
-      Layer.succeed(TwitchEnrollment, {
-        begin: () => new AccountError({ code: "configuration" }),
-        complete: () => new AccountError({ code: "configuration" }),
-        status: () => new AccountError({ code: "configuration" }),
-      }),
-    ),
     Layer.provide(HttpServer.layerServices),
   );
 
@@ -595,10 +587,10 @@ describe("signed HttpApi ingress", () => {
     "one deployed origin controls callbacks and local tunnels must be explicit validated HTTPS origins",
     Effect.sync(() => {
       expect(
-        publicOrigin("prod", "https://bot.example/", "https://bot.example"),
+        botOrigin("prod", "https://bot.example/", "https://bot.example"),
       ).toBe("https://bot.example");
       expect(
-        publicOrigin(
+        botOrigin(
           "local-angel",
           "http://localhost:8787",
           "https://tunnel.example",
@@ -612,13 +604,13 @@ describe("signed HttpApi ingress", () => {
         "https://other.example?x=1",
       ])
         expect(() =>
-          publicOrigin("prod", "https://bot.example", origin),
+          botOrigin("prod", "https://bot.example", origin),
         ).toThrow();
       expect(() =>
-        publicOrigin("prod", "https://bot.example", "https://other.example"),
+        botOrigin("prod", "https://bot.example", "https://other.example"),
       ).toThrow();
       expect(() =>
-        publicOrigin("local-angel", "http://localhost:8787", ""),
+        botOrigin("local-angel", "http://localhost:8787", ""),
       ).toThrow();
     }),
   );

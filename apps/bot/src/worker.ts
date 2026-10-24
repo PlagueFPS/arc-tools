@@ -1,8 +1,11 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { ArcCacheDO } from "@arctools/arc-data/cloudflare";
+import type { BotOperations } from "@arctools/bot-contracts";
 import { manifestHash } from "@arctools/discord/server";
-import { TwitchAccount, TwitchEnrollment } from "@arctools/twitch/server";
+import { TwitchAccount } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
+import type { HttpEffect } from "alchemy/Http";
+import type { RuntimeContext } from "alchemy/RuntimeContext";
 import { Effect, Layer } from "effect";
 import {
   HttpMiddleware,
@@ -13,16 +16,22 @@ import {
 import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
-import { bindOrigin, buildRevision, runtimeConfig } from "./config.js";
+import { bindBotOrigin, buildRevision, runtimeConfig } from "./config.js";
 import { ingressHandlers } from "./ingress.js";
 import { operatorHandlers } from "./operator.js";
+import { botOperations } from "./rpc.js";
 import { Tenants } from "./tenant-contracts.js";
 import { TenantBoundaryObserver } from "./tenant-diagnostics.js";
 import { bindTenants } from "./tenant.js";
 import { bindAccount, bindEnrollment } from "./twitch.js";
 
-export class Bot extends Cloudflare.Worker<Bot>()(
-  "Bot",
+type BotEntrypoint = BotOperations<RuntimeContext> & {
+  readonly fetch: HttpEffect<RuntimeContext | Cloudflare.WorkerServices>;
+};
+
+export class Bot extends Cloudflare.Worker<Bot, BotEntrypoint>()("Bot") {}
+
+export default Bot.make(
   Effect.gen(function* () {
     const { stage } = yield* Stack;
 
@@ -41,7 +50,7 @@ export class Bot extends Cloudflare.Worker<Bot>()(
   Effect.gen(function* () {
     const config = yield* runtimeConfig;
     const { identity, operatorSecret } = config;
-    const origin = yield* bindOrigin;
+    const origin = yield* bindBotOrigin;
 
     const testComposition =
       identity.kind === "test" && identity.stage.startsWith("test-tenant-")
@@ -66,57 +75,65 @@ export class Bot extends Cloudflare.Worker<Bot>()(
     const tenantClient = yield* bindTenants.pipe(Effect.provide(bindings));
 
     return {
+      ...botOperations({
+        account: client,
+        enrollment: enrollmentClient,
+        operatorSecret,
+      }),
       fetch: Effect.gen(function* () {
         const receivedAt = Date.now();
         const observation = testComposition?.botRequestObservation(identity);
-        const account = yield* client;
-        const enrollment = yield* enrollmentClient;
 
-        const tenants = yield* observation
-          ? tenantClient.pipe(
-              Effect.provideService(
-                TenantBoundaryObserver,
-                observation.observer,
+        const response = yield* Effect.gen(function* () {
+          const account = yield* client;
+
+          const tenants = yield* observation
+            ? tenantClient.pipe(
+                Effect.provideService(
+                  TenantBoundaryObserver,
+                  observation.observer,
+                ),
+              )
+            : tenantClient;
+
+          const callback = `${yield* origin}/webhooks/twitch`;
+
+          const handler = yield* HttpApiBuilder.layer(BotApi).pipe(
+            Layer.provide(
+              HttpApiBuilder.group(BotApi, "health", (handlers) =>
+                handlers.handle("health", () =>
+                  Effect.succeed({
+                    status: "ready",
+                    stage: identity.stage,
+                    revision,
+                    manifestHash: hash,
+                  }),
+                ),
               ),
-            )
-          : tenantClient;
-
-        const callback = `${yield* origin}/webhooks/twitch`;
-
-        const handler = yield* HttpApiBuilder.layer(BotApi).pipe(
-          Layer.provide(
-            HttpApiBuilder.group(BotApi, "health", (handlers) =>
-              handlers.handle("health", () =>
-                Effect.succeed({
-                  status: "ready",
-                  stage: identity.stage,
-                  revision,
-                  manifestHash: hash,
-                }),
+            ),
+            Layer.provide(
+              operatorHandlers(identity.stage, operatorSecret).pipe(
+                Layer.provide(Layer.succeed(TwitchAccount, account)),
               ),
             ),
-          ),
-          Layer.provide(
-            operatorHandlers(identity.stage, operatorSecret).pipe(
-              Layer.provide(Layer.succeed(TwitchAccount, account)),
-              Layer.provide(Layer.succeed(TwitchEnrollment, enrollment)),
+            Layer.provide(
+              ingressHandlers({ ...config, callback, receivedAt }).pipe(
+                Layer.provide(Layer.succeed(TwitchAccount, account)),
+                Layer.provide(Layer.succeed(Tenants, tenants)),
+              ),
             ),
-          ),
-          Layer.provide(
-            ingressHandlers({ ...config, callback, receivedAt }).pipe(
-              Layer.provide(Layer.succeed(TwitchAccount, account)),
-              Layer.provide(Layer.succeed(Tenants, tenants)),
+            Layer.provide(HttpRouter.disableLogger),
+            Layer.provide(
+              Layer.succeed(HttpMiddleware.TracerDisabledWhen, () => true),
             ),
-          ),
-          Layer.provide(HttpRouter.disableLogger),
-          Layer.provide(
-            Layer.succeed(HttpMiddleware.TracerDisabledWhen, () => true),
-          ),
-          Layer.provide(HttpServer.layerServices),
-          HttpRouter.toHttpEffect,
-        );
+            Layer.provide(HttpServer.layerServices),
+            HttpRouter.toHttpEffect,
+          );
 
-        return yield* handler.pipe(
+          return yield* handler;
+        });
+
+        return yield* Effect.succeed(response).pipe(
           Effect.map((response) =>
             observation
               ? HttpServerResponse.setHeaders(response, observation.headers())
@@ -133,6 +150,4 @@ export class Bot extends Cloudflare.Worker<Bot>()(
       }),
     };
   }),
-) {}
-
-export default Bot;
+);

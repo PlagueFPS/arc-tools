@@ -1,5 +1,5 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { providerTransport } from "@arctools/utils/http";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
@@ -438,7 +438,8 @@ export class AccountEndpoints extends Context.Service<
 export interface AccountRuntimeConfig {
   readonly identity: AccountIdentity;
   readonly revision: string;
-  readonly publicUrl: string;
+  readonly webhookOrigin: string;
+  readonly oauthOrigin: string;
   readonly webhookReady: boolean;
   readonly twitchClientSecret: Redacted.Redacted<string>;
   readonly twitchSigningSecret: Redacted.Redacted<string>;
@@ -448,8 +449,8 @@ export const makeAccountRuntime = Effect.fnUntraced(function* (
   config: AccountRuntimeConfig,
   endpoints?: typeof AccountEndpoints.Service.resolve,
 ) {
-  const callback = `${config.publicUrl}/webhooks/twitch`;
-  const redirect = `${config.publicUrl}/oauth/twitch/callback`;
+  const callback = `${config.webhookOrigin}/webhooks/twitch`;
+  const redirect = `${config.oauthOrigin}/oauth/twitch/callback`;
 
   const binding = yield* subscriptionBinding({
     callback,

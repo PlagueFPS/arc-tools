@@ -1,12 +1,18 @@
 import { expect, test } from "bun:test";
 
+import { botOrigin, websiteOrigin } from "@arctools/bot-contracts/origins";
 import * as Test from "alchemy/Test/Bun";
-import { ConfigProvider, Effect, Layer, Schema } from "effect";
+import { ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
 
 import { cloudSettings } from "../../../scripts/cloud-settings.js";
 import { botRequestObservation } from "../../../tests/cloud/bot-composition.js";
-import { EnvironmentConfig, runtimeConfig } from "../src/config.js";
+import {
+  EnvironmentConfig,
+  configuredWebsiteOrigin,
+  runtimeConfig,
+} from "../src/config.js";
 import { CommandInput, GuildId, tenantName } from "../src/contracts.js";
+import { accountRevision } from "../src/twitch.js";
 
 const stage = "test-foundation-0123456789ab";
 
@@ -238,3 +244,113 @@ effects.test(
     expect(config.identity).toEqual(fixture);
   }),
 );
+
+test("Bot and Website deployed origins are pinned independently, with local HTTPS overrides", () => {
+  expect(botOrigin("prod", "https://bot.invalid", "https://bot.invalid")).toBe(
+    "https://bot.invalid",
+  );
+  expect(
+    websiteOrigin("prod", "https://website.invalid", "https://website.invalid"),
+  ).toBe("https://website.invalid");
+  expect(() =>
+    botOrigin("prod", "https://bot.invalid", "https://website.invalid"),
+  ).toThrow();
+  expect(() =>
+    websiteOrigin("prod", "https://website.invalid", "https://bot.invalid"),
+  ).toThrow();
+  expect(
+    websiteOrigin(
+      "local-test",
+      "http://localhost:3000",
+      "https://website-tunnel.invalid",
+    ),
+  ).toBe("https://website-tunnel.invalid");
+
+  for (const invalid of [
+    "",
+    "http://website.invalid",
+    "https://website.invalid/path",
+    "https://website.invalid?x=1",
+    "https://user@website.invalid",
+  ]) {
+    expect(() => websiteOrigin("local-test", "", invalid)).toThrow();
+  }
+});
+
+effects.test(
+  "both origins fence the account revision",
+  Effect.gen(function* () {
+    const config = {
+      identity: fixture,
+      webhookOrigin: "https://bot.invalid",
+      oauthOrigin: "https://website.invalid",
+      webhookReady: true,
+      twitchClientSecret: Redacted.make("fixture-secret"),
+      twitchSigningSecret: Redacted.make("fixture-signing"),
+    };
+
+    const revision = yield* accountRevision(config);
+    expect(yield* accountRevision(config)).toBe(revision);
+    expect(
+      yield* accountRevision({
+        ...config,
+        webhookOrigin: "https://bot-two.invalid",
+      }),
+    ).not.toBe(revision);
+    expect(
+      yield* accountRevision({
+        ...config,
+        oauthOrigin: "https://website-two.invalid",
+      }),
+    ).not.toBe(revision);
+  }),
+);
+
+test("Website defaults to localhost outside prod and only prod pins its actual self URL", async () => {
+  for (const stage of ["local-test", "staging"]) {
+    const configured = await Effect.runPromise(
+      configuredWebsiteOrigin.pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromUnknown({ ARC_STAGE: stage }),
+        ),
+      ),
+    );
+
+    expect(configured).toBe("http://localhost:3000");
+    expect(
+      websiteOrigin(stage, "https://deployed-staging.invalid", configured),
+    ).toBe("http://localhost:3000");
+  }
+
+  await expect(
+    Effect.runPromise(
+      configuredWebsiteOrigin.pipe(
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromUnknown({ ARC_STAGE: "prod" }),
+        ),
+      ),
+    ),
+  ).rejects.toBeDefined();
+  expect(() =>
+    websiteOrigin(
+      "prod",
+      "https://production.invalid",
+      "http://localhost:3000",
+    ),
+  ).toThrow();
+
+  for (const origin of [
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://remote.invalid",
+    "http://user@localhost:3000",
+    "http://localhost:3000?x=1",
+    "http://localhost:3000/extra",
+  ]) {
+    expect(() =>
+      websiteOrigin("staging", "https://staging.invalid", origin),
+    ).toThrow();
+  }
+});

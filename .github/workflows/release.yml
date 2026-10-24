@@ -54,7 +54,8 @@ jobs:
       ARC_STAGE: ${{ inputs.stage }}
       APPLICATION_STAGE: ${{ inputs.stage }}
       ARC_BUILD_REVISION: ${{ inputs.revision || github.sha }}
-      ARC_PUBLIC_URL: ${{ vars.ARC_PUBLIC_URL }}
+      ARC_BOT_URL: ${{ vars.ARC_BOT_URL }}
+      ARC_WEBSITE_URL: ${{ vars.ARC_WEBSITE_URL || (inputs.stage == 'staging' && 'http://localhost:3000' || '') }}
       ARC_ENVIRONMENT: ${{ vars.ARC_ENVIRONMENT }}
       TWITCH_SENDER_KIND: ${{ vars.TWITCH_SENDER_KIND }}
       TWITCH_SENDER_LOGIN: ${{ vars.TWITCH_SENDER_LOGIN }}
@@ -77,16 +78,20 @@ jobs:
           script: |
             const missing = ['TWITCH_CLIENT_SECRET', 'TWITCH_SIGNING_SECRET', 'DISCORD_BOT_TOKEN', 'OPERATOR_SECRET', 'CLOUDFLARE_API_TOKEN'].filter(name => !process.env[name]?.trim());
             if (missing.length) throw new Error(`Configure nonempty environment secrets: ${missing.join(', ')}`);
-            const { ARC_STAGE: stage, ARC_BUILD_REVISION: revision, RELEASE_APPLICATION_ID: app, DISCORD_APPLICATION_ID: actual, ARC_PUBLIC_URL: origin } = process.env;
+            const { ARC_STAGE: stage, ARC_BUILD_REVISION: revision, RELEASE_APPLICATION_ID: app, DISCORD_APPLICATION_ID: actual, ARC_BOT_URL: origin } = process.env;
             if (!['prod', 'staging'].includes(stage)) throw new Error('Release stage must be prod or staging');
             if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('Release revision must be a full SHA');
             if (!/^[0-9]+$/.test(app) || app !== actual) throw new Error('Input application_id must equal environment DISCORD_APPLICATION_ID; configure PROD_DISCORD_APPLICATION_ID for automatic releases');
             if (!['push', 'workflow_dispatch'].includes(context.eventName)) throw new Error('PR origins cannot release');
             if (context.eventName === 'push' && (stage !== 'prod' || context.ref !== 'refs/heads/main' || revision !== context.sha)) throw new Error('Automatic production requires the exact checked main push SHA');
             if (context.eventName === 'workflow_dispatch' && (revision !== context.sha || (stage === 'prod' && context.ref !== 'refs/heads/main'))) throw new Error('Manual production requires main and the dispatch SHA');
-            if (!origin) throw new Error('Configure environment ARC_PUBLIC_URL with the exact existing deployed Worker origin');
+            if (!origin) throw new Error('Configure environment ARC_BOT_URL with the exact existing deployed Worker origin');
             const url = new URL(origin);
-            if (url.protocol !== 'https:' || url.origin !== origin) throw new Error('ARC_PUBLIC_URL must be the exact HTTPS origin');
+            if (url.protocol !== 'https:' || url.origin !== origin) throw new Error('ARC_BOT_URL must be the exact HTTPS origin');
+            const website = process.env.ARC_WEBSITE_URL ?? (stage === 'staging' ? 'http://localhost:3000' : '');
+            if (!website) throw new Error('Configure environment ARC_WEBSITE_URL with the exact deployed Website origin');
+            const site = new URL(website);
+            if (site.origin !== website || (site.protocol !== 'https:' && !(stage === 'staging' && website === 'http://localhost:3000'))) throw new Error('ARC_WEBSITE_URL must be an exact HTTPS origin, or http://localhost:3000 for staging');
             if (context.eventName === 'push') {
               const { data } = await github.rest.git.getRef({ ...context.repo, ref: 'heads/main' });
               if (data.object.sha !== revision) throw new Error('Stale automatic main release rejected before mutations');
@@ -115,7 +120,7 @@ jobs:
         run: bun --no-env-file run deploy --stage "$ARC_STAGE" --yes
       - name: Synchronize this release's global commands
         id: sync
-        run: bun --no-env-file run sync:discord --stage "$ARC_STAGE" --endpoint "$ARC_PUBLIC_URL" --revision "$ARC_BUILD_REVISION" --wait
+        run: bun --no-env-file run sync:discord --stage "$ARC_STAGE" --endpoint "$ARC_BOT_URL" --revision "$ARC_BUILD_REVISION" --wait
       - name: Report partial release
         if: failure() && steps.deploy.outcome == 'success' && steps.sync.outcome != 'success'
         run: echo 'Cloudflare deployment succeeded; Discord registration is incomplete. Repair by rerunning a release of the deployed revision.' >> "$GITHUB_STEP_SUMMARY"

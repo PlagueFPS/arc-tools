@@ -1,12 +1,13 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   AccountError,
   DispatchOutcome,
+  OAuthCompletion,
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema, Struct } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -207,6 +208,7 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
 
 class TenantFixtureApi extends HttpApi.make("tenant-fixture").add(
   HttpApiGroup.make("tenant").add(
+    HttpApiEndpoint.post("operatorOAuth", "/operator-oauth"),
     HttpApiEndpoint.post("accept", "/accept"),
     HttpApiEndpoint.post("discord", "/discord"),
     HttpApiEndpoint.post("control", "/control"),
@@ -236,6 +238,7 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
     yield* ArcCacheDO.pipe(
       Effect.provide(yield* botTestBindings((yield* runtimeConfig).identity)),
     );
+    const bot = yield* Cloudflare.Workers.bindWorker(Bot);
     const objects = yield* TenantFixtureObject;
     const object = (name: string) => objects.getByName(name);
 
@@ -254,6 +257,16 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
       "tenant",
       (handlers) =>
         handlers
+          .handleRaw("operatorOAuth", ({ request }) =>
+            input(
+              request,
+              OAuthCompletion.mapFields(Struct.omit(["operator"])),
+            ).pipe(
+              Effect.flatMap(bot.completeOperatorOAuth),
+              Effect.as(HttpServerResponse.jsonUnsafe({ completed: true })),
+              Effect.orDie,
+            ),
+          )
           .handleRaw("snapshot", ({ request }) => {
             const key =
               new URL(request.url, "https://fixture.invalid").searchParams.get(
