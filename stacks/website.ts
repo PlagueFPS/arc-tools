@@ -1,5 +1,6 @@
 import * as Cloudflare from "alchemy/Cloudflare";
 import type { InferEnv } from "alchemy/Cloudflare/Bridge";
+import { Stage } from "alchemy/Stage";
 import { Config, Effect } from "effect";
 
 import { configuredWebsiteOrigin } from "../apps/bot/src/config.js";
@@ -7,8 +8,10 @@ import { Bot } from "../apps/bot/src/worker.js";
 
 export const Website = Effect.gen(function* () {
   const bot = yield* Bot;
+  const stage = yield* Stage;
 
   return yield* Cloudflare.Website.Vite("Website", {
+    name: `arc-tools-website-${stage}`,
     rootDir: "apps/website",
     workersDev: true,
     dev: { port: 3000, strictPort: true },

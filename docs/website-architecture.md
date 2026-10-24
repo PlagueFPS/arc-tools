@@ -23,6 +23,8 @@ The browser status query remains enabled only after hydration, with same-origin 
 
 ## Origins and resources
 
+Website uses the stable Worker name `arc-tools-website-${stage}`. Its production URL can be configured before the first deployment instead of depending on a generated resource suffix.
+
 `ARC_BOT_URL` identifies Bot's webhook and operator origin. `ARC_WEBSITE_URL` independently identifies Website's OAuth origin for both flows. Account runtime configuration names these `webhookOrigin` and `oauthOrigin`; both contribute to its revision. The provider uses the Website callback for authorization links and token exchange.
 
 Deployed Bot configuration remains pinned to Bot's actual self URL and requires HTTPS. Nonproduction Website OAuth defaults to `http://localhost:3000`, the sole HTTP exception; HTTPS overrides remain supported. Production requires an explicit HTTPS `ARC_WEBSITE_URL` matching Website's host-scoped `Cloudflare.Worker.URL` binding. The handler validates that production agreement lazily. Origin values cannot contain credentials, paths, queries, or fragments. Bot never derives a URL from the Website resource.
