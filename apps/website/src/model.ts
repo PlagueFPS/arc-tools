@@ -1,10 +1,10 @@
 import { Schema } from "effect";
 
 import { Enrollment, RequestId } from "./domain/enrollment";
-import { AppRoute } from "./route";
+import { ApplicationRoute } from "./route";
 
 export const Model = Schema.Struct({
-  route: AppRoute,
+  route: ApplicationRoute,
   enrollment: Enrollment.schema,
   requestId: RequestId,
 });

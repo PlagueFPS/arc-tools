@@ -21,10 +21,10 @@ import {
 import { update, view } from "./main";
 import { Message } from "./message";
 import type { Model } from "./model";
-import { AppRoute } from "./route";
+import { ApplicationRoute } from "./route";
 
 const connection: Model = {
-  route: AppRoute.Connect(),
+  route: ApplicationRoute.Connect(),
   enrollment: Enrollment.Idle(),
   requestId: RequestId.make(0),
 };
@@ -32,7 +32,7 @@ const connection: Model = {
 test("landing explains the bot with real chat commands and Twitch navigation", () => {
   scene(
     { update, view },
-    given({ ...connection, route: AppRoute.Home() }),
+    given({ ...connection, route: ApplicationRoute.Home() }),
     expect(role("heading", { level: 1 })).toContainText("Raid ready."),
     expect(role("link", { name: /Connect Twitch/ })).toExist(),
     expect(text("!find sensors")).toExist(),

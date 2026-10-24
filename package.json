@@ -50,7 +50,7 @@
     "@arctools/discord": "workspace:*",
     "@alchemy.run/cloudflare": "2.0.0-beta.84",
     "@alchemy.run/github": "2.0.0-beta.84",
-    "@foldkit/oxlint-plugin": "0.15.3",
+    "@foldkit/oxlint-plugin": "0.15.3-canary.1f6776fa7ece",
     "@arctools/bot-contracts": "workspace:*"
   },
   "overrides": {

@@ -1,22 +1,17 @@
-import { Runtime } from "foldkit";
+import { Program, Runtime } from "foldkit";
 
-import { init, update, view } from "./main";
-import { Message } from "./message";
-import { Model } from "./model";
+import { ApplicationBlock } from "./block";
 
 import "./styles.css";
 
-const application = Runtime.makeApplication({
-  Model,
-  init,
-  update,
-  view,
+const program = Program.make({
+  block: ApplicationBlock,
   container: document.getElementById("root"),
   routing: {
-    onUrlRequest: (request) => Message.ClickedLink({ request }),
-    onUrlChange: (url) => Message.ChangedUrl({ url }),
+    onUrlRequest: ApplicationBlock.Message.ClickedLink,
+    onUrlChange: ApplicationBlock.Message.ChangedUrl,
   },
-  devTools: { Message },
+  devTools: { dispatch: true },
 });
 
-Runtime.hydrate(application);
+Runtime.hydrate(program);
