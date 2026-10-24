@@ -7,8 +7,11 @@ export const resolveItem = Effect.fnUntraced(function* (
   search: string,
   params: Omit<ItemAPIParams, "id" | "search">,
 ) {
+  const slug = slugify(search);
+  const id = slug === "bastion-cell" ? "bastion-part" : slug;
+
   return yield* Effect.filterOrElse(
-    getItem({ ...params, id: slugify(search) }),
+    getItem({ ...params, id }),
     (result) => Option.isSome(result),
     () => getItem({ ...params, search: normalize(search) }),
   );

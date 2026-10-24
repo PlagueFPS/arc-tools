@@ -1,5 +1,6 @@
 import { describe, expect } from "bun:test";
 
+import { makeFixture } from "@arctools/arc-data/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Effect, Layer } from "effect";
 
@@ -11,6 +12,32 @@ const run = runWithMock(sellHandler);
 const { test } = Test.make({ providers: Layer.empty });
 
 describe("sellHandler", () => {
+  for (const search of ["Bastion Cell", "bAsTiOn CeLl", "bastion-cell"]) {
+    test(
+      `resolves ${search} to the Bastion Cell API item`,
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture();
+        fixture.respond((url) =>
+          Effect.succeed(
+            Response.json({
+              data:
+                url.searchParams.get("id") === "bastion-part" ||
+                url.searchParams.get("search") === "bastion cell"
+                  ? [{ id: "bastion-part", name: "Bastion Cell", value: 3000 }]
+                  : [],
+            }),
+          ),
+        );
+
+        const result = yield* sellHandler(search).pipe(
+          Effect.provide(fixture.layer),
+        );
+
+        expect(result).toBe("Bastion Cell can be sold for 3000 coins each");
+      }),
+    );
+  }
+
   test(
     "returns hint for empty input",
     Effect.gen(function* () {
