@@ -2,8 +2,8 @@ import { Effect, Option } from "effect";
 import { Server } from "foldkit/experimental";
 import * as Url from "foldkit/url";
 
-import { init, view } from "./main";
-import { AppRoute, urlToAppRoute } from "./route";
+import { ApplicationBlock } from "./block";
+import { ApplicationRoute, urlToApplicationRoute } from "./route";
 import { enrollmentResponse } from "./server/routes.js";
 
 export const prerenderPaths = ["/", "/connect"];
@@ -27,12 +27,15 @@ const render = Effect.fnUntraced(function* (request: Request) {
   const url = Option.getOrThrow(Url.fromString(request.url));
 
   const application = yield* Server.renderToString(
-    { routing: {}, init, view },
+    ApplicationBlock,
+    { routing: {} },
     { url: request.url },
   );
 
   return Server.Rendered(application, {
-    status: AppRoute.guards.NotFound(urlToAppRoute(url)) ? 404 : 200,
+    status: ApplicationRoute.guards.NotFound(urlToApplicationRoute(url))
+      ? 404
+      : 200,
   });
 });
 

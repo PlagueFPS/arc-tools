@@ -1,17 +1,14 @@
-import type { Document, HtmlBuilder } from "foldkit/html";
-
+import { ApplicationComposition } from "./composition";
 import { cn } from "./lib/utils";
-import type { Message } from "./message";
-import type { Model } from "./model";
-import { AppRoute } from "./route";
+import { ApplicationRoute } from "./route";
 import { view as connection } from "./view/connection";
 import { view as header } from "./view/header";
 import { view as landing } from "./view/landing";
 import { view as notFound } from "./view/notFound";
 import { wrap } from "./view/shared";
 
-export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-  title: AppRoute.match(model.route, {
+export const view = ApplicationComposition.makeView((model, h) => ({
+  title: ApplicationRoute.match(model.route, {
     Home: () => "ARC Tools · Your chat, raid ready.",
     Connect: () => "Connection status · ARC Tools",
     NotFound: () => "Page not found · ARC Tools",
@@ -32,7 +29,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
       h.main(
         [h.Id("main"), h.Tabindex(-1)],
         [
-          AppRoute.match(model.route, {
+          ApplicationRoute.match(model.route, {
             Home: () => landing(h),
             Connect: () => connection(model, h),
             NotFound: () => notFound(h),
@@ -68,4 +65,4 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
       ),
     ],
   ),
-});
+}));

@@ -1,5 +1,5 @@
 import { Option, Result } from "effect";
-import { AsyncData, type Runtime, type Update } from "foldkit";
+import { AsyncData, type Command, type Update } from "foldkit";
 import { UrlRequest } from "foldkit/navigation";
 import { modifyFields } from "foldkit/struct";
 import { type Url, toString as urlToString } from "foldkit/url";
@@ -10,14 +10,22 @@ import {
   NavigateInternal,
   ScrollToContent,
 } from "./command";
+import { ApplicationComposition } from "./composition";
 import { CheckError, Enrollment, RequestId } from "./domain/enrollment";
 import { Message } from "./message";
 import { Model } from "./model";
-import { AppRoute, urlToAppRoute } from "./route";
+import { ApplicationRoute, urlToApplicationRoute } from "./route";
 
 export { view } from "./view";
 
-type UpdateReturn = Update.Return<Model, Message>;
+type CommandRequirements = Command.HandlerOf<
+  | typeof CheckEnrollment
+  | typeof LoadExternal
+  | typeof NavigateInternal
+  | typeof ScrollToContent
+>;
+
+type UpdateReturn = Update.Return<Model, Message, CommandRequirements>;
 
 const contentScroll = (url: Url): UpdateReturn["commands"] =>
   Option.match(url.hash, {
@@ -41,7 +49,7 @@ const withContentScroll = (result: UpdateReturn, url: Url): UpdateReturn => {
 const spaNavigation = (url: Url) => {
   const href = urlToString(url);
 
-  if (AppRoute.guards.NotFound(urlToAppRoute(url))) {
+  if (ApplicationRoute.guards.NotFound(urlToApplicationRoute(url))) {
     return LoadExternal({ href });
   }
 
@@ -49,7 +57,7 @@ const spaNavigation = (url: Url) => {
 };
 
 const startCheck = (model: Model): UpdateReturn => {
-  if (!AppRoute.guards.Connect(model.route)) {
+  if (!ApplicationRoute.guards.Connect(model.route)) {
     return { model };
   }
 
@@ -69,23 +77,24 @@ const startCheck = (model: Model): UpdateReturn => {
   });
 };
 
-export const init: Runtime.RoutingApplicationInit<Model, Message> = (url) =>
+export const init = ApplicationComposition.makeInit((url: Url) =>
   withContentScroll(
     startCheck({
-      route: urlToAppRoute(url),
+      route: urlToApplicationRoute(url),
       enrollment: Enrollment.Idle(),
       requestId: RequestId.make(0),
     }),
     url,
-  );
+  ),
+);
 
 const acceptsResponse = (model: Model, requestId: typeof RequestId.Type) =>
-  AppRoute.guards.Connect(model.route) &&
+  ApplicationRoute.guards.Connect(model.route) &&
   model.requestId === requestId &&
   AsyncData.isPending(model.enrollment);
 
-export const update = (model: Model, message: Message) =>
-  Message.match<UpdateReturn>(message, {
+export const update = ApplicationComposition.makeUpdate((model, message) =>
+  Message.match(message, {
     CompletedNavigateInternal: () => ({ model }),
     CompletedLoadExternal: () => ({ model }),
     CompletedScrollToContent: () => ({ model }),
@@ -99,11 +108,11 @@ export const update = (model: Model, message: Message) =>
         External: ({ href }) => ({ model, commands: [LoadExternal({ href })] }),
       }),
     ChangedUrl: ({ url }) => {
-      const route = urlToAppRoute(url);
+      const route = urlToApplicationRoute(url);
 
       if (
-        AppRoute.guards.Connect(route) &&
-        AppRoute.guards.Connect(model.route)
+        ApplicationRoute.guards.Connect(route) &&
+        ApplicationRoute.guards.Connect(model.route)
       ) {
         return withContentScroll({ model }, url);
       }
@@ -155,4 +164,5 @@ export const update = (model: Model, message: Message) =>
             }),
           }
         : { model },
-  });
+  }),
+);

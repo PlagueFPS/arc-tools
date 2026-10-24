@@ -3,24 +3,25 @@ import { Route } from "foldkit";
 import { defineRouteUnion, literal } from "foldkit/route";
 import type { Url } from "foldkit/url";
 
-export const AppRoute = defineRouteUnion({
+export const ApplicationRoute = defineRouteUnion({
   Home: {},
   Connect: {},
   NotFound: { path: Schema.String },
 });
 
-export type AppRoute = typeof AppRoute.Type;
+export type ApplicationRoute = typeof ApplicationRoute.Type;
 
-export const homeRouter = pipe(Route.root, Route.mapTo(AppRoute.Home));
+export const homeRouter = pipe(Route.root, Route.mapTo(ApplicationRoute.Home));
 
 export const connectRouter = pipe(
   literal("connect"),
-  Route.mapTo(AppRoute.Connect),
+  Route.mapTo(ApplicationRoute.Connect),
 );
 
-export const urlToAppRoute: (url: Url) => AppRoute = Route.parseUrlWithFallback(
-  Route.oneOf(connectRouter, homeRouter),
-  AppRoute.NotFound,
-);
+export const urlToApplicationRoute: (url: Url) => ApplicationRoute =
+  Route.parseUrlWithFallback(
+    Route.oneOf(connectRouter, homeRouter),
+    ApplicationRoute.NotFound,
+  );
 
 export const enrollmentPath = "/oauth/twitch/enroll";

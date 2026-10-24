@@ -8,6 +8,7 @@ import { expect, test } from "vitest";
 
 import {
   CheckEnrollment,
+  EffectsLayer,
   LoadExternal,
   NavigateInternal,
   ScrollToContent,
@@ -22,7 +23,7 @@ import {
 import { init, update } from "./main";
 import { Message } from "./message";
 import type { Model } from "./model";
-import { AppRoute } from "./route";
+import { ApplicationRoute } from "./route";
 
 const url = (path: string) =>
   Option.getOrThrow(fromString(`https://bot.invalid${path}`));
@@ -47,7 +48,7 @@ test("pending refresh retains data then becomes ready for this channel", () => {
   story(
     update,
     given({
-      route: AppRoute.Connect(),
+      route: ApplicationRoute.Connect(),
       enrollment: Enrollment.Success({ data: { kind: "pending" } }),
       requestId: RequestId.make(1),
     }),
@@ -143,9 +144,9 @@ test("OAuth navigation leaves the application and unknown URLs use NotFound", ()
     Command.resolve(LoadExternal, Message.CompletedLoadExternal()),
   );
   expect(init(url("/unknown")).model.route).toEqual(
-    AppRoute.NotFound({ path: "/unknown" }),
+    ApplicationRoute.NotFound({ path: "/unknown" }),
   );
-  expect(started.commands).toBeUndefined();
+  expect(started.commands).toHaveLength(0);
 });
 
 const checkResponse = (body: string, status = 200) =>
@@ -220,25 +221,25 @@ test("a content hash moves to main and an in-app link stays inside the page", ()
 
   const home = init(url("/#main"));
 
-  expect(home.model.route).toEqual(AppRoute.Home());
-  expect(home.commands?.map((command) => command.name)).toEqual([
-    "ScrollToContent",
-  ]);
+  expect(home.model.route).toEqual(ApplicationRoute.Home());
+  Command.expectExact(ScrollToContent({ hash: "main" }))({
+    ...home,
+    commands: home.commands ?? [],
+    outMessage: undefined,
+  });
 
   const opened = init(url("/connect#session"));
 
   expect(opened.model.requestId).toBe(RequestId.make(1));
-  expect(
-    opened.commands?.map((command) => [command.name, command.args]),
-  ).toEqual([
-    ["CheckEnrollment", { requestId: RequestId.make(1) }],
-    ["ScrollToContent", { hash: "session" }],
-  ]);
+  Command.expectExact(
+    CheckEnrollment({ requestId: RequestId.make(1) }),
+    ScrollToContent({ hash: "session" }),
+  )({ ...opened, commands: opened.commands ?? [], outMessage: undefined });
 });
 
 test("a duplicate settled response and a stale failure leave the visible status", () => {
   const ready = {
-    route: AppRoute.Connect(),
+    route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "raider" },
     }),
@@ -301,6 +302,7 @@ test("leaving Connect aborts the pending browser request", async () => {
 
   const fiber = Effect.runFork(
     request.effect.pipe(
+      Effect.provide(CheckEnrollment.layer),
       Effect.provideService(FetchHttpClient.Fetch, transport),
     ),
   );
@@ -309,7 +311,7 @@ test("leaving Connect aborts the pending browser request", async () => {
   const leaving = update(opening.model, Message.ChangedUrl({ url: url("/") }));
 
   for (const command of leaving.commands ?? [])
-    await Effect.runPromise(command.effect);
+    await Effect.runPromise(command.effect.pipe(Effect.provide(EffectsLayer)));
   const exit = await Effect.runPromise(Fiber.await(fiber));
   expect(aborted).toBe(true);
   expect(Exit.isFailure(exit)).toBe(true);
@@ -317,7 +319,7 @@ test("leaving Connect aborts the pending browser request", async () => {
 
 test("an absent session followed by an unavailable refresh never restores a former channel", () => {
   const ready: Model = {
-    route: AppRoute.Connect(),
+    route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "former_channel" },
     }),

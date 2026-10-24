@@ -3,10 +3,10 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 
 import { cn } from "../lib/utils";
 import type { Message } from "../message";
-import { AppRoute, connectRouter, homeRouter } from "../route";
+import { ApplicationRoute, connectRouter, homeRouter } from "../route";
 import { wrap } from "./shared";
 
-export const view = (route: AppRoute, h: HtmlBuilder<Message>): Html =>
+export const view = (route: ApplicationRoute, h: HtmlBuilder<Message>): Html =>
   h.header(
     [
       h.Class(
@@ -43,7 +43,7 @@ export const view = (route: AppRoute, h: HtmlBuilder<Message>): Html =>
         items: ["Connection status"],
         ariaLabel: "Main navigation",
         toHref: () => connectRouter(),
-        isItemCurrent: () => AppRoute.guards.Connect(route),
+        isItemCurrent: () => ApplicationRoute.guards.Connect(route),
         toView: ({ nav, items }) =>
           h.nav(
             nav,
