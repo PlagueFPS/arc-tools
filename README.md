@@ -41,9 +41,11 @@ Successful trusted PR checks publish a resident synthetic service preview. A suc
 
 For development, deployment, Twitch authorization, health/status, and Discord registration, follow [the operator guide](docs/operator-guide.md). Copy [.env.example](.env.example) for public configuration placeholders and inject secrets privately.
 
-For public enrollment with a real test Twitch application, select the dedicated `bot` profile in `.env.local` and follow [local tunnel enrollment](docs/operator-guide.md#exercise-public-enrollment-through-a-local-tunnel). Tunnel the Bot HTTP listener printed by Alchemy.
+The website in `apps/website` uses Foldkit, Tailwind CSS, and foldcn components. Its home and connection pages are prerendered at build time. Run `bun run dev:web` for a standalone visual preview at `http://localhost:3000/`. Website owns OAuth and the browser session and calls Bot through a typed private service binding in the generated Worker. The native Foldkit development host runs in Node without that binding, so complete enrollment requires a binding-capable Worker runtime. See [the website architecture](docs/website-architecture.md).
 
-For a new local tunnel session, edit `ARC_PUBLIC_URL` in `.env.local`, run `bun run dev:local` in one terminal, and run `bun run setup:local` in another. Update the portal endpoints manually if the tunnel host changed. Keep setup's OAuth output private.
+For public enrollment with a real test Twitch application, select the dedicated `bot` profile in `.env.local` and follow [local tunnel enrollment](docs/operator-guide.md#exercise-public-enrollment-through-a-local-tunnel). Only Bot needs an HTTPS tunnel for webhooks. Register `http://localhost:3000/oauth/twitch/callback` for local OAuth; the browser returns to Website on your computer.
+
+For a new local tunnel session, set `ARC_BOT_URL` to the Bot tunnel origin in `.env.local`, run `bun run dev:local` in one terminal, and run `bun run setup:local` in another. Update the portal endpoints manually if the tunnel host changed. Keep setup's OAuth output private. Website defaults to `http://localhost:3000` outside production. Production requires `ARC_WEBSITE_URL` matching its HTTPS Worker origin. Rename the Bot URL key in protected files and GitHub environment variables manually; no legacy key alias is supported.
 
 [Verification records](docs/verification/README.md) distinguish accepted implementation units from unperformed live-provider, privacy, token-expiry, CI, and cost gates. The intended launch is a few quiet channels and guilds. It carries no free-tier cost guarantee.
 

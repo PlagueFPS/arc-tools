@@ -7,7 +7,12 @@ import { parseEnv } from "node:util";
 
 import { ConfigProvider, Effect, Schema } from "effect";
 
-import { publicOrigin, runtimeConfig } from "../apps/bot/src/config.js";
+import {
+  botOrigin,
+  runtimeConfig,
+  localWebsiteOrigin,
+  websiteOAuthOrigin,
+} from "../apps/bot/src/config.js";
 
 const LocalAction = Schema.Literals(["dev", "setup", "status", "sync"]);
 
@@ -18,7 +23,18 @@ const LocalSettings = Schema.Struct({
   endpoint: Schema.String.check(
     Schema.makeFilter((value) => {
       try {
-        publicOrigin("local-", "", value);
+        botOrigin("local-", "", value);
+
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  ),
+  websiteOrigin: Schema.String.check(
+    Schema.makeFilter((value) => {
+      try {
+        websiteOAuthOrigin("local-", value);
 
         return true;
       } catch {
@@ -74,7 +90,8 @@ export async function localSettings(
 
     const input = {
       stage: config.identity.stage,
-      endpoint: env.ARC_PUBLIC_URL,
+      endpoint: env.ARC_BOT_URL,
+      websiteOrigin: env.ARC_WEBSITE_URL ?? localWebsiteOrigin,
       revision: env.ARC_BUILD_REVISION ?? "unreleased",
     };
 
@@ -86,17 +103,19 @@ export async function localSettings(
 
     const settings = {
       ...decoded,
-      endpoint: publicOrigin(decoded.stage, "", decoded.endpoint),
+      endpoint: botOrigin(decoded.stage, "", decoded.endpoint),
+      websiteOrigin: websiteOAuthOrigin(decoded.stage, decoded.websiteOrigin),
     };
 
-    env.ARC_PUBLIC_URL = settings.endpoint;
+    env.ARC_BOT_URL = settings.endpoint;
+    env.ARC_WEBSITE_URL = settings.websiteOrigin;
     env.ARC_BUILD_REVISION = settings.revision;
     env.PATH = `${dirname(process.execPath)}${delimiter}${env.PATH ?? ""}`;
 
     return { settings, env };
   } catch {
     throw new Error(
-      "Invalid local configuration. Check ARC_STAGE and APPLICATION_STAGE (matching local-*), ARC_ENVIRONMENT and TWITCH_SENDER_KIND (both personal or both bot), TWITCH_SENDER_LOGIN and TWITCH_CHANNEL_LOGINS (one own channel for personal; configured channels for bot), ARC_PUBLIC_URL (HTTPS origin), ARC_BUILD_REVISION, ALCHEMY_PROFILE, TWITCH_CLIENT_ID, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, and application secret keys. Values are omitted.",
+      "Invalid local configuration. Check ARC_STAGE and APPLICATION_STAGE (matching local-*), ARC_ENVIRONMENT and TWITCH_SENDER_KIND (both personal or both bot), TWITCH_SENDER_LOGIN and TWITCH_CHANNEL_LOGINS (one own channel for personal; configured channels for bot), ARC_BOT_URL (HTTPS origin) and ARC_WEBSITE_URL (exact http://localhost:3000 or HTTPS origin), ARC_BUILD_REVISION, ALCHEMY_PROFILE, TWITCH_CLIENT_ID, DISCORD_APPLICATION_ID, DISCORD_PUBLIC_KEY, and application secret keys. Values are omitted.",
     );
   }
 }
@@ -214,7 +233,7 @@ if (import.meta.main) {
 
     if (action === "dev") {
       console.info(
-        `Set the portal applications manually if the tunnel host changed:\nDiscord interactions endpoint: ${settings.endpoint}/interactions/discord\nTwitch EventSub callback: ${settings.endpoint}/webhooks/twitch\nTwitch OAuth redirect: ${settings.endpoint}/oauth/twitch/callback`,
+        `Set the portal applications manually if the tunnel host changed:\nDiscord interactions endpoint: ${settings.endpoint}/interactions/discord\nTwitch EventSub callback: ${settings.endpoint}/webhooks/twitch\nTwitch OAuth redirect: ${settings.websiteOrigin}/oauth/twitch/callback`,
       );
     }
 

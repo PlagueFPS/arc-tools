@@ -1,5 +1,5 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { AccountEndpoints } from "@arctools/twitch/cloudflare";
-import * as Cloudflare from "alchemy/Cloudflare";
 import { Effect, Layer, Schema } from "effect";
 
 import type { EnvironmentConfig } from "../../apps/bot/src/config.js";

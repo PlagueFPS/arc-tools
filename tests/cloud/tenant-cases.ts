@@ -553,18 +553,23 @@ export function registerTenantTests({
         expect(params.get("redirect_uri")).toBe(
           `${u.bot}/oauth/twitch/callback`,
         );
-        const callback = new URL(`${u.bot}/oauth/twitch/callback`);
-        callback.searchParams.set("state", params.get("state") ?? "");
-        callback.searchParams.set(
-          "code",
-          JSON.stringify({
+
+        const completion = yield* post(`${u.tenant}/operator-oauth`, {
+          state: params.get("state") ?? "",
+          code: JSON.stringify({
             userId: authorization.login === "fixture_sender" ? "100" : "200",
             login: authorization.login,
             scopes: params.get("scope")?.split(" "),
             clientId: "fixture-twitch",
           }),
-        );
-        expect((yield* request(callback.toString())).status).toBe(200);
+        });
+
+        expect(
+          yield* json(
+            completion,
+            Schema.Struct({ completed: Schema.Literal(true) }),
+          ),
+        ).toEqual({ completed: true });
       }
 
       const pending = yield* setup(u.bot);

@@ -1,5 +1,19 @@
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Config, Effect, Redacted, Schema } from "effect";
+
+import {
+  localWebsiteOrigin,
+  websiteOAuthOrigin,
+  botOrigin,
+} from "./origins.js";
+
+export {
+  httpsOrigin,
+  botOrigin,
+  websiteOrigin,
+  localWebsiteOrigin,
+  websiteOAuthOrigin,
+} from "./origins.js";
 
 export const TestStage = Schema.String.check(
   Schema.isPattern(/^test-[a-z0-9-]{1,24}-[a-f0-9]{12}$/),
@@ -139,40 +153,10 @@ export const runtimeConfig = Effect.gen(function* () {
   };
 });
 
-export function publicOrigin(
-  stage: string,
-  actual: string,
-  configured: string,
-) {
-  const valid = (value: string) => {
-    const url = new URL(value);
-
-    if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.pathname !== "/" ||
-      url.search ||
-      url.hash
-    )
-      throw new Error("Expected an HTTPS public origin");
-
-    return url.origin;
-  };
-
-  if (stage.startsWith("local-")) return valid(configured);
-  const origin = valid(actual);
-
-  if (configured && valid(configured) !== origin)
-    throw new Error("ARC_PUBLIC_URL must match the deployed Worker origin");
-
-  return origin;
-}
-
-export const bindOrigin = Effect.gen(function* () {
+export const bindBotOrigin = Effect.gen(function* () {
   const stage = yield* Config.schema(Stage, "ARC_STAGE");
 
-  const configured = yield* Config.String("ARC_PUBLIC_URL").pipe(
+  const configured = yield* Config.String("ARC_BOT_URL").pipe(
     Config.withDefault(""),
   );
 
@@ -181,10 +165,29 @@ export const bindOrigin = Effect.gen(function* () {
   return Effect.gen(function* () {
     const actual = yield* self;
 
-    return yield* Effect.sync(() => publicOrigin(stage, actual, configured));
+    return yield* Effect.sync(() => botOrigin(stage, actual, configured));
   });
 });
 
 export const buildRevision = Config.String("ARC_BUILD_REVISION").pipe(
   Config.withDefault("unreleased"),
 );
+
+export const configuredWebsiteOrigin = Effect.gen(function* () {
+  const stage = yield* Config.schema(Stage, "ARC_STAGE");
+  const setting = Config.NonEmptyString("ARC_WEBSITE_URL");
+
+  const configured = yield* stage === "prod"
+    ? setting
+    : setting.pipe(Config.withDefault(localWebsiteOrigin));
+
+  return yield* Effect.sync(() => websiteOAuthOrigin(stage, configured));
+});
+
+export const oauthOrigin = Effect.gen(function* () {
+  const { identity } = yield* runtimeConfig;
+
+  if (identity.kind === "test") return null;
+
+  return yield* configuredWebsiteOrigin;
+});

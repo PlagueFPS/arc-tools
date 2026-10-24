@@ -194,12 +194,13 @@ const nativeConfig = {
   clientId: "native-client",
   clientSecret: Redacted.make("native-client-secret"),
   signingSecret: Redacted.make("native-signing-secret"),
-  callback: "https://callback.invalid/webhooks/twitch",
-  redirect: "https://callback.invalid/oauth/twitch/callback",
+  callback: "https://bot.invalid/webhooks/twitch",
+  redirect: "https://website.invalid/oauth/twitch/callback",
 };
 
 const nativeFixture = Effect.fnUntraced(function* (
   respond: (request: HttpClientRequest.HttpClientRequest, url: URL) => Response,
+  config = nativeConfig,
 ) {
   const requests: {
     request: HttpClientRequest.HttpClientRequest;
@@ -214,7 +215,7 @@ const nativeFixture = Effect.fnUntraced(function* (
     return Effect.succeed(HttpClientResponse.fromWeb(request, response));
   });
 
-  const provider = yield* makeProvider(nativeConfig).pipe(
+  const provider = yield* makeProvider(config).pipe(
     Effect.provideService(HttpClient.HttpClient, client),
   );
 
@@ -239,7 +240,7 @@ const nativeSubscription = {
   condition: { broadcaster_user_id: "200", user_id: "100" },
   transport: {
     method: "webhook",
-    callback: "https://callback.invalid/webhooks/twitch",
+    callback: "https://bot.invalid/webhooks/twitch",
   },
 };
 
@@ -326,6 +327,11 @@ test(
 
         expect(params.get("client_id")).toBe("native-client");
         expect(params.get("client_secret")).toBe("native-client-secret");
+
+        if (params.get("grant_type") === "authorization_code")
+          expect(params.get("redirect_uri")).toBe(
+            "https://website.invalid/oauth/twitch/callback",
+          );
       }
     }
 
@@ -510,3 +516,32 @@ for (const remaining of [250, 8000])
       expect(aborted).toEqual([Math.min(remaining, 4000)]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
+
+test(
+  "localhost OAuth exchanges use the exact redirect registered for browser authorization",
+  Effect.gen(function* () {
+    const f = yield* nativeFixture(
+      () =>
+        Response.json({
+          access_token: "controlled-token",
+          expires_in: 3600,
+          token_type: "bearer",
+        }),
+      {
+        ...nativeConfig,
+        redirect: "http://localhost:3000/oauth/twitch/callback",
+      },
+    );
+
+    yield* f.provider.exchange("controlled-code");
+    const body = f.requests[0]?.request.body;
+
+    if (!body || !Predicate.isTagged(body, "Uint8Array"))
+      return yield* Effect.die("Expected form request");
+    const params = new URLSearchParams(new TextDecoder().decode(body.body));
+    expect(params.get("redirect_uri")).toBe(
+      "http://localhost:3000/oauth/twitch/callback",
+    );
+    expect(params.get("grant_type")).toBe("authorization_code");
+  }),
+);

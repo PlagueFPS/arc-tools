@@ -10,6 +10,7 @@
     "build": "turbo run build",
     "test": "turbo run test && bun --no-env-file test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-response.test.ts ./tests/cloud/discord-failure.test.ts ./tests/cloud/alarm-attribution.test.ts ./scripts/local.test.ts ./scripts/preview.test.ts ./scripts/preview-workflows.test.ts",
     "dev": "alchemy dev",
+    "dev:web": "turbo run dev --filter=@arctools/website",
     "dev:local": "bun run scripts/local.ts dev",
     "setup:local": "bun run scripts/local.ts setup",
     "status:local": "bun run scripts/local.ts status",
@@ -30,15 +31,15 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261015.1",
-    "@distilled.cloud/cloudflare": "1.0.0-rc.15",
+    "@distilled.cloud/cloudflare": "1.0.0-rc.17",
     "@effect/language-service": "^0.87.5",
-    "@effect/platform-bun": "4.0.4",
-    "@effect/platform-node": "4.0.4",
+    "@effect/platform-bun": "4.0.5",
+    "@effect/platform-node": "4.0.5",
     "@effect/tsgo": "0.53.5",
     "@oxlint/plugins": "1.88.0",
     "@types/bun": "1.4.3",
-    "alchemy": "2.0.0-beta.83",
-    "effect": "4.0.4",
+    "alchemy": "2.0.0-beta.84",
+    "effect": "4.0.5",
     "oxfmt": "0.73.0",
     "oxlint": "1.88.0",
     "oxlint-tsgolint": "7.0.2004",
@@ -46,12 +47,18 @@
     "typescript": "7.0.2",
     "@arctools/twitch": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "@arctools/discord": "workspace:*"
+    "@arctools/discord": "workspace:*",
+    "@alchemy.run/cloudflare": "2.0.0-beta.84",
+    "@alchemy.run/github": "2.0.0-beta.84",
+    "@foldkit/oxlint-plugin": "0.15.3"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.4",
-    "@effect/sql-sqlite-do": "4.0.4",
-    "@effect/sql-d1": "4.0.4"
+    "@effect/platform-node-shared": "4.0.5",
+    "@effect/sql-sqlite-do": "4.0.5",
+    "@effect/sql-d1": "4.0.5",
+    "effect": "4.0.5",
+    "@effect/platform-browser": "4.0.5",
+    "@effect/platform-node": "4.0.5"
   },
   "type": "module"
 }
