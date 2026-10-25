@@ -192,3 +192,37 @@ test.each(["ready", "recovering"] as const)(
     );
   },
 );
+
+test.each([
+  ["sender-authorization-required", "operator"],
+  ["broadcaster-authorization-required", "Connect again"],
+  ["ingress-required", "callback"],
+  ["setup-required", "setup"],
+] as const)(
+  "%s explains required action and still lets the owner Leave",
+  (reason, copy) => {
+    scene(
+      { update, view },
+      given({
+        ...connection,
+        enrollment: Enrollment.Success({
+          data: { kind: "attention-required", login: "raider", reason },
+        }),
+      }),
+      expect(text("Action required.")).toExist(),
+      expect(text(new RegExp(copy))).toExist(),
+      expect(text("Reconnecting automatically.")).toBeAbsent(),
+      expect(role("button", { name: "Leave channel" })).toExist(),
+      click(role("button", { name: "Leave channel" })),
+      expect(role("button", { name: "Leaving…" })).toBeDisabled(),
+      Command.resolve(
+        LeaveChannel,
+        Message.SucceededLeaveChannel({
+          requestId: RequestId.make(1),
+          status: { kind: "left", login: "raider" },
+        }),
+      ),
+      expect(text("Your channel has left.")).toExist(),
+    );
+  },
+);

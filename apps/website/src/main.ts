@@ -12,7 +12,12 @@ import {
   ScrollToContent,
 } from "./command";
 import { ApplicationComposition } from "./composition";
-import { CheckError, Enrollment, RequestId } from "./domain/enrollment";
+import {
+  CheckError,
+  Enrollment,
+  RequestId,
+  canLeaveChannel,
+} from "./domain/enrollment";
 import { Message } from "./message";
 import { Model } from "./model";
 import { ApplicationRoute, urlToApplicationRoute } from "./route";
@@ -113,7 +118,7 @@ export const update = ApplicationComposition.makeUpdate((model, message) =>
         !ApplicationRoute.guards.Connect(model.route) ||
         AsyncData.isPending(model.leave) ||
         Option.isNone(data) ||
-        (data.value.kind !== "ready" && data.value.kind !== "recovering")
+        !canLeaveChannel(data.value)
       )
         return { model };
       const requestId = RequestId.make(model.requestId + 1);

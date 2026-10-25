@@ -8,6 +8,8 @@ import {
   CheckError,
   EnrollmentStatus,
   canReconnect,
+  canLeaveChannel,
+  attentionMessage,
   guidance,
 } from "../domain/enrollment";
 import { Message } from "../message";
@@ -98,6 +100,14 @@ const enrollment = (
       h,
     );
 
+  if (status.kind === "attention-required")
+    return heading(
+      "CONNECTION NEEDS ATTENTION",
+      "Action required.",
+      attentionMessage(status.reason),
+      h,
+    );
+
   return h.div(
     [],
     [
@@ -153,7 +163,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
 
   const canLeave = Option.match(AsyncData.getData(model.enrollment), {
     onNone: () => false,
-    onSome: (status) => status.kind === "ready" || status.kind === "recovering",
+    onSome: canLeaveChannel,
   });
 
   const leaveFailed = Option.isSome(AsyncData.getError(model.leave));
@@ -168,6 +178,8 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
     onSome: (status) =>
       !isPending &&
       (status.kind === "left" ||
+        (status.kind === "attention-required" &&
+          status.reason === "broadcaster-authorization-required") ||
         (status.kind === "failed" && canReconnect(status.reason))),
   });
 

@@ -1547,12 +1547,51 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
           if (!member)
             return { kind: "failed", reason: "authorization-required" };
+
+          if (!state.sender)
+            return {
+              kind: "attention-required",
+              login: member.login,
+              reason: "setup-required",
+            };
+
+          if (!granted(state, state.sender.id, senderScopes))
+            return {
+              kind: "attention-required",
+              login: member.login,
+              reason: "sender-authorization-required",
+            };
+
+          if (!granted(state, id, broadcasterScopes))
+            return {
+              kind: "attention-required",
+              login: member.login,
+              reason: "broadcaster-authorization-required",
+            };
+
+          if (!config.webhookReady)
+            return {
+              kind: "attention-required",
+              login: member.login,
+              reason: "ingress-required",
+            };
+
           const decision = decideChannel(state, id);
 
           if (decision.kind === "ready")
             return { kind: "ready", login: member.login };
 
-          return { kind: "recovering", login: member.login };
+          if (
+            decision.kind === "pending" ||
+            decision.kind === "repair-required"
+          )
+            return { kind: "recovering", login: member.login };
+
+          return {
+            kind: "attention-required",
+            login: member.login,
+            reason: "setup-required",
+          };
         }
       }
     });

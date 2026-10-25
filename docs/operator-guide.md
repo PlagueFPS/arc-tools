@@ -149,6 +149,7 @@ Use the same browser to open `/oauth/twitch/enroll/status`. The response describ
 
 - `{"kind":"pending"}` means browser authorization is outstanding.
 - `{"kind":"recovering","login":"your_login"}` means the channel remains installed while automatic subscription recovery runs.
+- `{"kind":"attention-required","login":"your_login","reason":"sender-authorization-required"}` means authorization or setup must be restored before recovery can finish. Other reasons are `broadcaster-authorization-required`, `ingress-required`, and `setup-required`. The owner can still use **Leave channel**.
 - `{"kind":"left","login":"your_login"}` confirms removal for this browser capability until its original expiry.
 - `{"kind":"ready","login":"your_login"}` requires the broadcaster and sender grants plus an enabled subscription with a confirmed ID.
 - `{"kind":"failed","reason":"authorization-required"}` requires a fresh enrollment. If sender authorization was revoked, the operator must renew the sender first.

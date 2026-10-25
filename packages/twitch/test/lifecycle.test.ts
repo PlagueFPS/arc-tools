@@ -166,7 +166,7 @@ run(
 );
 
 run(
-  "an owner can still Leave through recovering status while shared sender authorization is unavailable",
+  "missing sender authorization requires attention while preserving owner Leave",
   Effect.fnUntraced(function* (h) {
     const input = yield* enroll(h);
     yield* ready(h);
@@ -174,13 +174,58 @@ run(
       delete state.grants["100"];
     });
     expect(yield* h.enrollment.status(input.session)).toEqual({
-      kind: "recovering",
+      kind: "attention-required",
       login: "public_channel",
+      reason: "sender-authorization-required",
     });
     expect(yield* h.enrollment.leave(input.session)).toEqual({
       kind: "left",
       login: "public_channel",
     });
+  }),
+);
+
+run(
+  "missing broadcaster authorization requires owner action and still permits Leave",
+  Effect.fnUntraced(function* (h) {
+    const input = yield* enroll(h);
+    yield* ready(h);
+    yield* h.store.shared((state) => {
+      delete state.grants["400"];
+    });
+    expect(yield* h.enrollment.status(input.session)).toEqual({
+      kind: "attention-required",
+      login: "public_channel",
+      reason: "broadcaster-authorization-required",
+    });
+    expect((yield* h.enrollment.leave(input.session)).kind).toBe("left");
+  }),
+);
+
+run(
+  "missing sender setup and callback readiness require operator action rather than automatic recovery",
+  Effect.fnUntraced(function* (h) {
+    const input = yield* enroll(h);
+    yield* ready(h);
+    const unavailable = yield* harness(config, false);
+    unavailable.restore(h.snapshot());
+    const restored = yield* unavailable.construct();
+
+    expect(yield* restored.enrollment.status(input.session)).toEqual({
+      kind: "attention-required",
+      login: "public_channel",
+      reason: "ingress-required",
+    });
+    expect((yield* restored.enrollment.leave(input.session)).kind).toBe("left");
+    yield* h.store.shared((state) => {
+      state.sender = null;
+    });
+    expect(yield* h.enrollment.status(input.session)).toEqual({
+      kind: "attention-required",
+      login: "public_channel",
+      reason: "setup-required",
+    });
+    expect((yield* h.enrollment.leave(input.session)).kind).toBe("left");
   }),
 );
 
