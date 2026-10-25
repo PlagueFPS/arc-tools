@@ -13,6 +13,7 @@
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.84",
     "@arctools/twitch": "workspace:*",
+    "@arctools/discord": "workspace:*",
     "@arctools/utils": "workspace:*",
     "@effect/platform-browser": "4.0.5",
     "@foldkit/ui": "0.169.0-canary.1f6776fa7ece",

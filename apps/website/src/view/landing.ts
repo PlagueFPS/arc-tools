@@ -1,6 +1,8 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 
+import { buttonVariants } from "../components/ui/button";
 import type { Message } from "../message";
+import { discordInstallPath } from "../route";
 import { view as chatPreview } from "./chatPreview";
 import { connectLink, eyebrow, wrap } from "./shared";
 
@@ -25,7 +27,7 @@ const hero = (h: HtmlBuilder<Message>): Html =>
                   h.AriaHidden(true),
                   h.Class("size-[6px] rounded-full bg-primary"),
                 ]),
-                "BUILT FOR ARC RAIDERS · ON TWITCH",
+                "BUILT FOR ARC RAIDERS · ON TWITCH & DISCORD",
               ],
             },
             h,
@@ -49,17 +51,27 @@ const hero = (h: HtmlBuilder<Message>): Html =>
               ),
             ],
             [
-              "Less alt-tabbing. More raiding. Give your community item, crafting, and event answers right in Twitch chat.",
+              "Less alt-tabbing. More raiding. Give your community item, crafting, and event answers right in Twitch chat or your Discord server.",
             ],
           ),
           h.div(
+            [h.Class("mt-[33px] flex flex-col items-start gap-[14px]")],
             [
-              h.Class(
-                "mt-[33px] flex flex-col items-start gap-[14px] desktop:flex-row desktop:items-center desktop:gap-[22px]",
+              h.div(
+                [h.Class("flex flex-wrap gap-3")],
+                [
+                  connectLink({}, h),
+                  h.a(
+                    [
+                      h.Href(discordInstallPath),
+                      h.Class(
+                        buttonVariants({ variant: "outline", size: "lg" }),
+                      ),
+                    ],
+                    ["Add to Discord", h.span([h.AriaHidden(true)], ["↗"])],
+                  ),
+                ],
               ),
-            ],
-            [
-              connectLink({}, h),
               h.p(
                 [
                   h.Class(
@@ -67,7 +79,7 @@ const hero = (h: HtmlBuilder<Message>): Html =>
                   ),
                 ],
                 [
-                  "Connect your channel through Twitch.",
+                  "Connect your Twitch channel or add ARC Tools to your Discord server.",
                   h.br([]),
                   "No downloads. No chat overlay.",
                 ],
