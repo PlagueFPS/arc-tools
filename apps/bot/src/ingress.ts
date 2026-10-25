@@ -3,6 +3,7 @@ import {
   BroadcasterId,
   subscriptionBinding,
   bounded,
+  eventSubTiming,
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
@@ -48,9 +49,9 @@ type IngressBodyError = HttpServerError.HttpServerError | IngressError;
 export const ingressPolicy = {
   maxBytes: 64 * 1024,
   bodyMs: 750,
-  twitchAgeMs: 600_000,
+  twitchAgeMs: eventSubTiming.maxAgeMs,
   discordAgeMs: 300_000,
-  futureSkewMs: 30_000,
+  futureSkewMs: eventSubTiming.futureSkewMs,
 } as const;
 
 const TwitchAuthenticationHeaders = Schema.Struct({

@@ -6,6 +6,7 @@ import {
   DispatchOutcome,
   EnrollmentFailure,
   enrollmentTiming,
+  eventSubTiming,
   EnrollmentSession,
 } from "./contracts.js";
 import { BroadcasterId } from "./schemas.js";
@@ -95,10 +96,15 @@ const Repair = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("required") }),
 ]);
 
+const legacyCleanupAt = 1;
+
 const PublicMember = Schema.Struct({
   login: bounded(25),
   id: BroadcasterId,
   revocationGeneration: Schema.Int,
+  cleanupAfter: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(legacyCleanupAt)),
+  ),
 });
 
 export const AccountState = Schema.Struct({
@@ -122,6 +128,9 @@ export const AccountState = Schema.Struct({
   tokenLease: Schema.NullOr(Lease),
   tokenRetryAt: Schema.Number,
   nextCredentialCheck: Schema.NullOr(Schema.Number),
+  nextCleanupAt: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(legacyCleanupAt)),
+  ),
   setupLease: Schema.NullOr(
     Schema.Struct({
       owner: Schema.String,
@@ -314,6 +323,7 @@ export const emptyState = (revision: string): AccountState => ({
   tokenLease: null,
   tokenRetryAt: 0,
   nextCredentialCheck: null,
+  nextCleanupAt: null,
   setupLease: null,
   subscriptions: {},
   revoked: {},
@@ -348,6 +358,7 @@ export const policy = {
   maxRepairAttempts: 5,
   maxAttempts: 64,
   retentionMs: 600_000,
+  revocationMs: eventSubTiming.maxAgeMs + eventSubTiming.futureSkewMs + 1,
   oauthMs: 600_000,
   tokenLeaseMs: 10_000,
   enrollmentLeaseMs: enrollmentTiming.exchangeMs,
@@ -357,6 +368,9 @@ export const policy = {
   globalMessages: 20,
   channelMs: 1_000,
 };
+
+export const isAuthorizationLoss = (status: string) =>
+  status === "authorization_revoked" || status === "user_removed";
 
 export function reclaimSend(state: SendAttemptState, now: number) {
   state.reservations = state.reservations.filter(
@@ -371,10 +385,66 @@ export function reclaimSend(state: SendAttemptState, now: number) {
 export function reclaim(state: AccountState, now: number) {
   reclaimSend(state, now);
   state.oauth = state.oauth.filter((entry) => entry.expiresAt > now);
+  state.enrollments = state.enrollments.filter(
+    (entry) => entry.expiresAt > now,
+  );
 
   for (const [key, tombstone] of Object.entries(state.revoked)) {
     if (tombstone.until <= now) delete state.revoked[key];
   }
+
+  state.publicMembers = state.publicMembers.flatMap((member) => {
+    if (member.cleanupAfter === legacyCleanupAt) {
+      const record = state.subscriptions[member.id];
+
+      const cleanupAfter =
+        record &&
+        isAuthorizationLoss(record.status) &&
+        !state.grants[member.id]?.includes("channel:bot") &&
+        state.sender?.id !== member.id &&
+        !state.channels.some((channel) => channel.id === member.id)
+          ? now + Math.max(policy.oauthMs, policy.retentionMs)
+          : null;
+
+      if (cleanupAfter !== null)
+        state.enrollments = state.enrollments.map((entry) =>
+          entry.phase.kind === "member" &&
+          entry.phase.broadcasterId === member.id
+            ? { ...entry, expiresAt: Math.min(entry.expiresAt, cleanupAfter) }
+            : entry,
+        );
+
+      return [{ ...member, cleanupAfter }];
+    }
+
+    if (member.cleanupAfter === null || member.cleanupAfter > now)
+      return [member];
+
+    if (
+      state.grants[member.id]?.includes("channel:bot") ||
+      state.sender?.id === member.id ||
+      state.channels.some((channel) => channel.id === member.id)
+    )
+      return [{ ...member, cleanupAfter: null }];
+
+    delete state.subscriptions[member.id];
+    delete state.grants[member.id];
+
+    return [];
+  });
+}
+
+export function nextCleanup(state: AccountState): number | null {
+  const due = Math.min(
+    ...state.oauth.map((entry) => entry.expiresAt),
+    ...state.enrollments.map((entry) => entry.expiresAt),
+    ...state.publicMembers.map((member) => member.cleanupAfter ?? Infinity),
+    ...Object.values(state.revoked).map((entry) => entry.until),
+    ...Object.values(state.attempts).map((entry) => entry.retainUntil),
+    ...state.reservations.map((entry) => entry.at + policy.globalWindowMs),
+  );
+
+  return Number.isFinite(due) ? due : null;
 }
 
 export function reserveAt(
@@ -415,13 +485,13 @@ export function desiredChannels(
 }
 
 export function nextAlarm(
-  state: Pick<AccountState, "repair" | "nextCredentialCheck">,
+  state: Pick<AccountState, "repair" | "nextCredentialCheck" | "nextCleanupAt">,
 ): number | null {
-  const repair = state.repair.kind === "scheduled" ? state.repair.due : null;
+  const due = Math.min(
+    state.repair.kind === "scheduled" ? state.repair.due : Infinity,
+    state.nextCredentialCheck ?? Infinity,
+    state.nextCleanupAt ?? Infinity,
+  );
 
-  if (repair === null) return state.nextCredentialCheck;
-
-  return state.nextCredentialCheck === null
-    ? repair
-    : Math.min(repair, state.nextCredentialCheck);
+  return Number.isFinite(due) ? due : null;
 }

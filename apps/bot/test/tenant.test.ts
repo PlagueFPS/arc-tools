@@ -3,7 +3,15 @@ import { describe, expect } from "bun:test";
 import { makeFixture } from "@arctools/arc-data/testing";
 import { AttemptId, Deadline, AccountError } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
-import { Result, Predicate, Deferred, Effect, Fiber, Layer } from "effect";
+import {
+  Result,
+  Predicate,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { WorkId } from "../src/contracts.js";
@@ -25,6 +33,114 @@ const test = <E>(name: string, effect: Effect.Effect<void, E>) =>
   effectTest(name, effect.pipe(Effect.provide(TestClock.layer())));
 
 describe("Tenant durable behavior", () => {
+  for (const transport of ["discord", "twitch"] as const)
+    test(
+      `${transport} retention expires without another command after uninstall or revocation`,
+      Effect.gen(function* () {
+        const fixture = yield* tenantFixture();
+        const tenant = yield* fixture.construct();
+
+        if (transport === "discord")
+          yield* tenant.respondDiscord(discordReceipt());
+        else {
+          yield* tenant.acceptTwitch(twitchReceipt());
+          yield* fixture.drain;
+        }
+
+        const until = transport === "discord" ? 603000 : 610000;
+        expect(fixture.alarm()).toBe(until);
+        yield* TestClock.setTime(until - 1);
+        const restored = yield* fixture.construct("restored");
+        yield* restored.recover();
+        expect(Object.keys(fixture.snapshot().works)).toEqual(["work"]);
+        yield* TestClock.setTime(until);
+        yield* restored.recover();
+        expect(fixture.snapshot().works).toEqual({});
+        expect(fixture.alarm()).toBeNull();
+        expect(fixture.values.size).toBe(0);
+        expect(fixture.deletions()).toBeGreaterThan(0);
+        expect(fixture.sent).toHaveLength(transport === "twitch" ? 1 : 0);
+      }),
+    );
+
+  test(
+    "failed deletion keeps a retry alarm and recovery can finish after reconstruction",
+    Effect.gen(function* () {
+      const fixture = yield* tenantFixture();
+      const tenant = yield* fixture.construct();
+      yield* tenant.respondDiscord(discordReceipt());
+      yield* TestClock.setTime(603000);
+      fixture.beforeDelete(Effect.die("DELETE-FAILURE"));
+      expect(
+        Exit.isFailure(yield* tenant.recover().pipe(Effect.exit)),
+      ).toBeTrue();
+      expect(fixture.alarm()).toBe(604000);
+      expect(fixture.values.size).toBeGreaterThan(0);
+      fixture.beforeDelete(Effect.void);
+      yield* TestClock.setTime(604000);
+      const restored = yield* fixture.construct("restored");
+      yield* restored.recover();
+      expect(fixture.values.size).toBe(0);
+      expect(fixture.alarm()).toBeNull();
+    }),
+  );
+
+  test(
+    "admission waits for deletion and the new installation survives cleanup",
+    Effect.gen(function* () {
+      const fixture = yield* tenantFixture();
+      const tenant = yield* fixture.construct();
+      yield* tenant.respondDiscord(discordReceipt());
+      yield* TestClock.setTime(603000);
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      fixture.beforeDelete(
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+        ),
+      );
+      const cleanup = yield* tenant.recover().pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+
+      const fresh = yield* tenant
+        .respondDiscord(discordReceipt("fresh", 603000))
+        .pipe(Effect.forkChild);
+
+      yield* TestClock.adjust(0);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(cleanup);
+      expect((yield* Fiber.join(fresh)).data.flags).toBe(0);
+      expect(Object.keys(fixture.snapshot().works)).toEqual(["fresh"]);
+      expect(fixture.alarm()).toBe(1206000);
+    }),
+  );
+
+  test(
+    "expiry preserves newer commands and an emptied tenant accepts a fresh installation",
+    Effect.gen(function* () {
+      const fixture = yield* tenantFixture();
+      const tenant = yield* fixture.construct();
+      yield* tenant.respondDiscord(discordReceipt("old"));
+      yield* TestClock.setTime(1000);
+      yield* tenant.respondDiscord(discordReceipt("newer", 1000));
+      yield* TestClock.setTime(603000);
+      yield* tenant.recover();
+      expect(Object.keys(fixture.snapshot().works)).toEqual(["newer"]);
+      expect(fixture.alarm()).toBe(604000);
+      expect(fixture.deletions()).toBe(0);
+      yield* TestClock.setTime(604000);
+      yield* tenant.recover();
+      expect(fixture.values.size).toBe(0);
+      const reinstalled = yield* fixture.construct("reinstalled");
+      expect(
+        (yield* reinstalled.respondDiscord(discordReceipt("fresh", 604000)))
+          .data.flags,
+      ).toBe(0);
+      expect(Object.keys(fixture.snapshot().works)).toEqual(["fresh"]);
+      expect(fixture.alarm()).toBe(1207000);
+    }),
+  );
+
   test(
     "admission persists the original deadline, useful alarm and claim before launch; duplicates cannot change them",
     Effect.gen(function* () {
@@ -71,7 +187,7 @@ describe("Tenant durable behavior", () => {
         kind: "terminal",
         outcome: "sent",
       });
-      expect(fixture.alarm()).toBeNull();
+      expect(fixture.alarm()).toBe(610000);
     }),
   );
   test(
@@ -104,7 +220,7 @@ describe("Tenant durable behavior", () => {
         "New can be sold for 20 coins each",
       ]);
       expect(fixture.snapshot().generation).toBe(3);
-      expect(fixture.alarm()).toBeNull();
+      expect(fixture.alarm()).toBe(610000);
     }),
   );
   test(
@@ -163,7 +279,7 @@ describe("Tenant durable behavior", () => {
         outcome: "expired",
         deadline: 10000,
       });
-      expect(fixture.alarm()).toBeNull();
+      expect(fixture.alarm()).toBe(610000);
     }),
   );
 
@@ -236,7 +352,7 @@ describe("Tenant durable behavior", () => {
           .flags,
       ).toBe(0);
       expect(Object.keys(fixture.snapshot().works)).toEqual(["new"]);
-      expect(fixture.alarm()).toBeNull();
+      expect(fixture.alarm()).toBe(1206000);
     }),
   );
   test(
@@ -312,7 +428,7 @@ describe("Tenant durable behavior", () => {
         kind: "terminal",
         deadline: 3000,
       });
-      expect(fixture.alarm()).toBeNull();
+      expect(fixture.alarm()).toBe(603000);
     }),
   );
   test(

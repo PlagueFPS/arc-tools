@@ -33,6 +33,7 @@ import {
   type ChannelDispatchState,
   AccountStore,
   desiredChannels,
+  isAuthorizationLoss,
   policy,
   reclaim,
   reclaimSend,
@@ -183,7 +184,8 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     now: number,
   ) => {
     const prior = state.revoked[observation.id];
-    const authorizationLost = observation.status === "authorization_revoked";
+
+    const authorizationLost = isAuthorizationLoss(observation.status);
 
     if (
       prior?.reason === "authorization-revoked" ||
@@ -191,7 +193,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     )
       return;
     state.revoked[observation.id] = {
-      until: prior?.until ?? now + policy.retentionMs,
+      until: Math.max(prior?.until ?? 0, now + policy.revocationMs),
       reason: authorizationLost ? "authorization-revoked" : "revoked",
     };
 
@@ -211,6 +213,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           ? {
               ...member,
               revocationGeneration: state.publicRevocationGeneration,
+              cleanupAfter: authorizationLost
+                ? now + Math.max(policy.oauthMs, policy.retentionMs)
+                : member.cleanupAfter,
             }
           : member,
       );
@@ -236,6 +241,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       delete state.grants[observation.broadcasterId];
 
       if (!publicOnly) delete state.grants[observation.senderId];
+      else
+        state.enrollments = state.enrollments.map((entry) =>
+          entry.phase.kind === "member" &&
+          entry.phase.broadcasterId === observation.broadcasterId
+            ? {
+                ...entry,
+                expiresAt: Math.min(entry.expiresAt, now + policy.retentionMs),
+              }
+            : entry,
+        );
     }
   };
 
@@ -498,7 +513,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       const retired = yield* store.update((state) => {
         if (!ownsSetup(state, owner, generation, now)) return false;
         state.revoked[id] ??= {
-          until: now + policy.retentionMs,
+          until: now + policy.revocationMs,
           reason: "retired",
         };
 
@@ -548,7 +563,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           record &&
           sameRemote(record, subscription) &&
           matchesTarget(state, record) &&
-          subscription.status === "authorization_revoked"
+          isAuthorizationLoss(subscription.status)
         )
           revokeSubscription(
             state,
@@ -1200,11 +1215,13 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         if (!existing)
           state.publicMembers = [
             ...state.publicMembers,
-            { id: userId, login, revocationGeneration: 0 },
+            { id: userId, login, revocationGeneration: 0, cleanupAfter: null },
           ];
         else
           state.publicMembers = state.publicMembers.map((member) =>
-            member.id === userId ? { ...member, login } : member,
+            member.id === userId
+              ? { ...member, login, cleanupAfter: null }
+              : member,
           );
         state.grants[userId] = [
           ...new Set([...(state.grants[userId] ?? []), ...broadcasterScopes]),
@@ -1409,6 +1426,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
         const confirmed =
           record?.id === valid.id && matchesTarget(state, record);
+
+        const retired = state.revoked[valid.id];
+
+        if (
+          record &&
+          record.id !== valid.id &&
+          (!retired || retired.until <= now)
+        )
+          return;
 
         if (liveSubscription(valid.status)) {
           if (
@@ -1628,6 +1654,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const completed = yield* Clock.currentTimeMillis;
 
     const outcome = yield* store.sendAttempt((state): DispatchOutcome => {
+      if (result.kind === "unauthorized")
+        invalidateSession(state, session.generation);
+
       const prior = state.attempts[valid.attemptId];
 
       if (prior?.kind !== "sending" || prior.owner !== owner)
@@ -1644,9 +1673,6 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           { kind: "limited" },
           { kind: "unauthorized" },
           (result): DispatchOutcome => {
-            if (result.kind === "unauthorized")
-              invalidateSession(state, session.generation);
-
             const retryAt =
               result.kind === "limited" ? result.retryAt : completed + 100;
 
@@ -1738,7 +1764,17 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       );
   });
 
-  const alarm = credentialAlarm().pipe(Effect.andThen(repairMemberships));
+  const alarm = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+
+    const due = yield* store.shared(
+      (state) => state.nextCleanupAt !== null && state.nextCleanupAt <= now,
+    );
+
+    if (due) yield* store.update((state) => reclaim(state, now));
+    yield* credentialAlarm();
+    yield* repairMemberships();
+  });
 
   return {
     enrollment: TwitchEnrollment.of({

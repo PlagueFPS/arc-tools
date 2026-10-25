@@ -51,7 +51,7 @@ for (const [activation, at] of [
       }
 
       const before = f.snapshot();
-      expect(f.alarm()).toBeNull();
+      expect(f.alarm()).toBe(603000);
       yield* TestClock.setTime(at);
       const tenant = yield* f.construct(activation);
       expect(yield* tenant.respondDiscord(discordReceipt("fresh", at))).toEqual(
@@ -75,7 +75,7 @@ for (const [activation, at] of [
       }
 
       expect(Object.keys(f.snapshot().works)).toHaveLength(9);
-      expect(f.alarm()).toBeNull();
+      expect(f.alarm()).toBe(603000);
     }),
   );
 
@@ -195,7 +195,7 @@ for (const [retryAt, completed] of [
         outcome: "expired",
         deadline: 10000,
       });
-      expect(f.alarm()).toBeNull();
+      expect(f.alarm()).toBe(610000);
     }),
   );
 
@@ -255,7 +255,7 @@ test(
       AttemptId.make("slow-send:0"),
       AttemptId.make("slow-send:1"),
     ]);
-    expect(f.alarm()).toBeNull();
+    expect(f.alarm()).toBe(start + 610000);
   }).pipe(Effect.scoped),
 );
 
@@ -294,12 +294,12 @@ for (const transport of ["discord", "twitch"] as const)
         expect(f.sent).toHaveLength(2);
       }
 
-      expect(f.alarm()).toBeNull();
+      expect(f.alarm()).toBe(transport === "discord" ? 603000 : 610000);
     }),
   );
 
 test(
-  "more than four due Twitch items progress in bounded batches and leave no idle alarm",
+  "more than four due Twitch items progress in bounded batches and retain only the expiry alarm",
   Effect.gen(function* () {
     const f = yield* tenantFixture();
     const first = yield* f.construct();
@@ -317,10 +317,10 @@ test(
         (work) => work.kind === "terminal",
       ),
     ).toBeTrue();
-    expect(f.alarm()).toBeNull();
+    expect(f.alarm()).toBe(610000);
     yield* restored.recover();
     expect(f.sent).toHaveLength(8);
-    expect(f.alarm()).toBeNull();
+    expect(f.alarm()).toBe(610000);
   }),
 );
 

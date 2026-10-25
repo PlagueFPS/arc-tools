@@ -28,6 +28,8 @@ import {
   type ChannelDispatchState,
   emptyState,
   nextAlarm,
+  nextCleanup,
+  policy,
   splitAccount,
   joinDirectory,
 } from "./state.js";
@@ -255,6 +257,13 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       const before = JSON.stringify(attempts);
       const state = { ...shared, attempts };
       const result = yield* f(state);
+      state.nextCleanupAt = Math.min(
+        state.nextCleanupAt ?? Infinity,
+        ...Object.values(state.attempts).map((entry) => entry.retainUntil),
+        ...state.reservations.map((entry) => entry.at + policy.globalWindowMs),
+      );
+
+      if (!Number.isFinite(state.nextCleanupAt)) state.nextCleanupAt = null;
       const { attempts: after, ...updated } = state;
       Object.assign(shared, updated);
       yield* changed(attemptsKey, AccountState.fields.attempts, before, after);
@@ -350,11 +359,12 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
         Effect.fnUntraced(function* (shared) {
           const before = yield* directory(shared);
 
-          const state = yield* Schema.decodeUnknownEffect(AccountState)(
-            yield* joinDirectory(before).pipe(Effect.orDie),
-          ).pipe(Effect.orDie);
+          const state: AccountState = yield* Schema.decodeUnknownEffect(
+            AccountState,
+          )(yield* joinDirectory(before).pipe(Effect.orDie)).pipe(Effect.orDie);
 
           const result = f(state);
+          state.nextCleanupAt = nextCleanup(state);
           yield* Schema.encodeEffect(AccountState)(state).pipe(Effect.orDie);
           const after = splitAccount(state);
           yield* persistDirectory(after, before);

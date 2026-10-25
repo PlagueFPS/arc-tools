@@ -93,8 +93,8 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
       const data = yield* dataClient;
 
       const store = yield* TenantStore.pipe(
-        Effect.provide(tenantStorageLayer),
-      ).pipe(Effect.provideService(Cloudflare.DurableObjectState, state));
+        Effect.provide(tenantStorageLayer(state.storage)),
+      );
 
       const account = TwitchAccount.of({
         dispatch: Effect.fnUntraced(

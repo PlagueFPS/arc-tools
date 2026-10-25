@@ -225,7 +225,10 @@ export function verifyCompletedRecovery(evidence: CompletedRecoveryEvidence) {
       recovery.credential !== null &&
       recovery.intended !== null &&
       recovery.intended > recovery.accountTime &&
-      recovery.native === recovery.intended,
+      recovery.scheduled !== null &&
+      recovery.scheduled > recovery.accountTime &&
+      recovery.scheduled <= recovery.intended &&
+      recovery.native === recovery.scheduled,
     "recovery lease or native schedule mismatch",
   );
   requireEvidence(

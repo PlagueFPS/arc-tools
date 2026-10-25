@@ -1,5 +1,5 @@
 import type { Provider } from "@arctools/twitch/testing";
-import { SharedAccount } from "@arctools/twitch/testing";
+import { nextAlarm, SharedAccount } from "@arctools/twitch/testing";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Context, Effect, Exit, Schema } from "effect";
 
@@ -74,6 +74,7 @@ export const CompletedAlarmRun = Schema.Struct({
   entryAlarm: Schema.NullOr(Schema.Number),
   lease: Lease,
   intended: Schema.NullOr(Schema.Number),
+  scheduled: Schema.NullOr(Schema.Number),
   native: Schema.NullOr(Schema.Number),
   credential: Schema.NullOr(
     Schema.Struct({
@@ -282,6 +283,7 @@ export const recordCompletedAlarm = Effect.fnUntraced(function* (
           completedAt: Date.now(),
           lease: record.tokenLease,
           intended: record.nextCredentialCheck,
+          scheduled: nextAlarm(record),
           native: yield* storage.getAlarm(),
           credential:
             record.session === null

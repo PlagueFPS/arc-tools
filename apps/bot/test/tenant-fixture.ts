@@ -7,16 +7,16 @@ import {
   type DispatchOutcome,
   TwitchAccount,
 } from "@arctools/twitch/server";
-import { Effect, Schema } from "effect";
+import { RuntimeContext } from "alchemy/RuntimeContext";
+import { Effect, Exit, Schema, Semaphore } from "effect";
 
 import { DiscordReceipt, TwitchReceipt } from "../src/tenant-contracts.js";
+import { emptyTenant, TenantState, TenantStore } from "../src/tenant-state.js";
 import {
-  emptyTenant,
-  nextAlarm,
-  TenantState,
-  TenantStore,
-} from "../src/tenant-state.js";
-import { TenantService, tenantServiceLayer } from "../src/tenant.js";
+  tenantStorageLayer,
+  TenantService,
+  tenantServiceLayer,
+} from "../src/tenant.js";
 
 export const twitchReceipt = (id = "work", receivedAt = 0) =>
   Schema.decodeUnknownSync(TwitchReceipt)({
@@ -38,8 +38,12 @@ export const discordReceipt = (id = "work", receivedAt = 0) =>
   });
 
 export const tenantFixture = Effect.fnUntraced(function* () {
-  let raw: unknown = emptyTenant();
+  const values = new Map<string, unknown>();
   let alarm: number | null = null;
+  let deletions = 0;
+  let inTransaction = false;
+  let beforeDelete: Effect.Effect<void> = Effect.void;
+  const mutex = yield* Semaphore.make(1);
   const launches: Effect.Effect<void>[] = [];
   const sent: Dispatch[] = [];
   const ledger = new Map<string, DispatchOutcome>();
@@ -68,18 +72,66 @@ export const tenantFixture = Effect.fnUntraced(function* () {
     observeSubscription: () => Effect.void,
   };
 
-  const store = TenantStore.of({
-    read: Effect.sync(() => Schema.decodeUnknownSync(TenantState)(raw)),
-    update: (f) =>
-      Effect.sync(() => {
-        const state = Schema.decodeUnknownSync(TenantState)(raw);
-        const result = f(state);
-        raw = Schema.encodeSync(TenantState)(state);
-        alarm = nextAlarm(state);
+  const store = yield* TenantStore.pipe(
+    Effect.provide(
+      tenantStorageLayer({
+        get: (key) => Effect.sync(() => structuredClone(values.get(key))),
+        put: (key, value) =>
+          Effect.sync(() => {
+            values.set(key, structuredClone(value));
+          }),
+        deleteAll: () =>
+          Effect.gen(function* () {
+            yield* beforeDelete;
 
-        return result;
+            if (inTransaction)
+              throw new Error("Cannot call deleteAll() within a transaction");
+            values.clear();
+            alarm = null;
+            deletions++;
+          }),
+        getAlarm: () => Effect.sync(() => alarm),
+        setAlarm: (at) =>
+          Effect.sync(() => {
+            alarm = Number(at);
+          }),
+        deleteAlarm: () =>
+          Effect.sync(() => {
+            alarm = null;
+          }),
+        transaction: (effect) =>
+          Effect.gen(function* () {
+            const before = structuredClone(values);
+            const beforeAlarm = alarm;
+            inTransaction = true;
+            const exit = yield* Effect.exit(effect);
+            inTransaction = false;
+
+            if (Exit.isFailure(exit)) {
+              values.clear();
+
+              for (const [key, value] of before) values.set(key, value);
+              alarm = beforeAlarm;
+
+              return yield* Effect.failCause(exit.cause);
+            }
+
+            return exit.value;
+          }).pipe(mutex.withPermit),
       }),
-  });
+    ),
+  ).pipe(
+    Effect.provideService(
+      RuntimeContext,
+      RuntimeContext.of({
+        Type: "test",
+        id: "tenant-storage",
+        env: {},
+        get: () => Effect.succeed(undefined),
+        set: (key) => Effect.succeed(key),
+      }),
+    ),
+  );
 
   const source = yield* makeFixture();
 
@@ -111,7 +163,15 @@ export const tenantFixture = Effect.fnUntraced(function* () {
     sent,
     ledger,
     launches,
-    snapshot: () => Schema.decodeUnknownSync(TenantState)(raw),
+    snapshot: () =>
+      Schema.decodeUnknownSync(TenantState)(
+        values.get("tenant:v1") ?? emptyTenant(),
+      ),
+    values,
+    deletions: () => deletions,
+    beforeDelete: (effect: Effect.Effect<void>) => {
+      beforeDelete = effect;
+    },
     alarm: () => alarm,
     dispatch: (next: typeof dispatch) => {
       dispatch = next;

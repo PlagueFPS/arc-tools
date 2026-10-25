@@ -42,8 +42,18 @@ const populated = (): AccountState =>
       { id: "200", login: "configured_second" },
     ],
     publicMembers: [
-      { id: "200", login: "public_first", revocationGeneration: 4 },
-      { id: "400", login: "public_second", revocationGeneration: 9 },
+      {
+        id: "200",
+        login: "public_first",
+        revocationGeneration: 4,
+        cleanupAfter: null,
+      },
+      {
+        id: "400",
+        login: "public_second",
+        revocationGeneration: 9,
+        cleanupAfter: null,
+      },
     ],
     grants: {
       "100": ["user:bot", "user:read:chat", "user:write:chat"],
@@ -92,6 +102,7 @@ const populated = (): AccountState =>
     tokenLease: { owner: "token-owner", until: initial + 12 },
     tokenRetryAt: initial + 13,
     nextCredentialCheck: initial + 100,
+    nextCleanupAt: initial + 222,
     setupLease: {
       owner: "setup-owner",
       until: initial + 4567,

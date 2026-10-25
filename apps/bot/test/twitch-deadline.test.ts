@@ -262,7 +262,7 @@ for (const [worker, tenant, account] of [
         }),
       ]);
       expect(h.f.source.calls).toHaveLength(1);
-      expect(h.f.alarm()).toBeNull();
+      expect(h.f.alarm()).toBe(worker + 610000);
     }).pipe(Effect.scoped),
   );
 

@@ -7,8 +7,10 @@ import {
 } from "@arctools/twitch/server";
 import {
   AccountState,
+  ChannelRecord,
   desiredChannels,
   policy,
+  SharedAccount,
 } from "@arctools/twitch/testing";
 import { digest } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
@@ -62,6 +64,36 @@ const enroll = Effect.fnUntraced(function* (
 
 const snapshot = (h: Effect.Success<ReturnType<typeof harness>>) =>
   Schema.decodeUnknownSync(AccountState)(h.snapshot());
+
+const restoreLegacyCleanupRecords = (
+  h: Effect.Success<ReturnType<typeof harness>>,
+) => {
+  const sessions = snapshot(h).enrollments.map((entry) =>
+    entry.phase.kind === "member"
+      ? { ...entry, expiresAt: initial + policy.enrollmentSessionMs }
+      : entry,
+  );
+
+  const record = Schema.decodeUnknownSync(ChannelRecord)(
+    h.memory.values.get("account:channel:v1/400"),
+  );
+
+  h.memory.values.set("account:channel:v1/400", {
+    ...record,
+    public: record.public.map((entry) => {
+      const { cleanupAfter: _cleanupAfter, ...member } = entry.member;
+
+      return { ...entry, member };
+    }),
+  });
+
+  const { nextCleanupAt: _nextCleanupAt, ...shared } = Schema.decodeUnknownSync(
+    SharedAccount,
+  )(h.memory.values.get("account:shared:v1"));
+
+  h.memory.values.set("account:shared:v1", shared);
+  h.memory.values.set("account:enrollments:v1", sessions);
+};
 
 test(
   "a local dedicated bot cannot begin enrollment before sender authorization",
@@ -223,6 +255,7 @@ for (const stage of ["local-enrollment", "staging", "prod"]) {
             id: BroadcasterId.make("400"),
             login: "public_channel",
             revocationGeneration: 0,
+            cleanupAfter: null,
           },
         ]);
         const exchanges = h.control.exchanges;
@@ -677,6 +710,293 @@ test(
         reason: "unavailable",
       });
     }
+  }),
+);
+
+for (const status of ["authorization_revoked", "user_removed"] as const)
+  test(
+    `${status} public installation storage expires without traffic while other memberships survive`,
+    Effect.gen(function* () {
+      const h = yield* harness(bot);
+      yield* Effect.gen(function* () {
+        yield* h.authorize();
+        const revoked = yield* enroll(h);
+        const survivor = yield* enrollmentInput();
+        yield* h.enrollment.begin(survivor);
+        publicGrant(h, "public_second", "500");
+        yield* h.enrollment.complete({
+          ...survivor,
+          outcome: { kind: "accepted", code: "second" },
+        });
+        const pending = yield* enrollmentInput();
+        yield* h.enrollment.begin(pending);
+        h.time(initial + 1);
+        yield* h.alarm();
+        const record = snapshot(h).subscriptions["400"];
+
+        if (!record) return yield* Effect.die("Missing public subscription");
+        yield* h.account.observeSubscription({
+          ...record,
+          broadcasterId: BroadcasterId.make("400"),
+          status,
+        });
+        expect(yield* h.enrollment.status(revoked.session)).toEqual({
+          kind: "failed",
+          reason: "authorization-required",
+        });
+
+        const cleanupAt =
+          initial + 1 + Math.max(policy.oauthMs, policy.retentionMs);
+
+        expect(snapshot(h).nextCleanupAt).toBeLessThanOrEqual(cleanupAt);
+        h.time(cleanupAt - 1);
+        h.consumeAlarm();
+        yield* h.alarm();
+        expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+        h.time(cleanupAt);
+        h.consumeAlarm();
+        const restored = yield* h.construct();
+        yield* restored.credentialAlarm();
+        expect(snapshot(h).publicMembers.map((member) => member.id)).toEqual([
+          BroadcasterId.make("500"),
+        ]);
+        expect(snapshot(h).subscriptions["400"]).toBeUndefined();
+        expect(snapshot(h).enrollments.map((entry) => entry.session)).toEqual([
+          survivor.session,
+        ]);
+        expect(snapshot(h).grants["400"]).toBeUndefined();
+        expect(snapshot(h).grants["100"]).toContain("user:bot");
+        expect(h.memory.values.has("account:channel:v1/400")).toBeFalse();
+        expect(h.memory.values.has("account:channel:v1/500")).toBeTrue();
+        expect(yield* restored.enrollment.status(survivor.session)).toEqual({
+          kind: "ready",
+          login: "public_second",
+        });
+        publicGrant(h);
+        expect(
+          (yield* h.enrollment
+            .complete({
+              ...pending,
+              outcome: { kind: "accepted", code: "stale" },
+            })
+            .pipe(Effect.flip)).code,
+        ).toBe("state");
+        const reinstalled = yield* enroll(h);
+        h.time(h.now() + 1);
+        yield* h.alarm();
+        expect(yield* h.enrollment.status(reinstalled.session)).toEqual({
+          kind: "ready",
+          login: "public_channel",
+        });
+      }).pipe(Effect.provideService(Clock.Clock, h.clock));
+    }),
+  );
+
+test(
+  "an old revocation cannot delete reauthorization during timestamp skew or after deduplication expires",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      const old = snapshot(h).subscriptions["400"];
+
+      if (!old) return yield* Effect.die("Missing public subscription");
+
+      const observation = {
+        ...old,
+        broadcasterId: BroadcasterId.make("400"),
+        status: "authorization_revoked",
+      };
+
+      yield* h.account.observeSubscription(observation);
+      const renewed = yield* enroll(h);
+      h.time(initial + 2);
+      yield* h.alarm();
+      const replacement = snapshot(h).subscriptions["400"]?.id;
+      expect(replacement).not.toBe(old.id);
+      h.time(initial + policy.retentionMs + 2);
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(snapshot(h).revoked[old.id]?.until).toBeGreaterThan(h.now());
+      yield* h.account.observeSubscription(observation);
+      expect(snapshot(h).grants["400"]).toEqual(["channel:bot"]);
+      h.time(initial + policy.revocationMs + 2);
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(snapshot(h).revoked[old.id]).toBeUndefined();
+      yield* h.account.observeSubscription(observation);
+      h.time(h.now() + policy.retentionMs);
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(snapshot(h).subscriptions["400"]?.id).toBe(replacement);
+      expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+      expect(yield* h.enrollment.status(renewed.session)).toEqual({
+        kind: "ready",
+        login: "public_channel",
+      });
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "authorization loss discovered near retirement expiry retains a full replay window",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      const record = snapshot(h).subscriptions["400"];
+
+      if (!record) return yield* Effect.die("Missing public subscription");
+      yield* h.store.update((state) => {
+        state.revoked[record.id] = { until: h.now() + 1, reason: "retired" };
+      });
+      yield* h.account.observeSubscription({
+        ...record,
+        broadcasterId: BroadcasterId.make("400"),
+        status: "authorization_revoked",
+      });
+      expect(snapshot(h).revoked[record.id]).toEqual({
+        until: h.now() + policy.revocationMs,
+        reason: "authorization-revoked",
+      });
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "list-confirmed user removal schedules public membership cleanup when its webhook was missed",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      h.control.remote = h.control.remote.map((record) =>
+        record.condition.broadcaster_user_id === "400"
+          ? { ...record, status: "user_removed" }
+          : record,
+      );
+      const creates = h.control.creates;
+      yield* h.account.setup("operator-digest").pipe(Effect.result);
+      expect(snapshot(h).grants["400"]).toBeUndefined();
+      expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBe(
+        h.now() + Math.max(policy.oauthMs, policy.retentionMs),
+      );
+      expect(h.control.creates).toBe(creates);
+      h.time(h.now() + Math.max(policy.oauthMs, policy.retentionMs));
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(h.memory.values.has("account:channel:v1/400")).toBeFalse();
+      expect(snapshot(h).grants["100"]).toContain("user:bot");
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "legacy revoked keyed membership schedules cleanup during reconstruction without new traffic",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      const subscription = snapshot(h).subscriptions["400"];
+
+      if (!subscription)
+        return yield* Effect.die("Missing public subscription");
+      yield* h.account.observeSubscription({
+        ...subscription,
+        broadcasterId: BroadcasterId.make("400"),
+        status: "authorization_revoked",
+      });
+      restoreLegacyCleanupRecords(h);
+      h.time(initial + policy.retentionMs + 2);
+      const restored = yield* h.construct();
+      expect(h.nativeAlarmAt()).toBeLessThanOrEqual(h.now());
+      yield* restored.credentialAlarm();
+      const cleanupAfter = snapshot(h).publicMembers[0]?.cleanupAfter;
+      expect(cleanupAfter).toBe(
+        h.now() + Math.max(policy.oauthMs, policy.retentionMs),
+      );
+      h.time(h.now() + Math.max(policy.oauthMs, policy.retentionMs));
+      h.consumeAlarm();
+      yield* restored.credentialAlarm();
+      expect(h.memory.values.has("account:channel:v1/400")).toBeFalse();
+      expect(snapshot(h).enrollments).toEqual([]);
+      expect(snapshot(h).grants["100"]).toContain("user:bot");
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+for (const authorized of [true, false])
+  test(
+    `legacy membership with authorized=${authorized} survives compatibility cleanup without revocation proof`,
+    Effect.gen(function* () {
+      const h = yield* harness(bot);
+      yield* Effect.gen(function* () {
+        yield* h.authorize();
+        yield* enroll(h);
+        h.time(initial + 1);
+        yield* h.alarm();
+
+        if (!authorized)
+          yield* h.store.update((state) => {
+            delete state.grants["400"];
+          });
+
+        restoreLegacyCleanupRecords(h);
+        const restored = yield* h.construct();
+        expect(h.nativeAlarmAt()).toBeLessThanOrEqual(h.now());
+        yield* restored.credentialAlarm();
+        expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
+        h.time(initial + policy.enrollmentSessionMs + 1);
+        h.consumeAlarm();
+        yield* restored.credentialAlarm();
+        expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+        expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
+      }).pipe(Effect.provideService(Clock.Clock, h.clock));
+    }),
+  );
+
+test(
+  "reauthorization before cleanup preserves the renewed installation after the old expiry",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      const record = snapshot(h).subscriptions["400"];
+
+      if (!record) return yield* Effect.die("Missing public subscription");
+      yield* h.account.observeSubscription({
+        ...record,
+        broadcasterId: BroadcasterId.make("400"),
+        status: "authorization_revoked",
+      });
+      const renewed = yield* enroll(h);
+      h.time(initial + 2);
+      yield* h.alarm();
+      h.time(initial + 1 + Math.max(policy.oauthMs, policy.retentionMs));
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(yield* h.enrollment.status(renewed.session)).toEqual({
+        kind: "ready",
+        login: "public_channel",
+      });
+      expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+      expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
+      expect(snapshot(h).nextCleanupAt).toBeGreaterThan(h.now());
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
 

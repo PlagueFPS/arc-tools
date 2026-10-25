@@ -36,6 +36,11 @@ export const enrollmentTiming = {
   callbackMs: 16_000,
 };
 
+export const eventSubTiming = {
+  maxAgeMs: 600_000,
+  futureSkewMs: 30_000,
+};
+
 export class AccountError extends Schema.TaggedError<AccountError>()(
   "AccountError",
   {

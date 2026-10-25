@@ -877,6 +877,26 @@ export function registerTenantTests({
   );
 
   test(
+    "native empty recovery clears tenant storage outside a transaction and remains idempotent",
+    Effect.gen(function* () {
+      const u = yield* urls;
+      const key = "native-empty-cleanup";
+      expect(
+        (yield* post(`${u.tenant}/control`, {
+          key,
+          control: { immediate: true },
+        })).status,
+      ).toBe(204);
+      expect((yield* post(`${u.tenant}/recover`, { key })).status).toBe(204);
+      expect((yield* post(`${u.tenant}/recover`, { key })).status).toBe(204);
+      const cleared = yield* snapshot(u.tenant, key);
+      expect(cleared.state).toBeNull();
+      expect(cleared.alarm).toBeNull();
+    }),
+    { timeout: 90000 },
+  );
+
+  test(
     "native Tenant admission persists a useful alarm before acknowledgement and reconstructs into one delivery",
     Effect.gen(function* () {
       const u = yield* urls;
@@ -923,7 +943,7 @@ export function registerTenantTests({
         )?.body.message,
       ).toBe("Sensors can be sold for 10 coins each");
       expect(completed.alarmRuns).toBeGreaterThan(0);
-      expect(completed.alarm).toBeNull();
+      expect(completed.alarm).toBe(input.receivedAt + 610000);
       expect(JSON.stringify(completed.state)).not.toContain("parent");
       expect(
         (yield* provider(u.provider)).messages.filter(
@@ -972,7 +992,7 @@ export function registerTenantTests({
           (message) => message.body.reply_parent_message_id === "lost-rpc",
         )?.body.message,
       ).toBe("Sensors can be sold for 10 coins each");
-      expect(completed.alarm).toBeNull();
+      expect(completed.alarm).toBe(input.receivedAt + 610000);
     }),
     { timeout: 90000 },
   );
@@ -1038,7 +1058,7 @@ export function registerTenantTests({
           outcome: "sent",
           deadline: input.receivedAt + 10000,
         });
-        expect(terminal.alarm).toBeNull();
+        expect(terminal.alarm).toBe(input.receivedAt + 610000);
         expect(
           (yield* provider(u.provider)).messages.filter(
             (message) => message.body.reply_parent_message_id === key,
@@ -1205,7 +1225,7 @@ export function registerTenantTests({
         kind: "terminal",
         deadline: input.receivedAt + 3000,
       });
-      expect(terminal.alarm).toBeNull();
+      expect(terminal.alarm).toBe(input.receivedAt + 603000);
       expect(JSON.stringify(terminal.state)).not.toContain("CANARY");
       expect(JSON.stringify(terminal.state)).not.toContain("invocation");
       const interrupted = yield* Fiber.join(original);

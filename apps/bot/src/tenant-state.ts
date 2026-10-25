@@ -152,6 +152,8 @@ export function nextAlarm(state: TenantState): number | null {
   let next = Infinity;
 
   for (const work of Object.values(state.works)) {
+    next = Math.min(next, work.retainUntil);
+
     if (work.transport !== "twitch" || work.kind === "terminal") continue;
 
     const action = Match.value(work).pipe(

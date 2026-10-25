@@ -21,6 +21,7 @@ import {
   Predicate,
   Result,
   Schema,
+  Semaphore,
 } from "effect";
 
 import {
@@ -722,9 +723,27 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
   return { acceptTwitch, respondDiscord, recover };
 });
 
-export const makeTenantStorage = Effect.fnUntraced(function* () {
-  const { storage } = yield* Cloudflare.DurableObjectState;
+type NativeStorage = Cloudflare.DurableObjectState["Service"]["storage"];
+
+export type TenantStorage = Pick<
+  NativeStorage,
+  "deleteAll" | "getAlarm" | "setAlarm" | "deleteAlarm"
+> & {
+  readonly get: (key: string) => Effect.Effect<unknown, never, RuntimeContext>;
+  readonly put: <A>(
+    key: string,
+    value: A,
+  ) => Effect.Effect<void, never, RuntimeContext>;
+  readonly transaction: <A, R>(
+    effect: Effect.Effect<A, never, R>,
+  ) => Effect.Effect<A, unknown, R | RuntimeContext>;
+};
+
+export const makeTenantStorage = Effect.fnUntraced(function* (
+  storage: TenantStorage,
+) {
   const runtime = yield* RuntimeContext;
+  const writes = yield* Semaphore.make(1);
 
   const read = Effect.gen(function* () {
     const raw = yield* storage.get("tenant:v1");
@@ -750,6 +769,12 @@ export const makeTenantStorage = Effect.fnUntraced(function* () {
 
             const result = f(state);
 
+            if (Object.keys(state.works).length === 0) {
+              yield* storage.setAlarm((yield* Clock.currentTimeMillis) + 1000);
+
+              return { result, empty: true };
+            }
+
             const encoded = yield* Schema.encodeEffect(TenantState)(state).pipe(
               Effect.orDie,
             );
@@ -764,10 +789,19 @@ export const makeTenantStorage = Effect.fnUntraced(function* () {
                 ? storage.deleteAlarm()
                 : storage.setAlarm(alarm);
 
-            return result;
+            return { result, empty: false };
           }),
         )
-        .pipe(Effect.provideService(RuntimeContext, runtime), Effect.orDie),
+        .pipe(
+          Effect.flatMap(({ result, empty }) =>
+            empty
+              ? storage.deleteAll().pipe(Effect.as(result))
+              : Effect.succeed(result),
+          ),
+          writes.withPermit,
+          Effect.provideService(RuntimeContext, runtime),
+          Effect.orDie,
+        ),
   });
 });
 
@@ -783,8 +817,8 @@ export class TenantDO extends Cloudflare.DurableObject<TenantDO>()(
       const account = yield* accountClient;
       const runtime = yield* RuntimeContext;
 
-      const store = yield* makeTenantStorage().pipe(
-        Effect.provideService(Cloudflare.DurableObjectState, state),
+      const store = yield* TenantStore.pipe(
+        Effect.provide(tenantStorageLayer(state.storage)),
       );
 
       const activation = crypto.randomUUID();
@@ -919,7 +953,5 @@ export class TenantService extends Context.Service<
 export const tenantServiceLayer = (options: Parameters<typeof makeTenant>[0]) =>
   Layer.effect(TenantService, makeTenant(options));
 
-export const tenantStorageLayer = Layer.effect(
-  TenantStore,
-  makeTenantStorage(),
-);
+export const tenantStorageLayer = (storage: TenantStorage) =>
+  Layer.effect(TenantStore, makeTenantStorage(storage));

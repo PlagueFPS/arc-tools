@@ -722,7 +722,7 @@ export function registerAccountTests({
         expect(recovery.alarmRun).toBe(2);
         expect(recovery.lease).toBeNull();
         expect(recovery.intended ?? 0).toBeGreaterThan(prepared.until);
-        expect(recovery.native).toBe(recovery.intended);
+        expect(recovery.native).toBe(recovery.scheduled);
 
         const lateProvider = yield* get(
           `${u.provider}/snapshot`,
@@ -807,7 +807,7 @@ export function registerAccountTests({
         );
 
         expect(pairedRun.lease).toBeNull();
-        expect(pairedRun.native).toBe(pairedRun.intended);
+        expect(pairedRun.native).toBe(pairedRun.scheduled);
         expect(pairedVerified.invocationId).not.toBe(verified.invocationId);
         expect(
           latestProvider.calls["GET /oauth/validate"] ?? 0,
