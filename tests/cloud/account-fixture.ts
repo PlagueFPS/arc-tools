@@ -3,6 +3,7 @@ import { AccountRpc, accountRpcLayer } from "@arctools/twitch/cloudflare";
 import {
   subscriptionBinding,
   Dispatch,
+  ChatSource,
   OAuthCompletion,
   SubscriptionObservation,
 } from "@arctools/twitch/server";
@@ -10,6 +11,8 @@ import {
   TwitchProvider,
   providerLayer,
   SharedAccount,
+  ChannelRecord,
+  AccountState,
   policy,
 } from "@arctools/twitch/testing";
 import { providerTransport } from "@arctools/utils/http";
@@ -37,6 +40,18 @@ import {
   identifyFixtureResponse,
 } from "./fixture-response.js";
 import { TwitchProviderFixture } from "./twitch-provider-fixture.js";
+
+const FixtureDispatch = Dispatch.mapFields((fields) => ({
+  ...fields,
+  source: Schema.NullOr(ChatSource).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+}));
+
+const missingSource = Schema.decodeUnknownSync(ChatSource)({
+  installationId: "unowned-fixture",
+  subscriptionId: "unowned-fixture",
+});
 
 const Configure = Schema.Struct({
   revision: Schema.String,
@@ -179,7 +194,43 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         setup: () => run(account.setup("fixture-operator-digest")),
         status: () => run(account.status()),
         complete: (input: OAuthCompletion) => run(account.completeOAuth(input)),
-        dispatch: (input: Dispatch) => run(account.dispatch(input)),
+        dispatch: (input: typeof FixtureDispatch.Type) =>
+          run(
+            Effect.gen(function* () {
+              const attempts = yield* Schema.decodeUnknownEffect(
+                AccountState.fields.attempts,
+              )(yield* state.storage.get("account:attempts:v1")).pipe(
+                Effect.orDie,
+              );
+
+              const previous = attempts[input.attemptId];
+
+              const raw = yield* state.storage.get(
+                "account:channel:v1/" + encodeURIComponent(input.broadcasterId),
+              );
+
+              const row =
+                raw === undefined
+                  ? null
+                  : yield* Schema.decodeUnknownEffect(ChannelRecord)(raw).pipe(
+                      Effect.orDie,
+                    );
+
+              const source =
+                previous?.source ??
+                (row?.lifecycle?.kind === "installed" && row.subscription
+                  ? {
+                      installationId: row.lifecycle.id,
+                      subscriptionId: row.subscription.id,
+                    }
+                  : null);
+
+              return yield* account.dispatch({
+                ...input,
+                source: input.source ?? source ?? missingSource,
+              });
+            }),
+          ),
         observe: (input: SubscriptionObservation) =>
           run(account.observeSubscription(input)),
         credential: () =>
@@ -394,7 +445,7 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
           ),
         )
         .handleRaw("dispatch", ({ request }) =>
-          input(request, Dispatch).pipe(
+          input(request, FixtureDispatch).pipe(
             Effect.flatMap((value) => json(object().dispatch(value))),
           ),
         )

@@ -287,6 +287,10 @@ export function registerAccountTests({
         channels: ["fixture_channel"],
       });
       yield* authorize(u.account);
+      const configured = yield* get(`${u.account}/snapshot`, Snapshot);
+
+      yield* post(`${u.account}/time`, configured.time + 1);
+      yield* post(`${u.account}/credential`);
       expect(
         (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).remote.map(
           (sub) => sub.condition.broadcaster_user_id,
@@ -501,6 +505,7 @@ export function registerAccountTests({
         before.calls["POST /helix/chat/messages"],
       );
       expect(after.calls.mint).toBe((before.calls.mint ?? 0) + 1);
+      yield* post(`${u.account}/credential`);
       const scheduled = yield* get(`${u.account}/snapshot`, Snapshot);
       expect(scheduled.alarm ?? 0).toBeGreaterThan(scheduled.time);
       yield* post(`${u.provider}/control`, { appClient: "wrong-client" });
@@ -615,7 +620,10 @@ export function registerAccountTests({
         }),
       );
 
-      expect(status.value.sender?.authorized).toBeFalse();
+      expect(status.value.sender?.authorized).toBeTrue();
+      expect(
+        status.value.channels.some((channel) => channel.id === "300"),
+      ).toBeFalse();
     }),
     { timeout: 120_000 },
   );

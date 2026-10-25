@@ -87,6 +87,7 @@ const populated = (): AccountState =>
         },
       },
     ],
+    nextRecoveryAt: null,
     repair: {
       kind: "scheduled",
       id: "repair-id",
@@ -136,7 +137,11 @@ const populated = (): AccountState =>
       },
     },
     revoked: {
-      "old/receipt%": { until: initial + 3456, reason: "retired" },
+      "old/receipt%": {
+        until: initial + 3456,
+        reason: "retired",
+        deleteDue: null,
+      },
       "sub-200": { until: initial + 6543, reason: "authorization-revoked" },
       revoked: { until: initial + 2345, reason: "revoked" },
     },
@@ -487,9 +492,7 @@ for (const path of [
             ].includes(key),
           ),
         ).toBe(true);
-        expect(reads.includes("account:channel:v1/200")).toBe(
-          path !== "failure",
-        );
+        expect(reads.includes("account:channel:v1/200")).toBe(true);
         expect(h.control.mints).toBe(path === "refresh" ? 2 : 1);
         expect(h.control.sends).toBe(path === "failure" ? 0 : 1);
         expect(
@@ -591,7 +594,11 @@ test(
 
       if (!proof) return yield* Effect.die("Missing proof");
       yield* h.store.update((state) => {
-        state.revoked[proof.id] = { until: initial, reason: "retired" };
+        state.revoked[proof.id] = {
+          until: initial,
+          reason: "retired",
+          deleteDue: null,
+        };
       });
       h.memory.values.set("account:tombstone:v1/unrelated", {
         until: initial,

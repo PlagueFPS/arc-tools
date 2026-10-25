@@ -3,6 +3,7 @@ import {
   AccountError,
   DispatchOutcome,
   OAuthCompletion,
+  SubscriptionObservation,
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
@@ -145,7 +146,7 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
         status: () => new AccountError({ code: "configuration" }),
         setup: () => new AccountError({ code: "configuration" }),
         completeOAuth: () => new AccountError({ code: "configuration" }),
-        observeSubscription: () => Effect.void,
+        observeSubscription: () => Effect.succeed(null),
       });
 
       const tenant = yield* TenantService.pipe(
@@ -173,6 +174,8 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
       );
 
       return {
+        source: (input: SubscriptionObservation) =>
+          provide(accounts.getByName("environment").observeSubscription(input)),
         accept: (input: TwitchReceipt) =>
           tenant.acceptTwitch(input).pipe(Effect.orDie),
         discord: (input: DiscordReceipt) =>
@@ -210,6 +213,7 @@ class TenantFixtureApi extends HttpApi.make("tenant-fixture").add(
   HttpApiGroup.make("tenant").add(
     HttpApiEndpoint.post("operatorOAuth", "/operator-oauth"),
     HttpApiEndpoint.post("accept", "/accept"),
+    HttpApiEndpoint.post("source", "/source"),
     HttpApiEndpoint.post("discord", "/discord"),
     HttpApiEndpoint.post("control", "/control"),
     HttpApiEndpoint.post("recover", "/recover"),
@@ -257,6 +261,12 @@ export class TenantFixtureWorker extends Cloudflare.Worker<TenantFixtureWorker>(
       "tenant",
       (handlers) =>
         handlers
+          .handleRaw("source", ({ request }) =>
+            input(request, SubscriptionObservation).pipe(
+              Effect.flatMap((value) => object("source-driver").source(value)),
+              Effect.map((value) => HttpServerResponse.jsonUnsafe(value)),
+            ),
+          )
           .handleRaw("operatorOAuth", ({ request }) =>
             input(
               request,

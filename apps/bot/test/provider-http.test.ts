@@ -19,7 +19,7 @@ import {
 } from "effect/http";
 import { TestClock } from "effect/testing";
 
-import { fixture } from "./subscription-fixture.js";
+import { fixture, observation } from "./subscription-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 
@@ -198,7 +198,9 @@ for (const body of errorBodies) {
         "POST /token",
       ])
         f.control.responses.set(path, body.response);
+
       const input = sendInput();
+
       expect([
         (yield* a.provider
           .users("canary-token", ["fixture_sender"])
@@ -569,7 +571,14 @@ for (const body of [
         "POST /chat/messages",
         () => new Response(body, { status: 200 }),
       );
-      const input = sendInput();
+
+      const source = yield* a.service.observeSubscription(
+        observation(a.config, "created-1", "enabled"),
+      );
+
+      if (!source) return yield* Effect.die("Missing send source");
+      const input = { ...sendInput(), source };
+
       expect(yield* a.service.dispatch(input)).toEqual({ kind: "ambiguous" });
       expect(yield* a.service.dispatch(input)).toEqual({ kind: "ambiguous" });
       expect((yield* a.service.status()).credential).toBe("valid");
@@ -659,6 +668,10 @@ const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
 
 function sendInput() {
   return Schema.decodeUnknownSync(Dispatch)({
+    source: {
+      installationId: "provider-fixture",
+      subscriptionId: "provider-fixture",
+    },
     attemptId: Dispatch.fields.attemptId.make("http-attempt"),
     broadcasterId: Dispatch.fields.broadcasterId.make("200"),
     replyParentId: Dispatch.fields.replyParentId.make("reply"),

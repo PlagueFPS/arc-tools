@@ -179,6 +179,7 @@ describe("Tenant durable behavior", () => {
       });
       expect(fixture.snapshot().works.work).toEqual({
         transport: "twitch",
+        source: twitchReceipt().source,
         id: WorkId.make("work"),
         fingerprint: "a".repeat(64),
         receivedAt: 0,

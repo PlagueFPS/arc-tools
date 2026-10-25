@@ -80,8 +80,56 @@ const requiredSession = Effect.fnUntraced(function* (request: Request) {
 
 export const websiteHttp = <R>(
   client: Effect.Effect<BotOperations, WebsiteUnavailable, R>,
+  canonicalOrigin?: Effect.Effect<string, WebsiteUnavailable, R>,
 ) => {
   const handlers = {
+    leave: Effect.fnUntraced(
+      function* (request: Request) {
+        if (request.method !== "POST")
+          return new Response(null, {
+            status: 405,
+            headers: { ...headers, Allow: "POST" },
+          });
+        const url = new URL(request.url);
+        const origin = request.headers.get("origin");
+
+        if (
+          !enrollmentCookiePolicy(request) ||
+          !origin ||
+          origin !== url.origin ||
+          (request.headers.has("sec-fetch-site") &&
+            request.headers.get("sec-fetch-site") !== "same-origin")
+        )
+          return new Response(null, { status: 403, headers });
+
+        const canonical = canonicalOrigin ? yield* canonicalOrigin : null;
+
+        if (origin !== canonical)
+          return new Response(null, { status: 403, headers });
+
+        if (
+          url.search ||
+          (yield* Effect.tryPromise(() => request.text())) !== ""
+        )
+          return new Response(null, { status: 400, headers });
+        const session = yield* requiredSession(request);
+        const result = yield* (yield* client).enrollmentLeave(session);
+
+        return Response.json(result, { headers });
+      },
+      (effect) =>
+        effect.pipe(
+          Effect.timeout(12_000),
+          Effect.catchTag("AccountError", (error) =>
+            error.code === "state" || error.code === "input"
+              ? Effect.succeed(new Response(null, { status: 401, headers }))
+              : error,
+          ),
+          Effect.catchCause(() =>
+            Effect.succeed(new Response(null, { status: 503, headers })),
+          ),
+        ),
+    ),
     begin: Effect.fnUntraced(
       function* (request: Request) {
         if (request.url.length > 4096)

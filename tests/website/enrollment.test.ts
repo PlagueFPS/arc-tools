@@ -154,6 +154,7 @@ const fixture = Effect.fnUntraced(function* (
         operatorSecret: Redacted.make("operator"),
       }),
     ),
+    Effect.succeed(websiteOrigin),
   );
 
   const request = (path: string, cookie?: string, method = "GET") => {
@@ -270,7 +271,10 @@ test(
       f.h.time(initial + 1);
       f.h.consumeAlarm();
       yield* recovered.credentialAlarm();
-      expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
+      expect(yield* f.status(begun.cookie)).toEqual({
+        kind: "recovering",
+        login: "public_channel",
+      });
 
       const record = Schema.decodeUnknownSync(AccountState)(f.h.snapshot())
         .subscriptions["400"];
@@ -325,7 +329,10 @@ test(
       expect(yield* Effect.promise(() => challenge.text())).toBe(
         "controlled-challenge",
       );
-      expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
+      expect(yield* f.status(begun.cookie)).toEqual({
+        kind: "recovering",
+        login: "public_channel",
+      });
       expect(f.admissions).toEqual([]);
 
       const body = new TextEncoder().encode(JSON.stringify(notification));
@@ -590,7 +597,10 @@ test(
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("/connect");
     expect(yield* Effect.promise(() => response.text())).toBe("");
-    expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
+    expect(yield* f.status(begun.cookie)).toEqual({
+      kind: "recovering",
+      login: "public_channel",
+    });
     const state = Schema.decodeUnknownSync(AccountState)(f.h.snapshot());
     expect(state.grants["400"]).toEqual(["channel:bot"]);
     expect(state.publicMembers.map((member) => String(member.id))).toEqual([
@@ -678,7 +688,10 @@ test(
       grant(f.h);
       expect((yield* f.complete(begun.state, begun.cookie)).status).toBe(303);
       expect(f.h.control.exchanges).toBe(exchanges + 1);
-      expect(yield* f.status(begun.cookie)).toEqual({ kind: "pending" });
+      expect(yield* f.status(begun.cookie)).toEqual({
+        kind: "recovering",
+        login: "public_channel",
+      });
       expect((yield* f.complete(begun.state, begun.cookie)).status).toBe(400);
       expect(f.h.control.exchanges).toBe(exchanges + 1);
       const denied = yield* f.begin();
@@ -769,3 +782,172 @@ for (const origin of [
     }),
   );
 }
+
+test(
+  "same-origin Leave crosses the real Bot/account boundary and lost response replays without extending expiry",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    yield* Effect.gen(function* () {
+      yield* f.h.authorize(f.account.service);
+      const begun = yield* f.begin();
+      grant(f.h);
+      yield* f.complete(begun.state, begun.cookie);
+      f.h.time(initial + 1);
+      yield* f.account.credentialAlarm();
+      const before = f.h.snapshot();
+
+      const request = () =>
+        new Request(
+          "https://website.fixture.invalid/oauth/twitch/enroll/leave",
+          {
+            method: "POST",
+            headers: {
+              cookie: begun.cookie,
+              origin: "https://website.fixture.invalid",
+            },
+          },
+        );
+
+      const lost = yield* f.http.leave(request());
+      expect(lost.status).toBe(200);
+      expect(lost.headers.get("set-cookie")).toBeNull();
+      expect(yield* Effect.promise(() => lost.json())).toEqual({
+        kind: "left",
+        login: "public_channel",
+      });
+
+      const restored = yield* f.h.construct(
+        "revision-one",
+        f.binding,
+        identity,
+        "https://website.fixture.invalid",
+      );
+
+      const replayHttp = websiteHttp(
+        Effect.succeed(
+          botOperations({
+            account: Effect.succeed(restored.service),
+            enrollment: Effect.succeed(restored.enrollment),
+            operatorSecret: Redacted.make("operator"),
+          }),
+        ),
+        Effect.succeed("https://website.fixture.invalid"),
+      );
+
+      const replay = yield* replayHttp.leave(request());
+      expect(replay.status).toBe(200);
+      expect(yield* Effect.promise(() => replay.json())).toEqual({
+        kind: "left",
+        login: "public_channel",
+      });
+      expect(yield* f.status(begun.cookie)).toEqual({
+        kind: "left",
+        login: "public_channel",
+      });
+      expect(f.h.snapshot().enrollments[0]?.expiresAt).toBe(
+        before.enrollments[0]?.expiresAt,
+      );
+      expect(f.h.snapshot().grants["100"]).toEqual(before.grants["100"]);
+    }).pipe(Effect.provideService(Clock.Clock, f.h.clock));
+  }).pipe(Effect.scoped),
+);
+
+for (const originHeader of [
+  null,
+  "null",
+  "https://foreign.invalid",
+  "https://website.fixture.invalid:444",
+  "https://website.fixture.invalid/",
+  "https://website.fixture.invalid, https://foreign.invalid",
+])
+  test(
+    `Leave rejects Origin ${originHeader} before Bot`,
+    Effect.gen(function* () {
+      let calls = 0;
+
+      const http = websiteHttp(
+        Effect.sync(() => {
+          calls++;
+          throw new Error("Bot must not be selected");
+        }),
+        Effect.succeed("https://website.fixture.invalid"),
+      );
+
+      const request = new Request(
+        "https://website.fixture.invalid/oauth/twitch/enroll/leave",
+        {
+          method: "POST",
+          headers: originHeader === null ? {} : { origin: originHeader },
+        },
+      );
+
+      expect((yield* http.leave(request)).status).toBe(403);
+      expect(calls).toBe(0);
+    }),
+  );
+
+for (const method of ["GET", "HEAD", "PUT", "OPTIONS"])
+  test(
+    `Leave ${method} requires POST before Bot`,
+    Effect.gen(function* () {
+      const http = websiteHttp(Effect.die("Bot must not be selected"));
+
+      const response = yield* http.leave(
+        new Request(
+          "https://website.fixture.invalid/oauth/twitch/enroll/leave",
+          { method },
+        ),
+      );
+
+      expect(response.status).toBe(405);
+      expect(response.headers.get("allow")).toBe("POST");
+    }),
+  );
+
+test(
+  "Leave rejects target bodies, query parameters, mismatched deployment, cross-site metadata and missing cookies",
+  Effect.gen(function* () {
+    const http = websiteHttp(
+      Effect.die("Bot must not be selected"),
+      Effect.succeed("https://website.fixture.invalid"),
+    );
+
+    for (const [suffix, headers, body, expected] of [
+      [
+        "",
+        { origin: "https://website.fixture.invalid" },
+        '{"broadcasterId":"500"}',
+        400,
+      ],
+      ["?target=500", { origin: "https://website.fixture.invalid" }, "", 400],
+      [
+        "",
+        {
+          origin: "https://website.fixture.invalid",
+          "sec-fetch-site": "cross-site",
+        },
+        "",
+        403,
+      ],
+      ["", { origin: "https://website.fixture.invalid" }, "", 401],
+    ] as const) {
+      const response = yield* http.leave(
+        new Request(
+          `https://website.fixture.invalid/oauth/twitch/enroll/leave${suffix}`,
+          { method: "POST", headers, body },
+        ),
+      );
+
+      expect(response.status).toBe(expected);
+    }
+
+    expect(
+      (yield* http.leave(
+        new Request("https://different.invalid/oauth/twitch/enroll/leave", {
+          method: "POST",
+          headers: { origin: "https://different.invalid" },
+        }),
+      )).status,
+    ).toBe(403);
+  }),
+);

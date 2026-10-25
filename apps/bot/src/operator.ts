@@ -93,13 +93,22 @@ export const operatorHandlers = (
           return response(result);
         }).pipe(
           Effect.timeout(25_000),
-          Effect.catchTag("AccountError", (error) =>
-            error.code === "capacity"
+          Effect.catchTag("AccountError", (error) => {
+            if (error.code === "busy")
+              return Effect.succeed(
+                HttpServerResponse.setHeader(
+                  response({ error: "operator-busy" }, 503),
+                  "Retry-After",
+                  "1",
+                ),
+              );
+
+            return error.code === "capacity"
               ? Effect.succeed(
                   response({ error: "channel-capacity-exceeded" }, 409),
                 )
-              : error,
-          ),
+              : error;
+          }),
           Effect.catchCause(() =>
             Effect.succeed(
               response({ error: "operator-operation-failed" }, 503),

@@ -24,6 +24,10 @@ export const twitchReceipt = (id = "work", receivedAt = 0) =>
     fingerprint: "a".repeat(64),
     receivedAt,
     broadcasterId: "200",
+    source: {
+      installationId: "fixture-install",
+      subscriptionId: "fixture-sub",
+    },
     replyParentId: "parent",
     invocation: { command: "sell", input: "sensors" },
   });
@@ -69,7 +73,7 @@ export const tenantFixture = Effect.fnUntraced(function* () {
     setup: () => new AccountError({ code: "configuration" }),
     completeOAuth: () => new AccountError({ code: "configuration" }),
     status: () => new AccountError({ code: "configuration" }),
-    observeSubscription: () => Effect.void,
+    observeSubscription: () => Effect.succeed(null),
   };
 
   const store = yield* TenantStore.pipe(

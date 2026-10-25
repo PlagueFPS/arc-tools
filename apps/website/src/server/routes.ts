@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 
-import { botClient } from "./bot.js";
+import { botClient, canonicalWebsiteOrigin } from "./bot.js";
 import { enrollmentHead, websiteHttp } from "./enrollment.js";
 
-const http = websiteHttp(botClient);
+const http = websiteHttp(botClient, canonicalWebsiteOrigin);
 
 const handlers = new Map([
   ["/oauth/twitch/enroll", http.begin],
@@ -14,7 +14,10 @@ const handlers = new Map([
 export const enrollmentResponse = Effect.fnUntraced(function* (
   request: Request,
 ) {
-  const handler = handlers.get(new URL(request.url).pathname);
+  const path = new URL(request.url).pathname;
+
+  if (path === "/oauth/twitch/enroll/leave") return yield* http.leave(request);
+  const handler = handlers.get(path);
 
   if (!handler) return undefined;
 

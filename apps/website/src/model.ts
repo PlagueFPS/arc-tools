@@ -6,6 +6,7 @@ import { ApplicationRoute } from "./route";
 export const Model = Schema.Struct({
   route: ApplicationRoute,
   enrollment: Enrollment.schema,
+  leave: Enrollment.schema,
   requestId: RequestId,
 });
 

@@ -11,7 +11,7 @@ import {
 } from "foldkit/scene";
 import { test } from "vitest";
 
-import { CheckEnrollment } from "./command";
+import { CheckEnrollment, LeaveChannel } from "./command";
 import {
   CheckError,
   Enrollment,
@@ -24,6 +24,7 @@ import type { Model } from "./model";
 import { ApplicationRoute } from "./route";
 
 const connection: Model = {
+  leave: Enrollment.Idle(),
   route: ApplicationRoute.Connect(),
   enrollment: Enrollment.Idle(),
   requestId: RequestId.make(0),
@@ -151,3 +152,39 @@ test("failed refresh labels the prior status as last known", () => {
     expect(text(/The last known status is shown/)).toExist(),
   );
 });
+
+test.each(["ready", "recovering"] as const)(
+  "%s lets an owner Leave, retry transport loss, and reconnect",
+  (kind) => {
+    scene(
+      { update, view },
+      given({
+        ...connection,
+        enrollment: Enrollment.Success({ data: { kind, login: "raider" } }),
+      }),
+      expect(role("button", { name: "Leave channel" })).toExist(),
+      click(role("button", { name: "Leave channel" })),
+      expect(role("button", { name: "Leaving…" })).toBeDisabled(),
+      expect(role("button", { name: "Check status" })).toBeDisabled(),
+      Command.resolve(
+        LeaveChannel,
+        Message.FailedLeaveChannel({
+          requestId: RequestId.make(1),
+          error: CheckError.Unavailable(),
+        }),
+      ),
+      expect(role("alert")).toContainText("Try Leave channel again"),
+      click(role("button", { name: "Leave channel" })),
+      Command.resolve(
+        LeaveChannel,
+        Message.SucceededLeaveChannel({
+          requestId: RequestId.make(2),
+          status: { kind: "left", login: "raider" },
+        }),
+      ),
+      expect(text("Your channel has left.")).toExist(),
+      expect(role("button", { name: "Leave channel" })).toBeAbsent(),
+      expect(role("link", { name: /Connect Twitch/ })).toExist(),
+    );
+  },
+);

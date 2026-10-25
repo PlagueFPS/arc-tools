@@ -78,7 +78,13 @@ const base = (work: Work) => ({
 const stopTwitch = (
   work: Extract<Work, { transport: "twitch" }>,
   outcome: "sent" | "rejected" | "ambiguous" | "expired",
-): Work => ({ ...base(work), transport: "twitch", kind: "terminal", outcome });
+): Work => ({
+  ...base(work),
+  source: work.source,
+  transport: "twitch",
+  kind: "terminal",
+  outcome,
+});
 
 const stopDiscord = (
   work: Extract<Work, { transport: "discord" }>,
@@ -170,20 +176,25 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     if (!payload) return yield* Effect.die("Invalid delivery cursor");
     const now = yield* Clock.currentTimeMillis;
 
-    if (now >= work.deadline) {
+    if (payload.source === null || now >= work.deadline) {
       yield* store.update((state) => {
         if (matches(state.works[work.id], work))
-          state.works[work.id] = stopTwitch(work, "expired");
+          state.works[work.id] = stopTwitch(
+            work,
+            payload.source === null ? "rejected" : "expired",
+          );
       });
 
       return;
     }
 
-    const outcome = yield* account.dispatch(payload).pipe(
-      Effect.timeout(work.deadline - now),
-      Effect.mapError(() => new AccountError({ code: "provider" })),
-      Effect.result,
-    );
+    const outcome = yield* account
+      .dispatch({ ...payload, source: payload.source })
+      .pipe(
+        Effect.timeout(work.deadline - now),
+        Effect.mapError(() => new AccountError({ code: "provider" })),
+        Effect.result,
+      );
 
     const completedAt = yield* Clock.currentTimeMillis;
 
@@ -216,6 +227,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
             ) {
               state.works[work.id] = {
                 ...base(work),
+                source: work.source,
                 transport: "twitch",
                 kind: "ready",
                 plan: work.plan,
@@ -237,6 +249,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
             if (completedAt < work.deadline && result.retryAt < work.deadline) {
               state.works[work.id] = {
                 ...base(work),
+                source: work.source,
                 transport: "twitch",
                 kind: "ready",
                 plan: work.plan,
@@ -295,6 +308,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
 
       let plan = twitchParts(reply.text).map((text, index) => ({
         attemptId: AttemptId.make(`${work.id}:${index}`),
+        source: work.source,
         broadcasterId: work.broadcasterId,
         replyParentId: work.replyParentId,
         text,
@@ -305,6 +319,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
         plan = [
           {
             attemptId: AttemptId.make(`${work.id}:0`),
+            source: work.source,
             broadcasterId: work.broadcasterId,
             replyParentId: work.replyParentId,
             text:
@@ -321,6 +336,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
 
       state.works[work.id] = {
         ...base(work),
+        source: work.source,
         transport: "twitch",
         kind: "ready",
         plan: validPlan,
@@ -354,8 +370,11 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
         if (!work || work.transport !== "twitch" || work.kind === "terminal")
           return null;
 
-        if (now >= work.deadline) {
-          state.works[id] = stopTwitch(work, "expired");
+        if (!work.source || now >= work.deadline) {
+          state.works[id] = stopTwitch(
+            work,
+            work.source ? "expired" : "rejected",
+          );
 
           return null;
         }
@@ -367,6 +386,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
 
               const next: Delivering = {
                 ...base(work),
+                source: work.source,
                 transport: "twitch",
                 kind: "delivering",
                 plan: work.plan,
@@ -510,6 +530,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
             transport: "twitch",
             kind: "computing",
             invocation: receipt.invocation,
+            source: receipt.source,
             broadcasterId: receipt.broadcasterId,
             replyParentId: receipt.replyParentId,
             claim: claim(state, now, deadline, tenantPolicy.leaseMs),

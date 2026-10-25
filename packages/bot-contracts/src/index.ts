@@ -4,6 +4,7 @@ import type { Effect } from "effect";
 type DomainOperations = {
   readonly enrollmentBegin: (typeof TwitchEnrollment.Service)["begin"];
   readonly enrollmentComplete: (typeof TwitchEnrollment.Service)["complete"];
+  readonly enrollmentLeave: (typeof TwitchEnrollment.Service)["leave"];
   readonly enrollmentStatus: (typeof TwitchEnrollment.Service)["status"];
   readonly completeOperatorOAuth: (
     input: Omit<

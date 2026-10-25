@@ -1,8 +1,21 @@
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
 
-import { AccountStatus, SetupResult } from "@arctools/twitch/server";
-import { Predicate, Effect, Exit, Fiber, Schedule, Schema } from "effect";
+import {
+  AccountStatus,
+  SetupResult,
+  SubscriptionAdmission,
+  subscriptionBinding,
+} from "@arctools/twitch/server";
+import {
+  Predicate,
+  Effect,
+  Exit,
+  Fiber,
+  Schedule,
+  Schema,
+  Redacted,
+} from "effect";
 
 import { discordResponse } from "../../apps/bot/src/presentation.js";
 import { cloudSettings } from "../../scripts/cloud-settings.js";
@@ -128,7 +141,7 @@ const sourceControl = (
   status = 200,
 ) => post(`${url}/control`, { key, body, delayMs, status });
 
-const receipt = (id: string, receivedAt = Date.now()) => ({
+const baseReceipt = (id: string, receivedAt = Date.now()) => ({
   id,
   receivedAt,
   fingerprint: "a".repeat(64),
@@ -154,6 +167,58 @@ export function registerTenantTests({
       provider: deployed.providerUrl,
       workerName: deployed.workerName,
     };
+  });
+
+  const receipt = Effect.fnUntraced(function* (
+    id: string,
+    receivedAt = Date.now(),
+  ) {
+    const u = yield* urls;
+
+    const remote = (yield* provider(u.provider)).remote.find(
+      (entry) =>
+        entry.transport.callback === `${u.bot}/webhooks/twitch` &&
+        entry.condition.broadcaster_user_id === "200",
+    );
+
+    if (!remote)
+      return yield* Effect.die(
+        "Missing owned subscription for native Tenant admission",
+      );
+
+    const source = yield* request(`${u.tenant}/source`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: remote.id,
+        status: remote.status,
+        broadcasterId: "200",
+        senderId: remote.condition.user_id,
+        callback: `${u.bot}/webhooks/twitch`,
+        binding: yield* subscriptionBinding({
+          callback: `${u.bot}/webhooks/twitch`,
+          clientId: "fixture-twitch",
+          signingSecret: Redacted.make("fixture-signing"),
+        }),
+      }),
+    }).pipe(
+      Effect.flatMap((response) =>
+        json(
+          response,
+          Schema.Struct({
+            kind: Schema.Literal("success"),
+            value: SubscriptionAdmission,
+          }),
+        ),
+      ),
+    );
+
+    if (!source.value)
+      return yield* Effect.die(
+        "Native Tenant admission requires exact owned enabled proof",
+      );
+
+    return { ...baseReceipt(id, receivedAt), source: source.value };
   });
 
   const signedDiscord = Effect.fnUntraced(function* (
@@ -572,8 +637,26 @@ export function registerTenantTests({
         ).toEqual({ completed: true });
       }
 
-      const pending = yield* setup(u.bot);
-      expect(pending.status.setup).toBe("pending");
+      const pending = yield* status(u.bot).pipe(
+        Effect.repeat({
+          until: (value) =>
+            value.channels.some(
+              (channel) =>
+                channel.subscription ===
+                "webhook_callback_verification_pending",
+            ),
+          times: 60,
+          schedule: Schedule.spaced("100 millis"),
+        }),
+      );
+
+      expect(pending.setup).toBe("pending");
+      expect(
+        pending.channels.some(
+          (channel) =>
+            channel.subscription === "webhook_callback_verification_pending",
+        ),
+      ).toBe(true);
 
       const remote = (yield* provider(u.provider)).remote.find(
         (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
@@ -901,7 +984,7 @@ export function registerTenantTests({
     Effect.gen(function* () {
       const u = yield* urls;
       const key = "native-alarm";
-      const input = receipt("native-alarm");
+      const input = yield* receipt("native-alarm");
       expect(
         (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
       ).toBe(204);
@@ -963,7 +1046,7 @@ export function registerTenantTests({
         key,
         control: { immediate: true, loseAccountResponse: true },
       });
-      const input = receipt("lost-rpc");
+      const input = yield* receipt("lost-rpc");
       expect(
         (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
       ).toBe(204);
@@ -1013,7 +1096,7 @@ export function registerTenantTests({
         });
 
         const input = {
-          ...receipt(key),
+          ...(yield* receipt(key)),
           invocation: { command: "sell", input: "slowparts" },
         };
 
@@ -1328,8 +1411,12 @@ export function registerTenantTests({
         )).status,
       ).toBe(204);
       const revoked = yield* status(u.bot);
-      expect(revoked.channels[0]?.authorized).toBeFalse();
-      expect(revoked.sender?.authorized).toBeFalse();
+      expect(
+        revoked.channels.some(
+          (entry) => entry.id === remote.condition.broadcaster_user_id,
+        ),
+      ).toBeFalse();
+      expect(revoked.sender?.authorized).toBeTrue();
       yield* recordSamples();
     }),
     { timeout: 90000 },

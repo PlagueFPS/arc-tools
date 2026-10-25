@@ -8,6 +8,7 @@ import { TestClock } from "effect/testing";
 import { discordResponse, friendlyFailure } from "../src/presentation.js";
 import {
   fixture as accountFixture,
+  observation,
   responseGate,
 } from "./subscription-fixture.js";
 import {
@@ -233,7 +234,20 @@ test(
       }).pipe(Effect.andThen(account.service.dispatch(input))),
     );
     const tenant = yield* f.construct();
-    yield* tenant.acceptTwitch(twitchReceipt("slow-send", start));
+    yield* tenant.acceptTwitch({
+      ...twitchReceipt("slow-send", start),
+      source: yield* account.service
+        .observeSubscription(
+          observation(account.config, "created-1", "enabled"),
+        )
+        .pipe(
+          Effect.map((source) => {
+            if (!source) throw new Error("Missing source");
+
+            return source;
+          }),
+        ),
+    });
     const running = yield* f.drain.pipe(Effect.forkChild);
     yield* Effect.promise(() => gate.entered.promise);
     yield* TestClock.adjust(1500);
@@ -461,7 +475,20 @@ test(
       }),
     );
     const tenant = yield* f.construct();
-    yield* tenant.acceptTwitch(twitchReceipt("late-safe", start));
+    yield* tenant.acceptTwitch({
+      ...twitchReceipt("late-safe", start),
+      source: yield* account.service
+        .observeSubscription(
+          observation(account.config, "created-1", "enabled"),
+        )
+        .pipe(
+          Effect.map((source) => {
+            if (!source) throw new Error("Missing source");
+
+            return source;
+          }),
+        ),
+    });
     yield* f.drain;
     expect(f.snapshot().works["late-safe"]).toMatchObject({
       kind: "ready",
@@ -481,4 +508,78 @@ test(
     yield* tenant.recover();
     expect(bodies).toHaveLength(2);
   }).pipe(Effect.scoped),
+);
+
+test(
+  "a held computation retains its old source and cannot send into a reinstall",
+  Effect.gen(function* () {
+    const a = yield* accountFixture();
+    const account = yield* a.construct("secret-A");
+    yield* a.grants(account.service);
+    yield* account.service.setup("operator");
+
+    const source = yield* account.service.observeSubscription(
+      observation(account.config, "created-1", "enabled"),
+    );
+
+    if (!source) return yield* Effect.die("Missing source");
+    const f = yield* tenantFixture();
+    const entered = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+
+    const tenant = yield* f.construct("first", {
+      ...f.source.data,
+      items: (params) =>
+        Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(Deferred.await(release)),
+          Effect.andThen(f.source.data.items(params)),
+        ),
+    });
+
+    f.dispatch(account.service.dispatch);
+    yield* tenant.acceptTwitch({
+      ...twitchReceipt("old-install-work", 0),
+      source,
+    });
+    const computing = yield* f.drain.pipe(Effect.forkChild);
+    yield* Deferred.await(entered);
+    yield* account.service.observeSubscription(
+      observation(account.config, "created-1", "authorization_revoked"),
+    );
+    yield* a.grants(account.service);
+    yield* account.service.setup("operator");
+    yield* Deferred.succeed(release, undefined);
+    yield* Fiber.join(computing);
+    expect(f.snapshot().works["old-install-work"]).toMatchObject({
+      kind: "terminal",
+      outcome: "rejected",
+      source,
+    });
+    expect(a.control.calls.send).toBe(0);
+  }).pipe(Effect.scoped),
+);
+
+test(
+  "legacy unsourced persisted Twitch work terminalizes without dispatch and retains its deadline",
+  Effect.gen(function* () {
+    const f = yield* tenantFixture();
+    const first = yield* f.construct();
+    yield* first.acceptTwitch(twitchReceipt("legacy"));
+    const state = f.snapshot();
+    const work = state.works.legacy;
+
+    if (!work || work.transport !== "twitch")
+      return yield* Effect.die("Missing work");
+    const { source: _source, ...legacy } = work;
+    f.values.set("tenant:v1", { ...state, works: { legacy } });
+    const restored = yield* f.construct("reconstructed");
+    yield* restored.recover();
+    expect(f.snapshot().works.legacy).toMatchObject({
+      kind: "terminal",
+      outcome: "rejected",
+      deadline: work.deadline,
+      retainUntil: work.retainUntil,
+    });
+    expect(f.sent).toEqual([]);
+  }),
 );

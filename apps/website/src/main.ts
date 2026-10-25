@@ -6,6 +6,7 @@ import { type Url, toString as urlToString } from "foldkit/url";
 
 import {
   CheckEnrollment,
+  LeaveChannel,
   LoadExternal,
   NavigateInternal,
   ScrollToContent,
@@ -20,6 +21,7 @@ export { view } from "./view";
 
 type CommandRequirements = Command.HandlerOf<
   | typeof CheckEnrollment
+  | typeof LeaveChannel
   | typeof LoadExternal
   | typeof NavigateInternal
   | typeof ScrollToContent
@@ -57,7 +59,10 @@ const spaNavigation = (url: Url) => {
 };
 
 const startCheck = (model: Model): UpdateReturn => {
-  if (!ApplicationRoute.guards.Connect(model.route)) {
+  if (
+    !ApplicationRoute.guards.Connect(model.route) ||
+    AsyncData.isPending(model.leave)
+  ) {
     return { model };
   }
 
@@ -82,6 +87,7 @@ export const init = ApplicationComposition.makeInit((url: Url) =>
     startCheck({
       route: urlToApplicationRoute(url),
       enrollment: Enrollment.Idle(),
+      leave: Enrollment.Idle(),
       requestId: RequestId.make(0),
     }),
     url,
@@ -99,6 +105,62 @@ export const update = ApplicationComposition.makeUpdate((model, message) =>
     CompletedLoadExternal: () => ({ model }),
     CompletedScrollToContent: () => ({ model }),
     CompletedCancelCheck: () => ({ model }),
+    CompletedCancelLeave: () => ({ model }),
+    ClickedLeaveChannel: () => {
+      const data = AsyncData.getData(model.enrollment);
+
+      if (
+        !ApplicationRoute.guards.Connect(model.route) ||
+        AsyncData.isPending(model.leave) ||
+        Option.isNone(data) ||
+        (data.value.kind !== "ready" && data.value.kind !== "recovering")
+      )
+        return { model };
+      const requestId = RequestId.make(model.requestId + 1);
+
+      return {
+        model: modifyFields(model, {
+          requestId: () => requestId,
+          leave: () => Enrollment.Loading(),
+          enrollment: () => Enrollment.Success({ data: data.value }),
+        }),
+        commands: [
+          ...(AsyncData.isPending(model.enrollment)
+            ? [
+                CheckEnrollment.Interrupt({ requestId: model.requestId }, () =>
+                  Message.CompletedCancelCheck(),
+                ),
+              ]
+            : []),
+          LeaveChannel({ requestId }),
+        ],
+      };
+    },
+    SucceededLeaveChannel: ({ requestId, status }) =>
+      ApplicationRoute.guards.Connect(model.route) &&
+      model.requestId === requestId &&
+      AsyncData.isPending(model.leave)
+        ? {
+            model: modifyFields(model, {
+              leave: () => Enrollment.Success({ data: status }),
+              enrollment: () => Enrollment.Success({ data: status }),
+            }),
+          }
+        : { model },
+    FailedLeaveChannel: ({ requestId, error }) =>
+      ApplicationRoute.guards.Connect(model.route) &&
+      model.requestId === requestId &&
+      AsyncData.isPending(model.leave)
+        ? {
+            model: modifyFields(model, {
+              leave: () => Enrollment.Failure({ error }),
+              enrollment: (enrollment) =>
+                CheckError.guards.Absent(error)
+                  ? Enrollment.Failure({ error })
+                  : enrollment,
+            }),
+          }
+        : { model },
     ClickedLink: ({ request }) =>
       UrlRequest.match<UpdateReturn>(request, {
         Internal: ({ url }) => ({
@@ -119,6 +181,7 @@ export const update = ApplicationComposition.makeUpdate((model, message) =>
 
       const nextModel = modifyFields(model, {
         route: () => route,
+        leave: () => Enrollment.Idle(),
         requestId: (requestId) => RequestId.make(requestId + 1),
         enrollment: (enrollment) =>
           Option.match(AsyncData.getData(enrollment), {
@@ -130,13 +193,27 @@ export const update = ApplicationComposition.makeUpdate((model, message) =>
       const next = startCheck(nextModel);
 
       return withContentScroll(
-        AsyncData.isPending(model.enrollment)
+        AsyncData.isPending(model.enrollment) ||
+          AsyncData.isPending(model.leave)
           ? {
               ...next,
               commands: [
-                CheckEnrollment.Interrupt({ requestId: model.requestId }, () =>
-                  Message.CompletedCancelCheck(),
-                ),
+                ...(AsyncData.isPending(model.enrollment)
+                  ? [
+                      CheckEnrollment.Interrupt(
+                        { requestId: model.requestId },
+                        () => Message.CompletedCancelCheck(),
+                      ),
+                    ]
+                  : []),
+                ...(AsyncData.isPending(model.leave)
+                  ? [
+                      LeaveChannel.Interrupt(
+                        { requestId: model.requestId },
+                        () => Message.CompletedCancelLeave(),
+                      ),
+                    ]
+                  : []),
                 ...(next.commands ?? []),
               ],
             }

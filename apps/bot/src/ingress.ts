@@ -383,6 +383,7 @@ export const ingressHandlers = (config: IngressConfig) =>
             [
               "authorization_revoked",
               "user_removed",
+              "chat_user_banned",
               "notification_failures_exceeded",
               "version_removed",
             ].includes(subscription.status),
@@ -391,7 +392,8 @@ export const ingressHandlers = (config: IngressConfig) =>
         );
 
         if (!valid) return yield* new IngressError({ status: 400 });
-        yield* account.observeSubscription({
+
+        const source = yield* account.observeSubscription({
           id: subscription.id,
           broadcasterId: channel.id,
           senderId: sender.id,
@@ -424,6 +426,7 @@ export const ingressHandlers = (config: IngressConfig) =>
           ),
           Match.when("notification", () =>
             Effect.gen(function* () {
+              if (!source) return HttpServerResponse.empty({ status: 204 });
               const event = envelope.event;
 
               if (!event) return yield* new IngressError({ status: 400 });
@@ -439,6 +442,7 @@ export const ingressHandlers = (config: IngressConfig) =>
 
               const receipt = yield* Schema.decodeUnknownEffect(TwitchReceipt)({
                 id: `twitch:${yield* digest(JSON.stringify([channel.id, event.message_id]))}`,
+                source,
                 broadcasterId: channel.id,
                 replyParentId: event.message_id,
                 invocation,
@@ -446,6 +450,7 @@ export const ingressHandlers = (config: IngressConfig) =>
                 fingerprint: yield* digest(
                   JSON.stringify([
                     channel.id,
+                    source,
                     event.message_id,
                     event.chatter_user_id,
                     invocation,

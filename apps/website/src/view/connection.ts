@@ -82,6 +82,22 @@ const enrollment = (
       h,
     );
 
+  if (status.kind === "left")
+    return heading(
+      "CHANNEL LEFT",
+      "Your channel has left.",
+      `ARC Tools has left ${status.login}'s Twitch chat. Connect again whenever you are ready.`,
+      h,
+    );
+
+  if (status.kind === "recovering")
+    return heading(
+      "CHAT UNAVAILABLE",
+      "Reconnecting automatically.",
+      `ARC Tools is reconnecting to ${status.login}'s Twitch chat. New commands will resume when Twitch confirms access.`,
+      h,
+    );
+
   return h.div(
     [],
     [
@@ -132,7 +148,15 @@ const statusView = (model: Model, h: HtmlBuilder<Message>) =>
   });
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const isPending = AsyncData.isPending(model.enrollment);
+  const leaving = AsyncData.isPending(model.leave);
+  const isPending = AsyncData.isPending(model.enrollment) || leaving;
+
+  const canLeave = Option.match(AsyncData.getData(model.enrollment), {
+    onNone: () => false,
+    onSome: (status) => status.kind === "ready" || status.kind === "recovering",
+  });
+
+  const leaveFailed = Option.isSome(AsyncData.getError(model.leave));
 
   const absent = Option.match(AsyncData.getError(model.enrollment), {
     onNone: () => false,
@@ -142,7 +166,9 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
   const reconnect = Option.match(AsyncData.getData(model.enrollment), {
     onNone: () => false,
     onSome: (status) =>
-      !isPending && status.kind === "failed" && canReconnect(status.reason),
+      !isPending &&
+      (status.kind === "left" ||
+        (status.kind === "failed" && canReconnect(status.reason))),
   });
 
   return h.section(
@@ -174,6 +200,19 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
             [h.Class("mt-[26px] flex flex-wrap gap-[14px]")],
             [
               absent || reconnect ? connectLink({}, h) : h.empty,
+              canLeave
+                ? button(
+                    {
+                      variant: "secondary",
+                      size: "lg",
+                      type: "button",
+                      isDisabled: leaving,
+                      onClick: Message.ClickedLeaveChannel(),
+                    },
+                    leaving ? "Leaving…" : "Leave channel",
+                    h,
+                  )
+                : h.empty,
               button(
                 {
                   variant: "secondary",
@@ -182,11 +221,21 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
                   isDisabled: isPending,
                   onClick: Message.ClickedCheckStatus(),
                 },
-                isPending ? "Checking…" : "Check status",
+                AsyncData.isPending(model.enrollment)
+                  ? "Checking…"
+                  : "Check status",
                 h,
               ),
             ],
           ),
+          leaveFailed && canLeave
+            ? h.p(
+                [h.Role("alert"), h.Class("mt-4 text-sm")],
+                [
+                  "We could not confirm Leave. Try Leave channel again or check your status.",
+                ],
+              )
+            : h.empty,
           h.p(
             [
               h.Class(
