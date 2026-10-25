@@ -6,6 +6,7 @@ import type { Rpc } from "alchemy/Rpc";
 
 type WebsiteEnv = InferEnv<{
   BOT: Rpc<BotOperations>;
+  DISCORD_APPLICATION_ID: string;
   ARC_STAGE: string;
   ARC_WEBSITE_SELF: string;
   ARC_WEBSITE_URL: string;

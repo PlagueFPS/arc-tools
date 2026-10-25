@@ -33,6 +33,10 @@ for (const { path, copy } of [
 ]) {
   const html = await readFile(new URL(`client/${path}`, directory), "utf8");
 
+  if (path === "index.html") {
+    assert.match(html, /<a[^>]+href="\/install\/discord"[^>]*>Add to Discord/);
+  }
+
   assert.ok(html.includes(copy), `${path} has public content`);
   assert.ok(
     html.includes("data-foldkit-build="),

@@ -18,6 +18,7 @@ export const Website = Effect.gen(function* () {
     assets: { htmlHandling: "drop-trailing-slash", notFoundHandling: "none" },
     env: {
       BOT: bot,
+      DISCORD_APPLICATION_ID: Config.NonEmptyString("DISCORD_APPLICATION_ID"),
       ARC_WEBSITE_URL: configuredWebsiteOrigin,
       ARC_WEBSITE_SELF: Cloudflare.Worker.URL,
       ARC_STAGE: Config.NonEmptyString("ARC_STAGE"),
