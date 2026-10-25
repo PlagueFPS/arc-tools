@@ -4,7 +4,7 @@ import {
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
-import { Effect, Redacted, Schema, Stream } from "effect";
+import { Effect, Match, Redacted, Schema, Stream } from "effect";
 import {
   type HttpServerError,
   type HttpServerRequest,
@@ -93,22 +93,25 @@ export const operatorHandlers = (
           return response(result);
         }).pipe(
           Effect.timeout(25_000),
-          Effect.catchTag("AccountError", (error) => {
-            if (error.code === "busy")
-              return Effect.succeed(
-                HttpServerResponse.setHeader(
-                  response({ error: "operator-busy" }, 503),
-                  "Retry-After",
-                  "1",
+          Effect.catchTag("AccountError", (error) =>
+            Match.value(error.code).pipe(
+              Match.when("busy", () =>
+                Effect.succeed(
+                  HttpServerResponse.setHeader(
+                    response({ error: "operator-busy" }, 503),
+                    "Retry-After",
+                    "1",
+                  ),
                 ),
-              );
-
-            return error.code === "capacity"
-              ? Effect.succeed(
+              ),
+              Match.when("capacity", () =>
+                Effect.succeed(
                   response({ error: "channel-capacity-exceeded" }, 409),
-                )
-              : error;
-          }),
+                ),
+              ),
+              Match.orElse(() => error),
+            ),
+          ),
           Effect.catchCause(() =>
             Effect.succeed(
               response({ error: "operator-operation-failed" }, 503),

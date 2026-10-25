@@ -1,4 +1,4 @@
-import { Option } from "effect";
+import { Match, Option } from "effect";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
@@ -67,73 +67,72 @@ const failure = (error: CheckError, h: HtmlBuilder<Message>) =>
 const enrollment = (
   status: typeof EnrollmentStatus.Type,
   h: HtmlBuilder<Message>,
-): Html => {
-  if (status.kind === "pending")
-    return heading(
-      "CONNECTION IN PROGRESS",
-      "Almost ready.",
-      "Your connection is still being verified. If Twitch authorization is open in another tab, finish there first. Then check your status again.",
-      h,
-    );
-
-  if (status.kind === "failed")
-    return heading(
-      "CONNECTION NEEDS ATTENTION",
-      "Let's get you connected.",
-      guidance(status.reason),
-      h,
-    );
-
-  if (status.kind === "left")
-    return heading(
-      "CHANNEL LEFT",
-      "Your channel has left.",
-      `ARC Tools has left ${status.login}'s Twitch chat. Connect again whenever you are ready.`,
-      h,
-    );
-
-  if (status.kind === "recovering")
-    return heading(
-      "CHAT UNAVAILABLE",
-      "Reconnecting automatically.",
-      `ARC Tools is reconnecting to ${status.login}'s Twitch chat. New commands will resume when Twitch confirms access.`,
-      h,
-    );
-
-  if (status.kind === "attention-required")
-    return heading(
-      "CONNECTION NEEDS ATTENTION",
-      "Action required.",
-      attentionMessage(status.reason),
-      h,
-    );
-
-  return h.div(
-    [],
-    [
-      heading(
-        "CHANNEL CONNECTED",
-        "You're raid ready.",
-        `ARC Tools is ready in ${status.login}'s Twitch chat.`,
-        h,
-      ),
-      h.div(
-        [
-          h.Class(
-            "mt-[25px] flex flex-wrap gap-[15px] rounded border border-border bg-muted p-[18px]",
-          ),
-        ],
-        [
-          h.span(
-            [h.Class("self-center text-[9px] tracking-[1.2px]")],
-            ["TRY IT IN YOUR CHAT"],
-          ),
-          h.code([h.Class("text-sm text-foreground")], ["!find sensors"]),
-        ],
-      ),
-    ],
+): Html =>
+  Match.value(status).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      pending: () =>
+        heading(
+          "CONNECTION IN PROGRESS",
+          "Almost ready.",
+          "Your connection is still being verified. If Twitch authorization is open in another tab, finish there first. Then check your status again.",
+          h,
+        ),
+      failed: (status) =>
+        heading(
+          "CONNECTION NEEDS ATTENTION",
+          "Let's get you connected.",
+          guidance(status.reason),
+          h,
+        ),
+      left: (status) =>
+        heading(
+          "CHANNEL LEFT",
+          "Your channel has left.",
+          `ARC Tools has left ${status.login}'s Twitch chat. Connect again whenever you are ready.`,
+          h,
+        ),
+      recovering: (status) =>
+        heading(
+          "CHAT UNAVAILABLE",
+          "Reconnecting automatically.",
+          `ARC Tools is reconnecting to ${status.login}'s Twitch chat. New commands will resume when Twitch confirms access.`,
+          h,
+        ),
+      "attention-required": (status) =>
+        heading(
+          "CONNECTION NEEDS ATTENTION",
+          "Action required.",
+          attentionMessage(status.reason),
+          h,
+        ),
+      ready: (status) =>
+        h.div(
+          [],
+          [
+            heading(
+              "CHANNEL CONNECTED",
+              "You're raid ready.",
+              `ARC Tools is ready in ${status.login}'s Twitch chat.`,
+              h,
+            ),
+            h.div(
+              [
+                h.Class(
+                  "mt-[25px] flex flex-wrap gap-[15px] rounded border border-border bg-muted p-[18px]",
+                ),
+              ],
+              [
+                h.span(
+                  [h.Class("self-center text-[9px] tracking-[1.2px]")],
+                  ["TRY IT IN YOUR CHAT"],
+                ),
+                h.code([h.Class("text-sm text-foreground")], ["!find sensors"]),
+              ],
+            ),
+          ],
+        ),
+    }),
   );
-};
 
 const statusView = (model: Model, h: HtmlBuilder<Message>) =>
   AsyncData.match(model.enrollment, {
