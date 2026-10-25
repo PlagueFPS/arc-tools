@@ -35,6 +35,10 @@ test("landing explains the bot with real chat commands and Twitch navigation", (
     given({ ...connection, route: ApplicationRoute.Home() }),
     expect(role("heading", { level: 1 })).toContainText("Raid ready."),
     expect(role("link", { name: /Connect Twitch/ })).toExist(),
+    expect(role("link", { name: /Add to Discord/ })).toHaveAttr(
+      "href",
+      "/install/discord",
+    ),
     expect(text("!find sensors")).toExist(),
     expect(role("link", { name: "Skip to content" })).toExist(),
     expect(selector("#main")).toHaveAttr("tabIndex", "-1"),

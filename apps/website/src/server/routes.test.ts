@@ -46,6 +46,7 @@ test.each(["/", "/connect"])(
 );
 
 test.each([
+  "/install/discord",
   "/oauth/twitch/enroll",
   "/oauth/twitch/enroll/status",
   "/oauth/twitch/callback",
@@ -102,4 +103,21 @@ test("native page-host negotiation does not advertise a JSON-only API", async ()
 
   expect(response.status).toBe(404);
   expect(response.headers.get("Vary")).toContain("Accept");
+});
+
+test("the page host dispatches the Discord install link using local configuration", async () => {
+  vi.stubEnv("DISCORD_APPLICATION_ID", "123456789012345678");
+
+  try {
+    const response = await responseFor(
+      new Request("https://site.invalid/install/discord"),
+    );
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("Location") ?? "");
+    expect(location.searchParams.get("client_id")).toBe("123456789012345678");
+    expect(location.searchParams.get("integration_type")).toBe("0");
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
