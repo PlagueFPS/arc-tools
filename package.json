@@ -12,6 +12,7 @@
     "dev": "alchemy dev",
     "dev:web": "turbo run dev --filter=@arctools/website",
     "dev:local": "bun run scripts/local.ts dev",
+    "tunnel": "cloudflared tunnel",
     "setup:local": "bun run scripts/local.ts setup",
     "status:local": "bun run scripts/local.ts status",
     "sync:discord:local": "bun run scripts/local.ts sync",
