@@ -71,7 +71,7 @@ test -s ".cloud-tests/verify-arctools/$VERIFY_STAGE/cleanup.json"
 
 Cleanup reads every Bot listener address recorded in this stage's launch log and requires TCP connection refusal before it calls Alchemy `Core.destroy`. A live listener, a connection timeout, or a missing listener record stops cleanup before mutation. It uses `dev: true` for this exact local stage, checks absent control-store entries and output, and checks the recorded listeners again before deleting scratch data. `ARC_VERIFY_URL` cannot redirect cleanup to another port. It removes only the stage's bundle and three emulator data directories. It retains logs, proof, and shared Alchemy runtime caches. Never kill by process name or delete shared `.alchemy` state. Run cleanup after failed launch or drive attempts too. A failed cleanup is a failure to report and repair, not a passed proof.
 
-Cloud cleanup uses `bun run test:cloud:cleanup` with the exact stage printed by the runner and its retained `run.json`. Never pass a local stage to that cloud recovery command.
+The legacy `bun run test:cloud` command now runs local integration tests with separate file state. Its `test:cloud:cleanup` command accepts only journals marked `dev: true`. Use `preview:cleanup --pr <number>` for authorized cloud preview cleanup.
 
 ## Helpers
 

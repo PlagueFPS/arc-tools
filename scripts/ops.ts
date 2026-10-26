@@ -33,7 +33,12 @@ try {
   const endpoint = new URL(values.endpoint ?? "");
 
   if (
-    endpoint.protocol !== "https:" ||
+    (endpoint.protocol !== "https:" &&
+      !(
+        stage.startsWith("test-") &&
+        endpoint.protocol === "http:" &&
+        endpoint.hostname === "localhost"
+      )) ||
     endpoint.username ||
     endpoint.password ||
     endpoint.search ||

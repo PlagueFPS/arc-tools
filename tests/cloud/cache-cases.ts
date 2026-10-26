@@ -214,7 +214,7 @@ export function registerCacheTests({
   );
 
   test(
-    "same-key cloud refreshes coalesce, independent keys progress and reset fences a late source completion",
+    "same-key local refreshes coalesce, independent keys progress and reset fences a late source completion",
     Effect.gen(function* () {
       const { url, source } = yield* fixture("cache-contention");
       const key = "/items?id=held";

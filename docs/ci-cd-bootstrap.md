@@ -1,5 +1,7 @@
 # Bootstrap GitHub deployment credentials
 
+CI tests run locally without Cloudflare credentials. This bootstrap configures cloud release and explicit preview operations. CI no longer provisions previews automatically.
+
 Use `stacks/github.ts` to provision one Cloudflare CI token for `PlagueFPS/arc-tools` through Alchemy. The stack uses the single account selected by the `admin` profile for both bootstrap state and CI. This follows the credential bootstrap in [Alchemy tutorial part 5](https://alchemy.run/cloudflare/tutorial/part-5/). The repository pins Alchemy `2.0.0-beta.83`, Effect `4.0.4`, and Bun `1.4.3`.
 
 Run these steps after code review. The stack creates credentials and GitHub configuration. It does not release either bot or change Discord or Twitch portal settings.
@@ -89,7 +91,7 @@ Verify the environment's configuration.
 - Variable `ARC_ENVIRONMENT` is `production`.
 - Variable `TWITCH_SENDER_KIND` is `bot`.
 
-The environment is named `prod`. `production` is the value of `ARC_ENVIRONMENT`. The two GitHub secret names preserve the existing workflows and receive the same credential. They do not represent separate tokens. Both account variables likewise receive the same account ID. The existing CI expressions for `vars.CLOUDFLARE_TEST_ACCOUNT_ID` and `secrets.CLOUDFLARE_TEST_API_TOKEN` receive their missing credentials after bootstrap. Fork pull requests do not receive repository secrets.
+The environment is named `prod`. `production` is the value of `ARC_ENVIRONMENT`. The two GitHub secret names preserve the existing workflows and receive the same credential. They do not represent separate tokens. Both account variables likewise receive the same account ID. The preview cleanup workflow still uses `vars.CLOUDFLARE_TEST_ACCOUNT_ID` and `secrets.CLOUDFLARE_TEST_API_TOKEN`. Local CI tests do not use those settings. Fork pull requests do not receive repository secrets.
 
 Alchemy passes the same redacted token value directly to both `GitHub.Secret` resources. Stack outputs contain only `accountId` and `tokenId`. Alchemy persists the token value in state because Cloudflare reveals it only at creation. Treat access to the state backend and its authentication and encryption secrets as access to the stored token.
 

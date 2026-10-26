@@ -82,7 +82,10 @@ export const botTestBindings = Effect.fnUntraced(function* (
 
         if (
           !Schema.is(Schema.String)(baseUrl) ||
-          !baseUrl.startsWith("https://")
+          !(
+            baseUrl.startsWith("https://") ||
+            /^http:\/\/localhost:\d+$/.test(baseUrl)
+          )
         )
           return yield* Effect.die("Synthetic source URL unavailable");
 
@@ -95,7 +98,10 @@ export const botTestBindings = Effect.fnUntraced(function* (
 
         if (
           !Schema.is(Schema.String)(baseUrl) ||
-          !baseUrl.startsWith("https://")
+          !(
+            baseUrl.startsWith("https://") ||
+            /^http:\/\/localhost:\d+$/.test(baseUrl)
+          )
         )
           return yield* Effect.die("Synthetic provider URL unavailable");
 

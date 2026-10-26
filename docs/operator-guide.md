@@ -73,7 +73,7 @@ Use `bun run status:local` for Twitch status and Discord drift at the selected r
 
 All four shortcuts read `.env.local` themselves and accept no additional arguments. They require matching `local-*` stage fields and either a personal sender in its own single channel or a dedicated bot profile. Every child receives the resolved file values, even when stale values remain exported in the shell. `ARC_BUILD_REVISION` defaults to `unreleased` only when absent from both sources. If you set it, use the same nonempty revision for development and setup. Set `ALCHEMY_PROFILE` in the file or environment to select a profile, or omit it to use Alchemy's configured selection. Restart development after changing the file. The generic `dev`, `deploy`, `ops`, and `sync:discord` commands retain their explicit release flags.
 
-Inspect `GET /health` at the local address. It returns `status: "ready"`, the stage, revision, and command manifest hash. This proves application build identity, not provider authorization. Stop development with Ctrl+C. Local workerd is an interactive development check; real Cloudflare tests provide integration acceptance.
+Inspect `GET /health` at the local address. It returns `status: "ready"`, the stage, revision, and command manifest hash. This proves application build identity, not provider authorization. Stop development with Ctrl+C. The integration suite also uses local workerd with isolated file state.
 
 A placeholder HTTPS origin can exercise health and signed PING locally without a tunnel or provider calls. It cannot receive live webhooks or OAuth redirects.
 
@@ -195,29 +195,31 @@ Discord guild and Twitch channel command records expire ten minutes after their 
 
 The deterministic account and raw HTTP journeys are in `packages/twitch/test/enrollment.test.ts`, `packages/twitch/test/lifecycle.test.ts`, and `tests/website/enrollment.test.ts`. They use the real storage adapter with controlled provider responses. They do not establish live Twitch authorization, onboarding-token-expiry survival, remote alarms, or deployed callback reachability. No live enrollment verification or deployment is recorded by this implementation.
 
-## Verify and clean a disposable cloud run
+## Verify and clean a local infrastructure run
 
-Use an authenticated Alchemy profile or inject a test account/token. These tests select synthetic portal credentials and controlled HTTPS providers. They do not mutate real Twitch or Discord applications.
-
-```bash
-bun run test:cloud
-```
-
-The canonical tenant suite includes foundation, cache, account, native alarms, both signed protocols, and all ten commands. It uses real Cloudflare Workers and SQLite Durable Objects with `Cloudflare.state()`. It rejects local integration mode, retains failures, and retries only the observed pre-execution Cloudflare 404 placeholder. Unknown POST completion and executed business failures are terminal.
-
-The runner prints a unique stage and always attempts destruction. If cleanup fails, use its retained journal:
+Run the canonical tenant suite without cloud credentials:
 
 ```bash
-bun run test:cloud:cleanup test-tenant-WORKTREE-RUN
+bun --no-env-file run test:cloud
 ```
 
-Replace the example with the exact printed stage. Recovery requires `.cloud-tests/<stage>/run.json` and the same Cloudflare account/profile. Successful cleanup verifies zero matching Workers, zero matching namespaces, and absent stage state/output. CI preserves JSON recovery artifacts even on failure. CI expects `CLOUDFLARE_TEST_ACCOUNT_ID` as a variable and `CLOUDFLARE_TEST_API_TOKEN` as a secret. Remote GitHub settings and execution remain NOT VERIFIED unless separately inspected and run.
+The legacy command runs foundation, cache, account, native alarms, both signed protocols, and all ten commands through Alchemy `dev: true` and real local workerd. Use `bun --no-env-file run scripts/cloud-test.ts foundation`, `cache`, or `account` to run a smaller stack. No tests provision Cloudflare resources or use the cloud state backend. [Local infrastructure testing](verification/local-infrastructure.md) describes isolation and proof boundaries.
+
+Each run owns `.cloud-tests/<stage>/.alchemy/`. The runner strips cloud and application credentials, supplies synthetic identities, and uses a fresh working directory without dotenv files. Test teardown checks absent stage state and output. The runner verifies recorded listeners have stopped before removing local runtime files. JSON evidence stays in `.cloud-tests/<stage>/`.
+
+Retry local cleanup with the exact printed stage:
+
+```bash
+bun --no-env-file run test:cloud:cleanup test-tenant-WORKTREE-RUN
+```
+
+Cleanup requires the matching `run.json` marked `dev: true`. It rejects old cloud journals. Stop any surviving process from that run before cleanup. CI runs this suite for all PRs, including forks, without test account secrets.
 
 ## Recover a resident synthetic PR preview
 
-A trusted PR gets a resident synthetic service after all CI checks, including the random disposable cloud suite, pass. Its seven Workers use the existing tenant test composition. No real Twitch or Discord application is registered or authorized. The marked PR comment records the URL, checked merge SHA, PR head SHA, and stage. Fixture data belongs to that PR and may survive pushes and reopening.
+CI no longer creates resident synthetic PR previews. Explicit `preview:deploy --pr <number>` remains a cloud operation for an authorized operator. Its seven Workers use the existing tenant test composition. No real Twitch or Discord application is registered or authorized. The marked PR comment records the URL, checked merge SHA, PR head SHA, and stage. Fixture data belongs to that PR and may survive pushes and reopening.
 
-Each preview first deploys to obtain the actual output URL, then redeploys with that exact `ARC_BOT_URL`. Publication requires health at the checked revision. This path does not assume that a blank origin works at runtime. Fork PRs run local checks and explicitly skip cloud acceptance and preview deployment.
+Each preview first deploys to obtain the actual output URL, then redeploys with that exact `ARC_BOT_URL`. Publication requires health at the checked revision. This path does not assume that a blank origin works at runtime. Fork PRs run the same local integration checks.
 
 Closing a same-repository PR requests cleanup independently of CI through `pull_request_target: closed`. This trigger supports conflicted PRs. Cleanup checks out trusted `main` code and never checks out the PR head or merge revision. Fork PRs skip the cleanup job. Cleanup reads the current PR state, derives the same stage without old artifacts, and verifies zero Workers, zero namespaces, and absent stage state and output. It keeps the shared state backend. Deploy and cleanup share a repository and PR lock. A queued deploy that observes closure performs cleanup instead. A changed head or merge revision stops URL publication.
 
@@ -231,7 +233,7 @@ Replace `10` with the closed PR number. The command accepts PR identity only, re
 
 During initial rollout, `main` may lack the target workflow, so closing a PR may start no cleanup run. If a run starts but `main` lacks `scripts/preview.ts`, cleanup fails with an explicit message that no cleanup occurred. Run the command above from the reviewed implementation, or land the implementation and dispatch cleanup. A deleted PR branch is not needed. Do not execute downloaded recovery artifacts.
 
-Failed jobs retain `run.json`, resource evidence when available, and `preview-result.json`. Existing `test:cloud:cleanup <exact-stage>` also accepts the regenerated journal when you restore it locally. Use the same test account and profile. That lower-level recovery verifies strict destruction but does not update the PR comment. A failed first deployment may have no output or resource journal; strict cleanup scans the seven exact stage worker names as a fallback. There is no periodic orphan collector. Retain failed workflow artifacts and explicitly retry cleanup.
+Failed jobs retain `run.json`, resource evidence when available, and `preview-result.json`. Use `preview:cleanup --pr <number>` for cloud preview recovery with the same test account and profile. `test:cloud:cleanup` accepts local integration journals only. A failed first deployment may have no output or resource journal; strict cleanup scans the seven exact stage worker names as a fallback. There is no periodic orphan collector. Retain failed workflow artifacts and explicitly retry cleanup.
 
 ## Understand launch bounds
 

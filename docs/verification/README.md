@@ -1,5 +1,7 @@
 # Migration verification records
 
+Current infrastructure tests run through local workerd and Alchemy `dev: true`. See [local infrastructure testing](local-infrastructure.md) for commands and current results. The cloud runs below are historical acceptance records.
+
 Root accepted and integrated all five implementation units. The final integrated checkout passes 313 local tests and 1,633 assertions, build, typechecks, lint, and 29 real-cloud cases with 637 assertions. Independent cleanup verifies no disposable stage resources remain. These results establish implementation acceptance and controlled-provider behavior. Production readiness remains open for the live-provider and launch checks below.
 
 | Record                                                            | Current reading                                                                                                                                                                                                                                                  |
@@ -20,6 +22,6 @@ Root accepted and integrated all five implementation units. The final integrated
 
 Owner records describe the revision and review state at which they were written. Read their later root reviews for acceptance. Historical failed deployments, setup failures, counts, and inconclusive causes remain evidence; a subsequent pass does not erase them.
 
-Disposable cloud tests use unique per-worktree/run stages, real Workers and SQLite Durable Objects, Cloudflare-backed state, production application policy, and controlled HTTPS external providers. Every run records exact checks and verified destruction. The state control backend remains separate and retained. Local workerd proves interactive development only.
+Historical disposable cloud tests used unique per-worktree/run stages, real Workers and SQLite Durable Objects, Cloudflare-backed state, production application policy, and controlled HTTPS external providers. Their records retain exact checks and verified destruction. The current runner uses isolated local file state and workerd for integration acceptance.
 
 Live Twitch authorization/EventSub delivery and timing, grants after onboarding-token expiry, Discord client privacy/registration/timing, remote CI/release configuration and execution, and observed launch cost remain NOT VERIFIED. Controlled-provider payloads and latency observations do not establish those live gates. Concrete next checks are in [final integration](final-integration.md) and [the operator guide](../operator-guide.md). Do not put secret values or token-bearing authorization URLs in verification records.

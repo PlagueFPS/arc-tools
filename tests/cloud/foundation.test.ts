@@ -3,36 +3,39 @@ import { writeFile } from "node:fs/promises";
 
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { manifestHash } from "@arctools/discord/server";
-import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
+import { State, localState } from "alchemy/State";
 import * as Test from "alchemy/Test/Bun";
-import * as Core from "alchemy/Test/Core";
-import { Effect, Schedule, Schema, Stream } from "effect";
+import { Effect, Schedule, Schema } from "effect";
 
-import Stack from "../../alchemy.run.js";
+import { makeStack } from "../../alchemy.run.js";
 import {
-  CloudResourceEvidence,
-  cloudSettings,
-} from "../../scripts/cloud-settings.js";
+  LocalTestResources,
+  localTestSettings,
+} from "../../scripts/local-test-settings.js";
 import { installHttpEvidence } from "./fixture-evidence.js";
 import {
   get,
   json,
   post,
   reconstructedSnapshot,
+  registerLocalFixture,
   request,
 } from "./fixture-http.js";
 import { ProbeSnapshot } from "./probe.js";
 
-const settings = cloudSettings(process.env);
+const settings = localTestSettings(process.env);
 
 installHttpEvidence();
 
 const options = {
   providers: Cloudflare.providers(),
-  state: Cloudflare.state(),
+  state: localState(),
+  dev: true,
   stage: settings.stage,
   profile: settings.profile,
 };
+
+const Stack = makeStack(options);
 
 export const { test, beforeAll, afterAll, deploy, destroy } =
   Test.make(options);
@@ -64,70 +67,14 @@ export const stack = beforeAll(
 );
 
 beforeAll(
-  Effect.fn("Cloud fixture startup and resource census")(function* () {
+  Effect.fn("Local fixture startup and provider state")(function* () {
     const deployed = yield* stack;
-    yield* get(`${deployed.probeUrl}/snapshot`, ProbeSnapshot);
 
-    const namespaces = yield* Core.withProviders(
-      Effect.gen(function* () {
-        const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
-
-        return yield* DurableObjects.listNamespaces
-          .items({ accountId })
-          .pipe(Stream.runCollect);
-      }),
-      options,
-      Stack.stackName,
-    );
-
-    const probeNamespaces = namespaces.filter(
-      (namespace) => namespace.script === deployed.probeWorkerName,
-    );
-
-    expect(probeNamespaces.length).toBe(1);
-    expect(probeNamespaces[0]?.useSqlite).toBeTrue();
-
-    const workerNames = [
-      deployed.workerName,
-      deployed.probeWorkerName,
-      ...[
-        deployed.cacheWorkerName,
-        deployed.sourceWorkerName,
-        deployed.accountWorkerName,
-        deployed.providerWorkerName,
-        deployed.tenantWorkerName,
-      ].filter((name) => name !== undefined),
-    ];
-
-    const stackNamespaces = namespaces.filter((namespace) =>
-      workerNames.includes(namespace.script ?? ""),
-    );
-
-    if (settings.stage.startsWith("test-cache-")) {
-      expect(stackNamespaces.length).toBe(6);
-      expect(
-        stackNamespaces.every((namespace) => namespace.useSqlite),
-      ).toBeTrue();
-    }
-
-    if (settings.stage.startsWith("test-account-")) {
-      expect(stackNamespaces.length).toBe(8);
-      expect(
-        stackNamespaces.every((namespace) => namespace.useSqlite),
-      ).toBeTrue();
-    }
-
-    if (settings.stage.startsWith("test-tenant-")) {
-      expect(stackNamespaces.length).toBe(10);
-      expect(
-        stackNamespaces.every((namespace) => namespace.useSqlite),
-      ).toBeTrue();
-    }
-
-    const evidence = yield* Schema.decodeUnknownEffect(CloudResourceEvidence)({
+    const resources = Schema.decodeUnknownSync(LocalTestResources)({
       stage: settings.stage,
-      workers: workerNames,
-      namespaces: stackNamespaces.map((namespace) => namespace.id),
+      origins: Object.entries(deployed)
+        .filter(([key]) => key.endsWith("Url") || key === "url")
+        .map(([, value]) => value),
     });
 
     yield* Effect.promise(() =>
@@ -136,14 +83,76 @@ beforeAll(
           `../../.cloud-tests/${settings.stage}/resources.json`,
           import.meta.url,
         ),
-        JSON.stringify(evidence, null, 2),
+        JSON.stringify(resources, null, 2),
       ),
     );
+    yield* get(`${deployed.probeUrl}/snapshot`, ProbeSnapshot);
+
+    if (deployed.providerUrl)
+      registerLocalFixture("provider", deployed.providerUrl);
+
+    if (deployed.accountUrl)
+      registerLocalFixture("account", deployed.accountUrl);
+
+    if (deployed.cacheUrl) registerLocalFixture("cache", deployed.cacheUrl);
+
+    if (deployed.sourceUrl)
+      registerLocalFixture("metaforge", deployed.sourceUrl);
+
+    if (deployed.tenantUrl) registerLocalFixture("tenant", deployed.tenantUrl);
+    const state = yield* yield* State;
+
+    expect(state.id).toBe("local");
+
+    const resourceNames = yield* state.list({
+      stack: Stack.stackName,
+      stage: settings.stage,
+    });
+
+    expect(resourceNames.length).toBeGreaterThan(0);
+
+    for (const fqn of resourceNames) {
+      const resource = yield* state.get({
+        stack: Stack.stackName,
+        stage: settings.stage,
+        fqn,
+      });
+
+      expect(
+        resource && "providerMode" in resource
+          ? resource.providerMode
+          : undefined,
+      ).toBe("local");
+    }
+
+    for (const [key, value] of Object.entries(deployed)) {
+      if (key.endsWith("Url") || key === "url") {
+        expect(new URL(value).hostname).toBe("localhost");
+      }
+    }
   })(),
   { timeout: 90_000 },
 );
 
-afterAll(destroy(Stack), { timeout: 180_000 });
+afterAll(
+  destroy(Stack).pipe(
+    Effect.andThen(
+      Effect.gen(function* () {
+        const state = yield* yield* State;
+        expect(
+          yield* state.list({ stack: Stack.stackName, stage: settings.stage }),
+        ).toEqual([]);
+        expect(
+          yield* state.getOutput({
+            stack: Stack.stackName,
+            stage: settings.stage,
+          }),
+        ).toBeUndefined();
+      }),
+    ),
+  ),
+  { timeout: 180_000 },
+);
 
 const snapshot = (url: string) => get(`${url}/snapshot`, ProbeSnapshot);
 
@@ -215,7 +224,7 @@ test(
 );
 
 test(
-  "persisted alarm retries on Cloudflare after an intentional first failure",
+  "persisted alarm retries on workerd after an intentional first failure",
   Effect.gen(function* () {
     const { probeUrl: url } = yield* stack;
     const response = yield* post(`${url}/arm`);

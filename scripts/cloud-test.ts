@@ -1,14 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { Match, Schema } from "effect";
 
+import { cleanupLocalTest } from "./local-test-cleanup.js";
 import {
-  CloudSettings,
-  cloudSettings,
-  syntheticEnvironment,
-} from "./cloud-settings.js";
+  LocalTestSettings,
+  localTestEnvironment,
+  localTestSettings,
+} from "./local-test-settings.js";
 
 const suite = Match.value(process.argv[2]).pipe(
   Match.when("foundation", () => "foundation"),
@@ -19,7 +19,7 @@ const suite = Match.value(process.argv[2]).pipe(
 
 const cleanupOnly = process.argv[2] === "cleanup";
 
-let settings: CloudSettings;
+let settings: typeof LocalTestSettings.Type;
 
 if (cleanupOnly) {
   const stage = process.argv[3] ?? process.env.ARC_CLOUD_STAGE;
@@ -28,14 +28,17 @@ if (cleanupOnly) {
     throw new Error(
       "Cleanup requires the exact test stage from the run output",
     );
-  const validated = Schema.decodeUnknownSync(CloudSettings.fields.stage)(stage);
+
+  const validated = Schema.decodeUnknownSync(LocalTestSettings.fields.stage)(
+    stage,
+  );
 
   const journal = new URL(
     `../.cloud-tests/${validated}/run.json`,
     import.meta.url,
   );
 
-  settings = Schema.decodeUnknownSync(CloudSettings)(
+  settings = Schema.decodeUnknownSync(LocalTestSettings)(
     JSON.parse(await readFile(journal, "utf8")),
   );
 
@@ -49,8 +52,7 @@ if (cleanupOnly) {
     .digest("hex")
     .slice(0, 8);
 
-  settings = cloudSettings({
-    ...process.env,
+  settings = localTestSettings({
     ARC_CLOUD_STAGE: `test-${suite}-${worktree}-${run}`,
     ARC_CLOUD_RUN: run,
   });
@@ -65,22 +67,22 @@ await mkdir(directory, { recursive: true });
 
 await writeFile(
   new URL("run.json", directory),
-  JSON.stringify(settings, null, 2),
+  JSON.stringify({ ...settings, dev: true }, null, 2),
 );
 
 if (process.env.GITHUB_OUTPUT && !cleanupOnly) {
   await appendFile(process.env.GITHUB_OUTPUT, `stage=${settings.stage}\n`);
 }
 
-const env = syntheticEnvironment(process.env, settings);
+const env = localTestEnvironment(process.env, settings);
 
 console.info(
-  `Cloudflare ${suite} stage ${settings.stage}, profile ${settings.profile}`,
+  `Local workerd ${suite} stage ${settings.stage}, profile ${settings.profile}`,
 );
 
 async function execute(command: string[]) {
   const child = Bun.spawn(command, {
-    cwd: new URL("..", import.meta.url).pathname,
+    cwd: directory.pathname,
     env,
     stdin: "ignore",
     stdout: "inherit",
@@ -95,10 +97,10 @@ const resultFile = new URL("result.json", directory);
 
 let testResult = cleanupOnly ? 1 : 0;
 
-if (cleanupOnly && existsSync(resultFile)) {
+if (cleanupOnly && (await Bun.file(resultFile).exists())) {
   const previous = Schema.decodeUnknownSync(
     Schema.Struct({
-      stage: CloudSettings.fields.stage,
+      stage: LocalTestSettings.fields.stage,
       testResult: Schema.Int,
     }),
   )(JSON.parse(await readFile(resultFile, "utf8")));
@@ -114,22 +116,27 @@ try {
   if (!cleanupOnly)
     testResult = await execute([
       process.execPath,
+      "--no-env-file",
       "test",
-      "./tests/cloud/foundation.test.ts",
+      new URL("../tests/cloud/foundation.test.ts", import.meta.url).pathname,
     ]);
 } finally {
-  cleanupResult = await execute([
-    process.execPath,
-    "run",
-    "./scripts/cloud-cleanup.ts",
-  ]);
+  try {
+    await cleanupLocalTest(directory, settings.stage);
+    cleanupResult = 0;
+  } catch (error) {
+    console.error(error);
+  }
+
   await writeFile(
     resultFile,
     JSON.stringify({ ...settings, testResult, cleanupResult }, null, 2),
   );
 }
 
-console.info(`Cloud tests exit ${testResult}; cleanup exit ${cleanupResult}`);
+console.info(
+  `Local infrastructure tests exit ${testResult}; cleanup exit ${cleanupResult}`,
+);
 
 console.info(`Retry cleanup with bun run test:cloud:cleanup ${settings.stage}`);
 
