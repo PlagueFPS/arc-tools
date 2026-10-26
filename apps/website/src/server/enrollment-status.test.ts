@@ -32,6 +32,7 @@ for (const [label, cookie, error, expected] of [
         enrollmentBegin: () => Effect.die("unused"),
         enrollmentComplete: () => Effect.die("unused"),
         completeOperatorOAuth: () => Effect.die("unused"),
+        enrollmentLeave: () => Effect.die("Unexpected leave"),
         enrollmentStatus: () => new AccountError({ code: error }),
       }),
     );

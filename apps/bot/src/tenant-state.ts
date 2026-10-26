@@ -1,10 +1,11 @@
 import {
   BroadcasterId,
+  ChatSource,
   Deadline,
   Dispatch,
   ReplyId,
 } from "@arctools/twitch/server";
-import { Context, type Effect, Match, Schema } from "effect";
+import { Context, Effect, Match, Schema } from "effect";
 
 import { WorkId } from "./contracts.js";
 import { DiscordResponse, encodedBytes } from "./presentation.js";
@@ -38,7 +39,13 @@ const common = {
   retainUntil: Schema.Number,
 };
 
-const twitch = { ...common, transport: Schema.Literal("twitch") };
+const twitch = {
+  ...common,
+  transport: Schema.Literal("twitch"),
+  source: Schema.NullOr(ChatSource).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+};
 
 const computation = {
   invocation: Invocation,
@@ -46,8 +53,15 @@ const computation = {
   replyParentId: ReplyId,
 };
 
+const SavedDispatch = Dispatch.mapFields((fields) => ({
+  ...fields,
+  source: Schema.NullOr(ChatSource).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+}));
+
 const plan = {
-  plan: Schema.NonEmptyArray(Dispatch).check(Schema.isMaxLength(8)),
+  plan: Schema.NonEmptyArray(SavedDispatch).check(Schema.isMaxLength(8)),
   cursor: Schema.Int,
 };
 
@@ -152,6 +166,8 @@ export function nextAlarm(state: TenantState): number | null {
   let next = Infinity;
 
   for (const work of Object.values(state.works)) {
+    next = Math.min(next, work.retainUntil);
+
     if (work.transport !== "twitch" || work.kind === "terminal") continue;
 
     const action = Match.value(work).pipe(

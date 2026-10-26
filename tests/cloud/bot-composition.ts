@@ -8,6 +8,7 @@ import type {
   TenantTrace,
 } from "../../apps/bot/src/tenant-diagnostics.js";
 import { CacheSource } from "../../packages/arc-data/src/cloudflare.js";
+import { journeyUrl } from "./fixture-routing.js";
 import { MetaforgeWorker } from "./metaforge.js";
 import { TwitchProviderFixture } from "./twitch-provider-fixture.js";
 
@@ -85,7 +86,7 @@ export const botTestBindings = Effect.fnUntraced(function* (
         )
           return yield* Effect.die("Synthetic source URL unavailable");
 
-        return { baseUrl };
+        return { baseUrl: journeyUrl(baseUrl, "bot") };
       }),
     }),
     Layer.succeed(AccountEndpoints, {
@@ -98,7 +99,10 @@ export const botTestBindings = Effect.fnUntraced(function* (
         )
           return yield* Effect.die("Synthetic provider URL unavailable");
 
-        return { api: `${baseUrl}/helix`, oauth: `${baseUrl}/oauth` };
+        return {
+          api: `${journeyUrl(baseUrl, "bot")}/helix`,
+          oauth: `${journeyUrl(baseUrl, "bot")}/oauth`,
+        };
       }),
     }),
   );

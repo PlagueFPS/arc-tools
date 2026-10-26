@@ -11,6 +11,7 @@ import {
 import { subscriptionBinding } from "./binding.js";
 import {
   AccountError,
+  SubscriptionAdmission,
   AccountStatus,
   DispatchOutcome,
   SetupResult,
@@ -28,6 +29,8 @@ import {
   type ChannelDispatchState,
   emptyState,
   nextAlarm,
+  nextCleanup,
+  policy,
   splitAccount,
   joinDirectory,
 } from "./state.js";
@@ -66,6 +69,8 @@ const attemptsKey = "account:attempts:v1";
 
 const enrollmentsKey = "account:enrollments:v1";
 
+const leftPrefix = "account:left:v1/";
+
 export const makeAccountStorage = Effect.fnUntraced(function* (
   storage: AccountStorage,
 ) {
@@ -103,7 +108,12 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     before: string,
     value: A,
   ) {
-    if (before !== JSON.stringify(value)) yield* write(key, schema, value);
+    const normalized = yield* Schema.decodeUnknownEffect(schema)(value).pipe(
+      Effect.orDie,
+    );
+
+    if (before !== JSON.stringify(normalized))
+      yield* write(key, schema, normalized);
   });
 
   const alarm = Effect.fnUntraced(function* (shared: SharedAccount) {
@@ -132,9 +142,34 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     yield* changed(
       enrollmentsKey,
       AccountState.fields.enrollments,
-      JSON.stringify(before.enrollments),
-      after.enrollments,
+      JSON.stringify(
+        yield* read(enrollmentsKey, AccountState.fields.enrollments),
+      ),
+      after.enrollments.filter((entry) => entry.phase.kind !== "left"),
     );
+
+    const beforeLeft = new Map(
+      before.enrollments
+        .filter((entry) => entry.phase.kind === "left")
+        .map((entry) => [entry.session, entry]),
+    );
+
+    const afterLeft = new Map(
+      after.enrollments
+        .filter((entry) => entry.phase.kind === "left")
+        .map((entry) => [entry.session, entry]),
+    );
+
+    for (const [session, entry] of afterLeft)
+      yield* changed(
+        leftPrefix + session,
+        AccountState.fields.enrollments.value,
+        JSON.stringify(yield* storage.get(leftPrefix + session)) ?? "",
+        entry,
+      );
+
+    for (const session of beforeLeft.keys())
+      if (!afterLeft.has(session)) yield* storage.delete(leftPrefix + session);
 
     for (const [id, record] of after.channels)
       yield* changed(
@@ -175,6 +210,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       oauthKey,
       attemptsKey,
       enrollmentsKey,
+      leftPrefix,
     ])
       if ((yield* storage.list({ prefix })).size !== 0)
         return yield* Effect.die("Incomplete keyed account storage");
@@ -240,7 +276,24 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       revoked: Object.fromEntries(tombstones),
       oauth: yield* read(oauthKey, AccountState.fields.oauth),
       attempts: yield* read(attemptsKey, AccountState.fields.attempts),
-      enrollments: yield* read(enrollmentsKey, AccountState.fields.enrollments),
+      enrollments: [
+        ...(yield* read(enrollmentsKey, AccountState.fields.enrollments)),
+        ...(yield* Effect.forEach(
+          yield* storage.list({ prefix: leftPrefix }),
+          ([key, value]) =>
+            Schema.decodeUnknownEffect(AccountState.fields.enrollments.value)(
+              value,
+            ).pipe(
+              Effect.orDie,
+              Effect.tap((entry) =>
+                key === leftPrefix + entry.session &&
+                entry.phase.kind === "left"
+                  ? Effect.void
+                  : Effect.die("Invalid left replay key"),
+              ),
+            ),
+        )),
+      ],
     };
   });
 
@@ -255,6 +308,13 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       const before = JSON.stringify(attempts);
       const state = { ...shared, attempts };
       const result = yield* f(state);
+      state.nextCleanupAt = Math.min(
+        state.nextCleanupAt ?? Infinity,
+        ...Object.values(state.attempts).map((entry) => entry.retainUntil),
+        ...state.reservations.map((entry) => entry.at + policy.globalWindowMs),
+      );
+
+      if (!Number.isFinite(state.nextCleanupAt)) state.nextCleanupAt = null;
       const { attempts: after, ...updated } = state;
       Object.assign(shared, updated);
       yield* changed(attemptsKey, AccountState.fields.attempts, before, after);
@@ -314,6 +374,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
               ...state,
               channels: record?.configured.map((entry) => entry.member) ?? [],
               publicMembers: record?.public.map((entry) => entry.member) ?? [],
+              lifecycle: record?.lifecycle ? { [id]: record.lifecycle } : {},
               subscriptions: subscription ? { [id]: subscription } : {},
               revoked:
                 subscription && tombstone
@@ -327,6 +388,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
               channels: _channels,
               publicMembers: _public,
               subscriptions: _subscriptions,
+              lifecycle: _lifecycle,
               revoked,
               ...updated
             } = slice;
@@ -350,11 +412,24 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
         Effect.fnUntraced(function* (shared) {
           const before = yield* directory(shared);
 
-          const state = yield* Schema.decodeUnknownEffect(AccountState)(
-            yield* joinDirectory(before).pipe(Effect.orDie),
-          ).pipe(Effect.orDie);
+          const state: AccountState = yield* Schema.decodeUnknownEffect(
+            AccountState,
+          )(yield* joinDirectory(before).pipe(Effect.orDie)).pipe(Effect.orDie);
 
           const result = f(state);
+          state.nextCleanupAt = nextCleanup(state);
+
+          const recoveryDue = Math.min(
+            ...Object.values(state.lifecycle).map((value) =>
+              value.kind === "installed"
+                ? (value.recovery?.due ?? Infinity)
+                : Infinity,
+            ),
+          );
+
+          state.nextRecoveryAt = Number.isFinite(recoveryDue)
+            ? recoveryDue
+            : null;
           yield* Schema.encodeEffect(AccountState)(state).pipe(Effect.orDie);
           const after = splitAccount(state);
           yield* persistDirectory(after, before);
@@ -408,15 +483,15 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
     observeSubscription: (
       input: Parameters<typeof account.service.observeSubscription>[0],
     ) =>
-      reply(
-        account.service.observeSubscription(input).pipe(Effect.as(null)),
-        Schema.Null,
-      ),
+      reply(account.service.observeSubscription(input), SubscriptionAdmission),
     beginEnrollment: (input: Parameters<typeof account.enrollment.begin>[0]) =>
       reply(account.enrollment.begin(input), Schema.String),
     completeEnrollment: (
       input: Parameters<typeof account.enrollment.complete>[0],
     ) => reply(account.enrollment.complete(input), EnrollmentStatus),
+    leaveEnrollment: (
+      session: Parameters<typeof account.enrollment.leave>[0],
+    ) => reply(account.enrollment.leave(session), EnrollmentStatus),
     enrollmentStatus: (
       session: Parameters<typeof account.enrollment.status>[0],
     ) => reply(account.enrollment.status(session), EnrollmentStatus),
@@ -531,15 +606,17 @@ export const makeAccountClient = Effect.fnUntraced(function* (
     completeOAuth: (input) =>
       decode(object.completeOAuth(input), AccountStatus),
     observeSubscription: (input) =>
-      decode(object.observeSubscription(input), Schema.Null).pipe(
-        Effect.asVoid,
-      ),
+      decode(object.observeSubscription(input), SubscriptionAdmission),
   });
 });
 
 type EnrollmentStub = {
   readonly [
-    K in "beginEnrollment" | "completeEnrollment" | "enrollmentStatus"
+    K in
+      | "beginEnrollment"
+      | "completeEnrollment"
+      | "enrollmentStatus"
+      | "leaveEnrollment"
   ]: (
     ...args: Parameters<(typeof AccountRpc.Service)[K]>
   ) => Effect.Effect<unknown, unknown, RuntimeContext>;
@@ -551,6 +628,8 @@ export const makeEnrollmentClient = Effect.fnUntraced(function* (
   const decode = yield* makeReplyDecoder();
 
   return TwitchEnrollment.of({
+    leave: (session) =>
+      decode(object.leaveEnrollment(session), EnrollmentStatus),
     begin: (input) => decode(object.beginEnrollment(input), Schema.String),
     complete: (input) =>
       decode(object.completeEnrollment(input), EnrollmentStatus),

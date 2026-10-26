@@ -1,5 +1,5 @@
 import { CommandExecution } from "@arctools/commands/schemas";
-import { BroadcasterId, ReplyId } from "@arctools/twitch/server";
+import { BroadcasterId, ChatSource, ReplyId } from "@arctools/twitch/server";
 import { Context, type Effect, Schema } from "effect";
 
 import { GuildId, WorkId } from "./contracts.js";
@@ -23,6 +23,7 @@ const receipt = {
 export const TwitchReceipt = Schema.Struct({
   ...receipt,
   broadcasterId: BroadcasterId.check(Schema.isMaxLength(64)),
+  source: ChatSource,
   replyParentId: ReplyId,
 });
 

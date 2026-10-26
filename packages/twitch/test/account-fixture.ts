@@ -237,11 +237,16 @@ export const harness = Effect.fnUntraced(function* (
     sendGate: noGate(),
     sendStarted: noGate(),
     mintGate: noGate(),
+    mintStarted: noGate(),
     exchangeGate: noGate(),
     exchangeStarted: noGate(),
     validationGate: noGate(),
     validationStarted: noGate(),
     failCreate: false,
+    failRemove: false,
+    removeElapsedMs: 0,
+    removeRetryAt: 0,
+    failedChannels: new Set<string>(),
     failUsers: false,
     usersFailure: noFailure(),
     usersGate: noGate(),
@@ -258,6 +263,9 @@ export const harness = Effect.fnUntraced(function* (
   const provider: Provider = {
     mint: Effect.fnUntraced(function* () {
       control.mints++;
+
+      if (control.mintStarted)
+        yield* Deferred.succeed(control.mintStarted, undefined);
 
       if (control.mintGate) yield* Deferred.await(control.mintGate);
 
@@ -376,7 +384,7 @@ export const harness = Effect.fnUntraced(function* (
 
         control.remote.push(subscription);
 
-        if (control.failCreate)
+        if (control.failCreate || control.failedChannels.has(channel))
           return { kind: "unknown" } satisfies Effect.Success<
             ReturnType<Provider["create"]>
           >;
@@ -403,9 +411,19 @@ export const harness = Effect.fnUntraced(function* (
         ),
       ),
     remove: (_token, id) =>
-      Effect.sync(() => {
-        control.removes++;
-        control.remote = control.remote.filter((sub) => sub.id !== id);
+      Effect.gen(function* () {
+        time += control.removeElapsedMs;
+
+        if (control.failRemove)
+          return yield* new AccountError({
+            code: "provider",
+            retryAt: control.removeRetryAt || undefined,
+          });
+        yield* Effect.sync(() => {
+          control.removes++;
+
+          control.remote = control.remote.filter((sub) => sub.id !== id);
+        });
       }),
     send: Effect.fnUntraced(function* (_token, _sender, input) {
       if (time >= input.deadline) return { kind: "expired" };
@@ -530,6 +548,20 @@ export const harness = Effect.fnUntraced(function* (
       Schema.decodeUnknownSync(Dispatch)({
         attemptId,
         broadcasterId: channel,
+        source: (() => {
+          const row = memory.values.get("account:channel:v1/" + channel);
+
+          if (!row)
+            return { installationId: "unowned", subscriptionId: "unowned" };
+          const record = Schema.decodeUnknownSync(ChannelRecord)(row);
+
+          return record.lifecycle?.kind === "installed" && record.subscription
+            ? {
+                installationId: record.lifecycle.id,
+                subscriptionId: record.subscription.id,
+              }
+            : { installationId: "unowned", subscriptionId: "unowned" };
+        })(),
         replyParentId: "reply",
         text: "Sensors sell for 10 coins.",
         deadline,

@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 
-import { Effect, Fiber, Option, Schedule, Schema } from "effect";
+import { Effect, Fiber, Option, Schema } from "effect";
 
 import { EncodedRead } from "../../packages/arc-data/src/cache.js";
 import {
@@ -9,7 +9,17 @@ import {
 } from "../../packages/arc-data/src/data-service.js";
 import { ItemAPIResponse } from "../../packages/arc-data/src/schema.js";
 import { CacheSnapshot } from "./cache-fixture.js";
-import { get, json, post, reconstructedSnapshot } from "./fixture-http.js";
+import { retainJourney } from "./fixture-evidence.js";
+import {
+  auditedObservation,
+  observe,
+  get,
+  json,
+  post,
+  reconstructedSnapshot,
+} from "./fixture-http.js";
+import { withSourceHold } from "./fixture-journey.js";
+import { cacheJourney } from "./fixture-routing.js";
 import type * as Foundation from "./foundation.test.js";
 import { Observations, type SourceControl } from "./metaforge.js";
 
@@ -54,16 +64,21 @@ export function registerCacheTests({
   stack,
   test,
 }: Pick<typeof Foundation, "stack" | "test">) {
-  const fixture = Effect.gen(function* () {
+  const fixture = Effect.fnUntraced(function* (name: string) {
     const deployed = yield* stack;
 
     if (!deployed.cacheUrl || !deployed.sourceUrl)
       return yield* Effect.die("Cache test outputs are missing");
-    const url = deployed.cacheUrl;
-    const source = deployed.sourceUrl;
+
+    yield* retainJourney(name, { phase: "start" });
+
+    const { url, source } = cacheJourney(
+      { cache: deployed.cacheUrl, source: deployed.sourceUrl },
+      name,
+    );
+
     yield* observations(source);
     yield* snapshot(url);
-    yield* post(`${url}/clear`);
     yield* post(`${url}/time`, 0);
 
     return { url, source };
@@ -72,7 +87,7 @@ export function registerCacheTests({
   test(
     "real cache storage round-trips Options, survives native reconstruction and refreshes only at 24 hours",
     Effect.gen(function* () {
-      const { url, source } = yield* fixture;
+      const { url, source } = yield* fixture("cache-persist");
       const input = query("persist");
       const first = yield* successful(url, input);
       const before = yield* snapshot(url);
@@ -126,7 +141,7 @@ export function registerCacheTests({
   test(
     "schema, status and parse failures preserve original data, timestamp and persistent cooldown through the day-seven edge",
     Effect.gen(function* () {
-      const { url, source } = yield* fixture;
+      const { url, source } = yield* fixture("cache-failure");
 
       for (const [id, body, status, raw] of [
         [
@@ -169,7 +184,7 @@ export function registerCacheTests({
   test(
     "real schedule storage expires at 60 seconds and rejects stale fallback after source failure and reconstruction",
     Effect.gen(function* () {
-      const { url, source } = yield* fixture;
+      const { url, source } = yield* fixture("cache-schedule");
       yield* configure(source, {
         key: "/events-schedule",
         body: {
@@ -201,70 +216,77 @@ export function registerCacheTests({
   test(
     "same-key cloud refreshes coalesce, independent keys progress and reset fences a late source completion",
     Effect.gen(function* () {
-      const { url, source } = yield* fixture;
+      const { url, source } = yield* fixture("cache-contention");
       const key = "/items?id=held";
       const input = query("held");
-      yield* configure(source, {
-        key,
-        body: { data: [{ id: "held", name: "Old", value: 1 }] },
-        hold: true,
-      });
-      const first = yield* read(url, input).pipe(Effect.forkChild);
-      yield* observations(source).pipe(
-        Effect.repeat({
-          until: (calls) => calls[key] === 1,
-          times: 20,
-          schedule: Schedule.spaced("100 millis"),
+      yield* withSourceHold(
+        source,
+        { key, body: { data: [{ id: "held", name: "Old", value: 1 }] } },
+        Effect.fnUntraced(function* (control) {
+          const first = yield* read(url, input).pipe(Effect.forkScoped);
+          yield* observe(
+            auditedObservation(
+              "source",
+              `${source}/observations`,
+              Observations,
+            ),
+            { until: (calls) => calls[key] === 1, budgetMs: 5000 },
+          );
+          const second = yield* read(url, input).pipe(Effect.forkScoped);
+          const independent = yield* successful(url, query("independent"));
+          expect(independent.provenance.freshness).toBe("fresh");
+          expect((yield* observations(source))[key]).toBe(1);
+          yield* control.release;
+          expect(yield* Fiber.join(second)).toEqual(yield* Fiber.join(first));
+          expect((yield* observations(source))[key]).toBe(1);
         }),
       );
-      const second = yield* read(url, input).pipe(Effect.forkChild);
-      const independent = yield* successful(url, query("independent"));
-      expect(independent.provenance.freshness).toBe("fresh");
-      expect((yield* observations(source))[key]).toBe(1);
-      yield* post(`${source}/release`, key);
-      expect(yield* Fiber.join(second)).toEqual(yield* Fiber.join(first));
-      expect((yield* observations(source))[key]).toBe(1);
-
       const lateKey = "/items?id=late";
       const lateInput = query("late");
-      yield* configure(source, {
-        key: lateKey,
-        body: { data: [{ id: "late", name: "Obsolete", value: 1 }] },
-        hold: true,
-      });
-      const late = yield* read(url, lateInput).pipe(Effect.forkChild);
-      yield* observations(source).pipe(
-        Effect.repeat({
-          until: (calls) => calls[lateKey] === 1,
-          times: 20,
-          schedule: Schedule.spaced("100 millis"),
+      yield* withSourceHold(
+        source,
+        {
+          key: lateKey,
+          body: { data: [{ id: "late", name: "Obsolete", value: 1 }] },
+        },
+        Effect.fnUntraced(function* (control) {
+          const late = yield* read(url, lateInput).pipe(Effect.forkScoped);
+          yield* observe(
+            auditedObservation(
+              "source",
+              `${source}/observations`,
+              Observations,
+            ),
+            { until: (calls) => calls[lateKey] === 1, budgetMs: 5000 },
+          );
+          yield* post(`${url}/clear`);
+          yield* configure(source, {
+            key: lateKey,
+            body: { data: [{ id: "late", name: "Current", value: 2 }] },
+          });
+          const newer = yield* successful(url, lateInput);
+          yield* control.release;
+          const old = yield* Fiber.join(late);
+          expect(old.kind).toBe("failure");
+
+          if (old.kind === "failure")
+            expect(old.error.reason).toBe("superseded");
+          expect(yield* successful(url, lateInput)).toEqual(newer);
+          expect(JSON.parse(newer.body).data[0].name).toBe("Current");
+          yield* post(`${url}/reconstruct`);
+          expect(
+            (yield* snapshot(url)).rows["entry:v1:json:/items?id=late"]?.value
+              ?.body,
+          ).toBe(newer.body);
         }),
       );
-      yield* post(`${url}/clear`);
-      yield* configure(source, {
-        key: lateKey,
-        body: { data: [{ id: "late", name: "Current", value: 2 }] },
-      });
-      const newer = yield* successful(url, lateInput);
-      yield* post(`${source}/release`, lateKey);
-      const old = yield* Fiber.join(late);
-      expect(old.kind).toBe("failure");
-
-      if (old.kind === "failure") expect(old.error.reason).toBe("superseded");
-      expect(yield* successful(url, lateInput)).toEqual(newer);
-      expect(JSON.parse(newer.body).data[0].name).toBe("Current");
-      yield* post(`${url}/reconstruct`);
-      expect(
-        (yield* snapshot(url)).rows["entry:v1:json:/items?id=late"]?.value
-          ?.body,
-      ).toBe(newer.body);
     }),
     { timeout: 90_000 },
   );
   test(
     "real cache keys keep ID, search, response flags and limits separate, including valid empty responses",
     Effect.gen(function* () {
-      const { url, source } = yield* fixture;
+      const { url, source } = yield* fixture("cache-keys");
 
       const cases = [
         [{ resource: "items", params: { id: "flags" } }, "/items?id=flags"],

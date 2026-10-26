@@ -354,6 +354,19 @@ export const fixture = Effect.fnUntraced(function* () {
       Schema.decodeUnknownSync(Dispatch)({
         attemptId,
         broadcasterId: "200",
+        source: Effect.runSync(
+          store.channelDispatch(
+            Dispatch.fields.broadcasterId.make("200"),
+            (state) => {
+              const life = state.lifecycle["200"];
+              const record = state.subscriptions["200"];
+
+              return life?.kind === "installed" && record
+                ? { installationId: life.id, subscriptionId: record.id }
+                : { installationId: "unowned", subscriptionId: "unowned" };
+            },
+          ),
+        ),
         replyParentId: "reply",
         text: "Sensors",
         deadline: Date.now() + 10_000,

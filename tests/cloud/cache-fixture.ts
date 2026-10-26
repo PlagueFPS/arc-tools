@@ -1,6 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Stack } from "alchemy";
-import { Cause, Clock, Effect, Layer, Schema } from "effect";
+import { Clock, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -20,6 +20,12 @@ import {
   acknowledgeReconstruction,
   identifyFixtureResponse,
 } from "./fixture-response.js";
+import {
+  CurrentJourney,
+  routeJourney,
+  journeyFromName,
+  journeyUrl,
+} from "./fixture-routing.js";
 import { MetaforgeWorker } from "./metaforge.js";
 
 export const CacheSnapshot = Schema.Struct({
@@ -36,10 +42,15 @@ export class CacheFixtureObject extends Cloudflare.DurableObject<CacheFixtureObj
 
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
-      const baseUrl = yield* sourceUrl;
+      const sourceBase = yield* sourceUrl;
 
-      if (!Schema.is(Schema.String)(baseUrl))
+      if (!Schema.is(Schema.String)(sourceBase))
         return yield* Effect.die("Metaforge fixture URL is unavailable");
+
+      const baseUrl = journeyUrl(
+        sourceBase,
+        journeyFromName(state.id.name, "environment:"),
+      );
 
       const options = {
         baseUrl,
@@ -117,7 +128,17 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
   }),
   Effect.gen(function* () {
     const objects = yield* CacheFixtureObject;
-    const object = () => objects.getByName("environment");
+
+    const object = <A, E, R>(
+      use: (
+        object: ReturnType<typeof objects.getByName>,
+      ) => Effect.Effect<A, E, R>,
+    ) =>
+      CurrentJourney.pipe(
+        Effect.flatMap((journey) =>
+          use(objects.getByName("environment:" + journey)),
+        ),
+      );
 
     const handlers = HttpApiBuilder.group(CacheApi, "cache", (handlers) =>
       handlers
@@ -128,19 +149,17 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
               Effect.orDie,
             );
 
-            return yield* object()
-              .read(query)
-              .pipe(
-                Effect.map(HttpServerResponse.jsonUnsafe),
-                Effect.catchCause((cause) =>
-                  Effect.succeed(
-                    HttpServerResponse.jsonUnsafe(
-                      { fixtureError: Cause.pretty(cause) },
-                      { status: 500 },
-                    ),
+            return yield* object((object) => object.read(query)).pipe(
+              Effect.map(HttpServerResponse.jsonUnsafe),
+              Effect.catchCause(() =>
+                Effect.succeed(
+                  HttpServerResponse.jsonUnsafe(
+                    { fixtureError: "fixture-failure" },
+                    { status: 500 },
                   ),
                 ),
-              );
+              ),
+            );
           }),
         )
         .handleRaw("time", ({ request }) =>
@@ -150,36 +169,34 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
               Effect.orDie,
             );
 
-            yield* object().time(time);
+            yield* object((object) => object.time(time));
 
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
         .handleRaw("clear", () =>
-          object()
-            .clear()
-            .pipe(Effect.as(HttpServerResponse.empty({ status: 204 }))),
+          object((object) => object.clear()).pipe(
+            Effect.as(HttpServerResponse.empty({ status: 204 })),
+          ),
         )
         .handleRaw("reconstruct", () =>
           acknowledgeReconstruction(
-            object().reconstruct(),
+            object((object) => object.reconstruct()),
             "cache reconstruction fixture",
           ),
         )
         .handleRaw("snapshot", () =>
-          object()
-            .snapshot()
-            .pipe(
-              Effect.map(HttpServerResponse.jsonUnsafe),
-              Effect.catchCause((cause) =>
-                Effect.succeed(
-                  HttpServerResponse.jsonUnsafe(
-                    { fixtureError: Cause.pretty(cause) },
-                    { status: 500 },
-                  ),
+          object((object) => object.snapshot()).pipe(
+            Effect.map(HttpServerResponse.jsonUnsafe),
+            Effect.catchCause(() =>
+              Effect.succeed(
+                HttpServerResponse.jsonUnsafe(
+                  { fixtureError: "fixture-failure" },
+                  { status: 500 },
                 ),
               ),
             ),
+          ),
         ),
     );
 
@@ -188,9 +205,9 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
-        Effect.map((handler) =>
-          handler.pipe(Effect.map(identifyFixtureResponse)),
-        ),
+        Effect.flatten,
+        routeJourney,
+        Effect.map(identifyFixtureResponse),
       ),
     };
   }),

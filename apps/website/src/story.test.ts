@@ -8,6 +8,8 @@ import { expect, test } from "vitest";
 
 import {
   CheckEnrollment,
+  LeaveChannel,
+  leaveChannel,
   EffectsLayer,
   LoadExternal,
   NavigateInternal,
@@ -48,6 +50,7 @@ test("pending refresh retains data then becomes ready for this channel", () => {
   story(
     update,
     given({
+      leave: Enrollment.Idle(),
       route: ApplicationRoute.Connect(),
       enrollment: Enrollment.Success({ data: { kind: "pending" } }),
       requestId: RequestId.make(1),
@@ -239,6 +242,7 @@ test("a content hash moves to main and an in-app link stays inside the page", ()
 
 test("a duplicate settled response and a stale failure leave the visible status", () => {
   const ready = {
+    leave: Enrollment.Idle(),
     route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "raider" },
@@ -319,6 +323,7 @@ test("leaving Connect aborts the pending browser request", async () => {
 
 test("an absent session followed by an unavailable refresh never restores a former channel", () => {
   const ready: Model = {
+    leave: Enrollment.Idle(),
     route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "former_channel" },
@@ -349,4 +354,170 @@ test("an absent session followed by an unavailable refresh never restores a form
   expect(AsyncData.getData(unavailable.model.enrollment)).toEqual(
     Option.none(),
   );
+});
+
+test("Leave has one mutation, fences older status, and retry resolves a lost response", () => {
+  const ready = {
+    ...initial().model,
+    enrollment: Enrollment.Success({
+      data: { kind: "recovering", login: "raider" } satisfies EnrollmentStatus,
+    }),
+  };
+
+  const started = update(ready, Message.ClickedLeaveChannel());
+  expect(started.commands).toHaveLength(1);
+  expect(
+    update(started.model, Message.ClickedLeaveChannel()).commands,
+  ).toBeUndefined();
+  expect(
+    update(started.model, Message.ClickedCheckStatus()).commands,
+  ).toBeUndefined();
+  expect(
+    update(
+      started.model,
+      Message.SucceededCheckEnrollment({
+        requestId: ready.requestId,
+        status: { kind: "ready", login: "stale" },
+      }),
+    ).model,
+  ).toEqual(started.model);
+  story(
+    update,
+    given(started.model),
+    message(
+      Message.FailedLeaveChannel({
+        requestId: started.model.requestId,
+        error: CheckError.Unavailable(),
+      }),
+    ),
+    message(Message.ClickedLeaveChannel()),
+    Command.resolve(
+      LeaveChannel,
+      Message.SucceededLeaveChannel({
+        requestId: RequestId.make(started.model.requestId + 1),
+        status: { kind: "left", login: "raider" },
+      }),
+    ),
+    model((current) =>
+      expect(AsyncData.getData(current.enrollment)).toEqual(
+        Option.some({ kind: "left", login: "raider" }),
+      ),
+    ),
+  );
+});
+
+test("leaving Connect cancels Leave and reentry checks the durable result", () => {
+  const ready = {
+    ...initial().model,
+    enrollment: Enrollment.Success({
+      data: { kind: "ready", login: "raider" } satisfies EnrollmentStatus,
+    }),
+  };
+
+  const started = update(ready, Message.ClickedLeaveChannel());
+  const away = update(started.model, Message.ChangedUrl({ url: url("/") }));
+  expect(away.commands).toHaveLength(1);
+
+  const returned = update(
+    away.model,
+    Message.ChangedUrl({ url: url("/connect") }),
+  );
+
+  expect(returned.commands).toHaveLength(1);
+
+  const stale = update(
+    returned.model,
+    Message.SucceededLeaveChannel({
+      requestId: started.model.requestId,
+      status: { kind: "left", login: "raider" },
+    }),
+  );
+
+  expect(stale.model).toEqual(returned.model);
+});
+
+test("Leave transport uses one empty POST and decodes left", async () => {
+  const requests: { method: string; url: string }[] = [];
+
+  const transport = HttpClient.make((request) => {
+    requests.push({ method: request.method, url: request.url });
+    expect(request.body._tag).toBe("Empty");
+
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(
+        request,
+        Response.json({ kind: "left", login: "raider" }),
+      ),
+    );
+  });
+
+  expect(
+    await Effect.runPromise(
+      leaveChannel().pipe(
+        Effect.provideService(HttpClient.HttpClient, transport),
+      ),
+    ),
+  ).toEqual({ kind: "left", login: "raider" });
+  expect(requests).toEqual([
+    { method: "POST", url: "/oauth/twitch/enroll/leave" },
+  ]);
+});
+
+test("the native Leave Command sends an empty same-origin no-store POST", async () => {
+  const { FetchHttpClient } = await import("effect/http");
+  let captured: RequestInit | undefined;
+
+  const transport: typeof fetch = async (_input, options) => {
+    captured = options;
+
+    return Response.json({ kind: "left", login: "raider" });
+  };
+
+  const requestId = RequestId.make(17);
+
+  const result = await Effect.runPromise(
+    LeaveChannel({ requestId }).effect.pipe(
+      Effect.provide(LeaveChannel.layer),
+      Effect.provideService(FetchHttpClient.Fetch, transport),
+    ),
+  );
+
+  expect(result).toEqual(
+    Message.SucceededLeaveChannel({
+      requestId,
+      status: { kind: "left", login: "raider" },
+    }),
+  );
+  expect(captured).toMatchObject({
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    redirect: "error",
+  });
+  expect(captured?.body == null).toBe(true);
+  expect(new Headers(captured?.headers).get("accept")).not.toBe(
+    "application/json",
+  );
+});
+
+test("an unauthorized Leave clears the old channel and requires explicit OAuth", () => {
+  const ready = {
+    ...initial().model,
+    enrollment: Enrollment.Success({
+      data: { kind: "ready", login: "raider" } satisfies EnrollmentStatus,
+    }),
+  };
+
+  const started = update(ready, Message.ClickedLeaveChannel());
+
+  const failed = update(
+    started.model,
+    Message.FailedLeaveChannel({
+      requestId: started.model.requestId,
+      error: CheckError.Absent(),
+    }),
+  );
+
+  expect(AsyncData.getData(failed.model.enrollment)).toEqual(Option.none());
+  expect(failed.commands).toBeUndefined();
 });

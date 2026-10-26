@@ -3,6 +3,7 @@ import { describe, expect } from "bun:test";
 import { botOrigin } from "@arctools/bot-contracts/origins";
 import {
   type Account,
+  InstallationId,
   AccountError,
   AccountStatus,
   type SubscriptionObservation,
@@ -51,6 +52,7 @@ const encode = (value: Schema.Json) =>
 
 const fixture = Effect.fnUntraced(function* (
   options: {
+    setupError?: AccountError["code"];
     receivedAt?: number;
     tenants?: Partial<TenantService>;
     observation?: (
@@ -93,13 +95,21 @@ const fixture = Effect.fnUntraced(function* (
     setup: Effect.fnUntraced(function* () {
       setups++;
 
-      return yield* new AccountError({ code: "configuration" });
+      return yield* new AccountError({
+        code: options.setupError ?? "configuration",
+      });
     }),
     completeOAuth: () => new AccountError({ code: "configuration" }),
     observeSubscription: (input) =>
       Effect.sync(() => {
         observations.push(input);
-      }).pipe(Effect.andThen(options.observation?.(input) ?? Effect.void)),
+      }).pipe(
+        Effect.andThen(options.observation?.(input) ?? Effect.void),
+        Effect.as({
+          installationId: InstallationId.make("fixture-install"),
+          subscriptionId: input.id,
+        }),
+      ),
   };
 
   const tenants = Tenants.of({
@@ -891,6 +901,26 @@ test(
     expect((yield* f.request("/ops/setup", body, authorization)).status).toBe(
       503,
     );
+    expect(f.setups()).toBe(1);
+  }),
+);
+
+test(
+  "operator setup contention is explicitly retryable without hiding other failures",
+  Effect.gen(function* () {
+    const f = yield* fixture({ setupError: "busy" });
+
+    const response = yield* f.request(
+      "/ops/setup",
+      encode({ stage: identity.stage }),
+      { authorization: "Bearer operator" },
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("1");
+    expect(yield* Effect.promise(() => response.json())).toEqual({
+      error: "operator-busy",
+    });
     expect(f.setups()).toBe(1);
   }),
 );

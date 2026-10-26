@@ -1,6 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Stack } from "alchemy";
-import { Deferred, Effect, Layer, Schema } from "effect";
+import { Deferred, Effect, Result, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -9,7 +9,10 @@ import {
   HttpApiGroup,
 } from "effect/http-api";
 
+import type { AttributionStorage } from "./alarm-attribution.js";
+import { ControlId, fixtureControl } from "./fixture-control.js";
 import { identifyFixtureResponse } from "./fixture-response.js";
+import { CurrentJourney, routeJourney } from "./fixture-routing.js";
 
 export const SourceControl = Schema.Struct({
   key: Schema.String,
@@ -17,71 +20,97 @@ export const SourceControl = Schema.Struct({
   body: Schema.Json,
   delayMs: Schema.optional(Schema.Number),
   raw: Schema.optional(Schema.Boolean),
-  hold: Schema.optional(Schema.Boolean),
 });
 
 export const Observations = Schema.Record(Schema.String, Schema.Number);
 
-class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
-  "MetaforgeFixtureState",
-  Effect.gen(function* () {
-    const { storage } = yield* Cloudflare.DurableObjectState;
+const Activation = Schema.Struct({ id: ControlId, patch: SourceControl });
 
-    return Effect.sync(() => {
-      const gates = new Map<string, Deferred.Deferred<void>>();
+const Retirement = Schema.Struct({ id: ControlId });
 
-      return {
-        configure: Effect.fnUntraced(function* (
-          control: typeof SourceControl.Type,
-        ) {
-          if (control.hold)
-            gates.set(control.key, yield* Deferred.make<void>());
-          yield* storage.put(`control:${control.key}`, control);
-        }),
-        release: Effect.fnUntraced(function* (key: string) {
-          const gate = gates.get(key);
+type HeldSource = {
+  input: typeof SourceControl.Type;
+  seedVersion: string | null;
+} | null;
 
-          if (gate !== undefined) {
-            yield* Deferred.succeed(gate, undefined);
-            gates.delete(key);
+export const makeSourceFixture = Effect.fnUntraced(function* (
+  storage: AttributionStorage & {
+    readonly list: <T = unknown>(options: {
+      prefix: string;
+    }) => Effect.Effect<
+      Map<string, T>,
+      never,
+      import("alchemy/RuntimeContext").RuntimeContext
+    >;
+  },
+) {
+  const temporary = yield* fixtureControl<HeldSource>(
+    storage,
+    null,
+    (setting) => (setting ? [setting.input.key] : []),
+  );
+
+  return {
+    configure: (control: typeof SourceControl.Type) =>
+      storage.put(`control:${control.key}`, {
+        input: control,
+        version: crypto.randomUUID(),
+      }),
+    activate: Effect.fnUntraced(function* (input: typeof Activation.Type) {
+      const seed = yield* storage.get<{ version: string }>(
+        `control:${input.patch.key}`,
+      );
+
+      yield* temporary.activate(input.id, {
+        input: input.patch,
+        seedVersion: seed?.version ?? null,
+      });
+    }),
+    retire: (id: string) => temporary.retire(id),
+    controlState: (id: string) => temporary.observe(id),
+    observations: Effect.fnUntraced(function* () {
+      return Object.fromEntries(
+        [...(yield* storage.list<number>({ prefix: "calls:" }))].map(
+          ([key, value]) => [key.slice(6), value],
+        ),
+      );
+    }),
+    request: Effect.fnUntraced(function* (key: string) {
+      const captured = yield* temporary.capture;
+
+      const seed = yield* storage.get<{
+        input: typeof SourceControl.Type;
+        version: string;
+      }>(`control:${key}`);
+
+      const held =
+        captured.settings?.input.key === key &&
+        (seed?.version ?? null) === captured.settings.seedVersion;
+
+      const control = held ? captured.settings?.input : seed?.input;
+      yield* storage
+        .transaction(
+          Effect.gen(function* () {
+            yield* storage.put(
+              `calls:${key}`,
+              ((yield* storage.get<number>(`calls:${key}`)) ?? 0) + 1,
+            );
+          }),
+        )
+        .pipe(Effect.orDie);
+      const gate = held ? captured.gates.get(key) : undefined;
+
+      if (gate) yield* Deferred.await(gate);
+
+      if (control?.delayMs) yield* Effect.sleep(control.delayMs);
+
+      return control
+        ? {
+            status: control.status ?? 200,
+            body: control.body,
+            raw: control.raw ?? false,
           }
-        }),
-        observations: Effect.fnUntraced(function* () {
-          return Object.fromEntries(
-            [...(yield* storage.list<number>({ prefix: "calls:" }))].map(
-              ([key, value]) => [key.slice(6), value],
-            ),
-          );
-        }),
-        request: Effect.fnUntraced(function* (key: string) {
-          const control = yield* storage.get<typeof SourceControl.Type>(
-            `control:${key}`,
-          );
-
-          yield* storage
-            .transaction(
-              Effect.gen(function* () {
-                yield* storage.put(
-                  `calls:${key}`,
-                  ((yield* storage.get<number>(`calls:${key}`)) ?? 0) + 1,
-                );
-              }),
-            )
-            .pipe(Effect.orDie);
-          const gate = gates.get(key);
-
-          if (control?.hold && gate !== undefined) yield* Deferred.await(gate);
-
-          if (control?.delayMs) yield* Effect.sleep(control.delayMs);
-
-          if (control !== undefined)
-            return {
-              status: control.status ?? 200,
-              body: control.body,
-              raw: control.raw ?? false,
-            };
-
-          return {
+        : {
             status: 200,
             body: {
               data: [
@@ -97,9 +126,16 @@ class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
             },
             raw: false,
           };
-        }),
-      };
-    });
+    }),
+  };
+});
+
+class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
+  "MetaforgeFixtureState",
+  Effect.gen(function* () {
+    const { storage } = yield* Cloudflare.DurableObjectState;
+
+    return makeSourceFixture(storage);
   }),
 ) {}
 
@@ -110,7 +146,9 @@ class MetaforgeApi extends HttpApi.make("metaforge-fixture").add(
     HttpApiEndpoint.get("traders", "/traders"),
     HttpApiEndpoint.get("events", "/events-schedule"),
     HttpApiEndpoint.post("control", "/control"),
-    HttpApiEndpoint.post("release", "/release"),
+    HttpApiEndpoint.post("activate", "/temporary/activate"),
+    HttpApiEndpoint.post("retire", "/temporary/retire"),
+    HttpApiEndpoint.get("controlState", "/temporary/state"),
     HttpApiEndpoint.get("observations", "/observations"),
   ),
 ) {}
@@ -129,14 +167,24 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
   }),
   Effect.gen(function* () {
     const objects = yield* MetaforgeState;
-    const source = () => objects.getByName("source");
+
+    const source = <A, E, R>(
+      use: (
+        object: ReturnType<typeof objects.getByName>,
+      ) => Effect.Effect<A, E, R>,
+    ) =>
+      CurrentJourney.pipe(
+        Effect.flatMap((journey) =>
+          use(objects.getByName("source:" + journey)),
+        ),
+      );
 
     const handler = Effect.fnUntraced(function* (url: string) {
       const parsed = new URL(url, "https://fixture.invalid");
       parsed.searchParams.sort();
 
-      const result = yield* source().request(
-        `${parsed.pathname}${parsed.search}`,
+      const result = yield* source((object) =>
+        object.request(`${parsed.pathname}${parsed.search}`),
       );
 
       return result.raw
@@ -159,27 +207,56 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
               Effect.orDie,
             );
 
-            yield* source().configure(control);
+            yield* source((object) => object.configure(control));
 
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
-        .handleRaw("release", ({ request }) =>
+        .handleRaw("activate", ({ request }) =>
           Effect.gen(function* () {
-            const key = yield* request.json.pipe(
-              Effect.flatMap(Schema.decodeUnknownEffect(Schema.String)),
+            const input = yield* request.json.pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Activation)),
               Effect.orDie,
             );
 
-            yield* source().release(key);
+            const result = yield* source((object) =>
+              object.activate(input),
+            ).pipe(Effect.result);
+
+            return HttpServerResponse.empty({
+              status: Result.isSuccess(result) ? 204 : 409,
+            });
+          }),
+        )
+        .handleRaw("retire", ({ request }) =>
+          Effect.gen(function* () {
+            const input = yield* request.json.pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Retirement)),
+              Effect.orDie,
+            );
+
+            yield* source((object) => object.retire(input.id));
 
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
+        .handleRaw("controlState", ({ request }) =>
+          Effect.gen(function* () {
+            const id = yield* Schema.decodeUnknownEffect(ControlId)(
+              new URL(request.url, "https://fixture.invalid").searchParams.get(
+                "id",
+              ),
+            ).pipe(Effect.orDie);
+
+            return yield* source((object) => object.controlState(id)).pipe(
+              Effect.map(HttpServerResponse.jsonUnsafe),
+            );
+          }),
+        )
         .handleRaw("observations", () =>
-          source()
-            .observations()
-            .pipe(Effect.map(HttpServerResponse.jsonUnsafe)),
+          source((object) => object.observations()).pipe(
+            Effect.map(HttpServerResponse.jsonUnsafe),
+          ),
         ),
     );
 
@@ -188,9 +265,9 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
-        Effect.map((handler) =>
-          handler.pipe(Effect.map(identifyFixtureResponse)),
-        ),
+        Effect.flatten,
+        routeJourney,
+        Effect.map(identifyFixtureResponse),
       ),
     };
   }),

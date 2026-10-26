@@ -99,6 +99,10 @@ const fixture = Effect.fnUntraced(function* () {
   const now = yield* Clock.currentTimeMillis;
 
   const input = Schema.decodeUnknownSync(Dispatch)({
+    source: {
+      installationId: "provider-fixture",
+      subscriptionId: "provider-fixture",
+    },
     attemptId: "attempt",
     broadcasterId: "200",
     replyParentId: "reply",
@@ -222,6 +226,10 @@ const nativeFixture = Effect.fnUntraced(function* (
   const now = yield* Clock.currentTimeMillis;
 
   const input = Schema.decodeUnknownSync(Dispatch)({
+    source: {
+      installationId: "provider-fixture",
+      subscriptionId: "provider-fixture",
+    },
     attemptId: "native-attempt",
     broadcasterId: "200",
     replyParentId: "reply",
@@ -243,6 +251,31 @@ const nativeSubscription = {
     callback: "https://bot.invalid/webhooks/twitch",
   },
 };
+
+test(
+  "EventSub Retry-After parses delta seconds exclusively and still accepts HTTP dates",
+  Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    const until = Math.floor((now + 3_600_000) / 1000) * 1000;
+
+    for (const [header, expected] of [
+      ["3600", now + 3_600_000],
+      [new Date(until).toUTCString(), until],
+    ] as const) {
+      const f = yield* nativeFixture(
+        () =>
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": header },
+          }),
+      );
+
+      const error = yield* f.provider.list("token").pipe(Effect.flip);
+
+      expect(error.retryAt).toBe(expected);
+    }
+  }).pipe(Effect.provide(TestClock.layer())),
+);
 
 test(
   "native clients capture transport while each method uses the current token and its own authorization scheme",
@@ -378,7 +411,7 @@ test(
     expect((yield* f.provider.users("token", []).pipe(Effect.flip)).code).toBe(
       "provider",
     );
-    expect(f.requests.at(-1)?.response.bodyUsed).toBeTrue();
+    expect(f.requests.at(-1)?.response.bodyUsed).toBeFalse();
   }),
 );
 
@@ -498,6 +531,10 @@ for (const remaining of [250, 8000])
       );
 
       const input = Schema.decodeUnknownSync(Dispatch)({
+        source: {
+          installationId: "provider-fixture",
+          subscriptionId: "provider-fixture",
+        },
         attemptId: "deadline-attempt",
         broadcasterId: "200",
         replyParentId: "reply",

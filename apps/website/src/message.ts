@@ -12,6 +12,10 @@ export const Message = defineMessageUnion({
   CompletedScrollToContent: {},
   CompletedCancelCheck: {},
   ClickedCheckStatus: {},
+  ClickedLeaveChannel: {},
+  CompletedCancelLeave: {},
+  SucceededLeaveChannel: { requestId: RequestId, status: EnrollmentStatus },
+  FailedLeaveChannel: { requestId: RequestId, error: CheckError },
   SucceededCheckEnrollment: { requestId: RequestId, status: EnrollmentStatus },
   FailedCheckEnrollment: { requestId: RequestId, error: CheckError },
 });

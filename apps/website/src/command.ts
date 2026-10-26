@@ -59,6 +59,57 @@ export const CheckEnrollment = ApplicationDefinition.makeCommand(
   },
 );
 
+export const leaveChannel = Effect.fnUntraced(function* () {
+  const client = yield* HttpClient.HttpClient;
+  const response = yield* client.post("/oauth/twitch/enroll/leave");
+
+  if (response.status === 401) return yield* Effect.fail(CheckError.Absent());
+
+  if (response.status !== 200)
+    return yield* Effect.fail(CheckError.Unavailable());
+
+  const result = yield* Schema.decodeUnknownEffect(EnrollmentStatus)(
+    yield* response.json,
+  );
+
+  if (result.kind !== "left")
+    return yield* Effect.fail(CheckError.Unavailable());
+
+  return result;
+});
+
+export const LeaveChannel = ApplicationDefinition.makeCommand("LeaveChannel", {
+  args: { requestId: RequestId },
+  interrupt: {
+    keyFields: ["requestId"],
+    toKey: ({ requestId }) => `${requestId}`,
+  },
+  messages: [Message.SucceededLeaveChannel, Message.FailedLeaveChannel],
+  handler: function* () {
+    return ({ requestId }) =>
+      leaveChannel().pipe(
+        Effect.timeout("12 seconds"),
+        Effect.match({
+          onSuccess: (status) =>
+            Message.SucceededLeaveChannel({ requestId, status }),
+          onFailure: (error) =>
+            Message.FailedLeaveChannel({
+              requestId,
+              error: Schema.is(CheckError)(error)
+                ? error
+                : CheckError.Unavailable(),
+            }),
+        }),
+        Effect.provide(Http.layer),
+        Effect.provideService(FetchHttpClient.RequestInit, {
+          credentials: "same-origin",
+          cache: "no-store",
+          redirect: "error",
+        }),
+      );
+  },
+});
+
 export const ScrollToContent = ApplicationDefinition.makeCommand(
   "ScrollToContent",
   {
@@ -102,6 +153,7 @@ export const LoadExternal = ApplicationDefinition.makeCommand("LoadExternal", {
 
 export const EffectsLayer = Layer.mergeAll(
   CheckEnrollment.layer,
+  LeaveChannel.layer,
   ScrollToContent.layer,
   NavigateInternal.layer,
   LoadExternal.layer,

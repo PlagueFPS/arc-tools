@@ -2,7 +2,11 @@ import { expect } from "bun:test";
 
 import type { AccountIdentity } from "@arctools/twitch/server";
 import { Dispatch } from "@arctools/twitch/server";
-import { senderScopes, AccountState } from "@arctools/twitch/testing";
+import {
+  senderScopes,
+  AccountState,
+  nextAlarm,
+} from "@arctools/twitch/testing";
 import type { SendResult } from "@arctools/twitch/testing";
 import * as Test from "alchemy/Test/Bun";
 import { Clock, Deferred, Effect, Fiber, Layer, Schema } from "effect";
@@ -33,7 +37,7 @@ test(
       yield* recovered.credentialAlarm();
       expect(h.control.validations).toBe(validations + 1);
       expect(h.alarmAt()).toBeGreaterThan(until);
-      expect(h.nativeAlarmAt()).toBe(h.alarmAt());
+      expect(h.nativeAlarmAt()).toBe(nextAlarm(h.snapshot()));
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -48,7 +52,7 @@ test(
       h.consumeAlarm();
       yield* h.alarm();
       expect(h.alarmAt()).toBe(intended);
-      expect(h.nativeAlarmAt()).toBe(intended);
+      expect(h.nativeAlarmAt()).toBe(nextAlarm(h.snapshot()));
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -70,6 +74,9 @@ test(
 
       yield* Deferred.await(h.control.sendStarted);
       expect(h.control.sends).toBe(1);
+      yield* h.store.shared((state) => {
+        state.sweepAt = initial + 7_200_000;
+      });
       h.time(initial + 3_600_000);
       h.control.validationGate = yield* Deferred.make<void>();
       h.control.validationStarted = yield* Deferred.make<void>();
@@ -240,6 +247,9 @@ test(
 
       yield* Deferred.await(h.control.sendStarted);
       expect(h.control.sends).toBe(1);
+      yield* h.store.shared((state) => {
+        state.sweepAt = initial + 7_200_000;
+      });
       h.time(initial + 3_600_000);
       yield* h.alarm();
       yield* Deferred.succeed(h.control.sendGate, undefined);
@@ -363,10 +373,10 @@ test(
         (yield* h.account.setup("operator-digest")).authorizations.map(
           (auth) => auth.login,
         ),
-      ).toEqual(["fixture_sender", "fixture_channel"]);
+      ).toEqual(["fixture_channel"]);
       expect(
         Schema.decodeUnknownSync(AccountState)(h.snapshot()).oauth.length,
-      ).toBe(2);
+      ).toBe(1);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -518,7 +528,7 @@ test(
         callback: "https://fixture.invalid/webhooks/twitch",
         status: "authorization_revoked",
       });
-      expect((yield* h.account.status()).sender?.authorized).toBeFalse();
+      expect((yield* h.account.status()).sender?.authorized).toBeTrue();
       expect(yield* h.account.dispatch(h.send("revoked"))).toEqual({
         kind: "rejected",
       });
@@ -715,18 +725,24 @@ test(
 );
 
 test(
-  "revocation fences an OAuth exchange that was already in flight",
+  "scoped broadcaster removal preserves an unrelated sender OAuth already in flight",
   Effect.gen(function* () {
     const h = yield* harness();
     yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* h.store.update((state) => {
+        delete state.grants["100"];
+      });
       const pending = yield* h.account.setup("operator-digest");
+      yield* h.store.update((state) => {
+        state.grants["100"] = [...senderScopes];
+      });
 
       const state =
         new URL(pending.authorizations[0]?.url ?? "").searchParams.get(
           "state",
         ) ?? "";
 
-      yield* h.authorize();
       h.control.grantUser = "100";
       h.control.grantLogin = "fixture_sender";
       h.control.grantScopes = [...senderScopes];
@@ -757,9 +773,13 @@ test(
         status: "authorization_revoked",
       });
       yield* Deferred.succeed(h.control.exchangeGate, undefined);
-      expect((yield* Fiber.join(completing))._tag).toBe("Failure");
-      expect((yield* h.account.status()).setup).toBe("repair-required");
-      expect((yield* h.account.status()).sender?.authorized).toBeFalse();
+      expect((yield* Fiber.join(completing))._tag).toBe("Success");
+      expect(
+        (yield* h.account.status()).channels.some(
+          (entry) => entry.id === "200",
+        ),
+      ).toBeFalse();
+      expect((yield* h.account.status()).sender?.authorized).toBeTrue();
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );

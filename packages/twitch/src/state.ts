@@ -6,7 +6,11 @@ import {
   DispatchOutcome,
   EnrollmentFailure,
   enrollmentTiming,
+  eventSubTiming,
   EnrollmentSession,
+  InstallationId,
+  ChatSource,
+  SubscriptionObservation,
 } from "./contracts.js";
 import { BroadcasterId } from "./schemas.js";
 
@@ -30,6 +34,9 @@ const OAuthState = Schema.Struct({
   operator: Schema.String,
   revision: Schema.String,
   generation: Schema.Int,
+  removalSequence: Schema.Int.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0)),
+  ),
   userId: Schema.String,
   login: Schema.String,
   roles: Schema.Array(Schema.Literals(["sender", "broadcaster"])),
@@ -40,6 +47,8 @@ const OAuthState = Schema.Struct({
 const Attempt = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("waiting"),
+    channel: Schema.optional(BroadcasterId),
+    source: Schema.optional(Schema.NullOr(ChatSource)),
     fingerprint: Schema.String,
     deadline: Schema.Number,
     retainUntil: Schema.Number,
@@ -47,6 +56,8 @@ const Attempt = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("sending"),
+    channel: Schema.optional(BroadcasterId),
+    source: Schema.optional(Schema.NullOr(ChatSource)),
     fingerprint: Schema.String,
     deadline: Schema.Number,
     retainUntil: Schema.Number,
@@ -55,6 +66,8 @@ const Attempt = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("terminal"),
+    channel: Schema.optional(BroadcasterId),
+    source: Schema.optional(Schema.NullOr(ChatSource)),
     fingerprint: Schema.String,
     deadline: Schema.Number,
     retainUntil: Schema.Number,
@@ -78,6 +91,11 @@ const Enrollment = Schema.Struct({
       broadcasterId: BroadcasterId,
     }),
     Schema.Struct({
+      kind: Schema.Literal("left"),
+      broadcasterId: BroadcasterId,
+      login: bounded(25),
+    }),
+    Schema.Struct({
       kind: Schema.Literal("failed"),
       reason: EnrollmentFailure,
     }),
@@ -95,14 +113,41 @@ const Repair = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("required") }),
 ]);
 
+const legacyCleanupAt = 1;
+
 const PublicMember = Schema.Struct({
   login: bounded(25),
   id: BroadcasterId,
   revocationGeneration: Schema.Int,
+  cleanupAfter: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(legacyCleanupAt)),
+  ),
 });
+
+export const Lifecycle = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("removed"), sequence: Schema.Int }),
+  Schema.Struct({
+    kind: Schema.Literal("installed"),
+    id: InstallationId,
+    sequence: Schema.Int,
+    negative: Schema.NullOr(SubscriptionObservation).pipe(
+      Schema.withDecodingDefaultKey(Effect.succeed(null)),
+    ),
+    version: Schema.Int,
+    recovery: Schema.NullOr(
+      Schema.Struct({ due: Schema.Number, stage: Schema.Int }),
+    ),
+    create: Schema.NullOr(
+      Schema.Struct({ owner: Schema.String, until: Schema.Number }),
+    ),
+  }),
+]);
 
 export const AccountState = Schema.Struct({
   revision: Schema.String,
+  lifecycleVersion: Schema.Int.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0)),
+  ),
   authGeneration: Schema.Int,
   publicRevocationGeneration: Schema.Int,
   sender: Schema.NullOr(Identity),
@@ -112,16 +157,29 @@ export const AccountState = Schema.Struct({
   publicMembers: Schema.Array(PublicMember).check(
     Schema.isMaxLength(maxChannels),
   ),
-  enrollments: Schema.Array(Enrollment).check(
-    Schema.isMaxLength(maxChannels + maxEnrollmentIntents),
-  ),
+  enrollments: Schema.Array(Enrollment),
   repair: Repair,
+  lifecycle: Schema.Record(Schema.String, Lifecycle).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
+  sweepLease: Schema.NullOr(Lease).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+  sweepAt: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+  nextRecoveryAt: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
   grants: Schema.Record(Schema.String, Schema.Array(Schema.String)),
   oauth: Schema.Array(OAuthState),
   session: Schema.NullOr(Session),
   tokenLease: Schema.NullOr(Lease),
   tokenRetryAt: Schema.Number,
   nextCredentialCheck: Schema.NullOr(Schema.Number),
+  nextCleanupAt: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(legacyCleanupAt)),
+  ),
   setupLease: Schema.NullOr(
     Schema.Struct({
       owner: Schema.String,
@@ -146,6 +204,11 @@ export const AccountState = Schema.Struct({
     Schema.Struct({
       until: Schema.Number,
       reason: Schema.Literals(["retired", "revoked", "authorization-revoked"]),
+      deleteVersion: Schema.optional(Schema.Int),
+      deleteClaim: Schema.optional(Schema.NullOr(bounded(128))),
+      deleteDue: Schema.NullOr(Schema.Number).pipe(
+        Schema.withDecodingDefaultKey(Effect.succeed(null)),
+      ),
     }),
   ),
   attempts: Schema.Record(Schema.String, Attempt),
@@ -160,6 +223,7 @@ type Persisted = typeof AccountState.Type;
 
 export type AccountState = {
   -readonly [K in keyof Persisted]: K extends
+    | "lifecycle"
     | "grants"
     | "subscriptions"
     | "revoked"
@@ -170,6 +234,7 @@ export type AccountState = {
 
 export const SharedAccount = AccountState.mapFields(
   Struct.omit([
+    "lifecycle",
     "channels",
     "publicMembers",
     "subscriptions",
@@ -183,6 +248,9 @@ export const SharedAccount = AccountState.mapFields(
 export type SharedAccount = Pick<AccountState, keyof typeof SharedAccount.Type>;
 
 export const ChannelRecord = Schema.Struct({
+  lifecycle: Schema.NullOr(Lifecycle).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
   configured: Schema.Array(
     Schema.Struct({
       position: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -202,6 +270,7 @@ export type ChannelRecord = typeof ChannelRecord.Type;
 
 export function splitAccount(state: AccountState) {
   const {
+    lifecycle,
     channels,
     publicMembers,
     subscriptions,
@@ -215,7 +284,15 @@ export function splitAccount(state: AccountState) {
   const records = new Map<string, ChannelRecord>();
 
   const entry = (id: string): ChannelRecord =>
-    records.get(id) ?? { configured: [], public: [], subscription: null };
+    records.get(id) ?? {
+      configured: [],
+      public: [],
+      subscription: null,
+      lifecycle: null,
+    };
+
+  for (const [id, value] of Object.entries(lifecycle))
+    records.set(id, { ...entry(id), lifecycle: value });
 
   channels.forEach((member, position) => {
     const prior = entry(member.id);
@@ -279,6 +356,11 @@ export const joinDirectory = Effect.fnUntraced(function* (
 
   return {
     ...directory.shared,
+    lifecycle: Object.fromEntries(
+      [...directory.channels].flatMap(([id, record]) =>
+        record.lifecycle === null ? [] : [[id, record.lifecycle]],
+      ),
+    ),
     channels: configured.map((entry) => entry.member),
     publicMembers: members.map((entry) => entry.member),
     subscriptions: Object.fromEntries(
@@ -296,11 +378,15 @@ export const joinDirectory = Effect.fnUntraced(function* (
 export type SendAttemptState = SharedAccount & Pick<AccountState, "attempts">;
 
 export type ChannelDispatchState = SendAttemptState &
-  Pick<Persisted, "channels" | "publicMembers" | "subscriptions"> &
+  Pick<
+    Persisted,
+    "channels" | "publicMembers" | "subscriptions" | "lifecycle"
+  > &
   Pick<AccountState, "revoked">;
 
 export const emptyState = (revision: string): AccountState => ({
   revision,
+  lifecycleVersion: 0,
   authGeneration: 0,
   publicRevocationGeneration: 0,
   sender: null,
@@ -308,12 +394,17 @@ export const emptyState = (revision: string): AccountState => ({
   publicMembers: [],
   enrollments: [],
   repair: { kind: "idle" },
+  lifecycle: {},
+  sweepAt: null,
+  sweepLease: null,
+  nextRecoveryAt: null,
   grants: {},
   oauth: [],
   session: null,
   tokenLease: null,
   tokenRetryAt: 0,
   nextCredentialCheck: null,
+  nextCleanupAt: null,
   setupLease: null,
   subscriptions: {},
   revoked: {},
@@ -344,10 +435,11 @@ export const policy = {
   maxOAuth: maxChannels + 1,
   maxEnrollmentIntents,
   enrollmentSessionMs: 86_400_000,
-  repairRetryMs: 5_000,
-  maxRepairAttempts: 5,
+  recoveryMs: [60_000, 300_000, 900_000],
+  sweepMs: 900_000,
   maxAttempts: 64,
   retentionMs: 600_000,
+  revocationMs: eventSubTiming.maxAgeMs + eventSubTiming.futureSkewMs + 1,
   oauthMs: 600_000,
   tokenLeaseMs: 10_000,
   enrollmentLeaseMs: enrollmentTiming.exchangeMs,
@@ -357,6 +449,9 @@ export const policy = {
   globalMessages: 20,
   channelMs: 1_000,
 };
+
+export const isAuthorizationLoss = (status: string) =>
+  status === "authorization_revoked" || status === "user_removed";
 
 export function reclaimSend(state: SendAttemptState, now: number) {
   state.reservations = state.reservations.filter(
@@ -371,10 +466,69 @@ export function reclaimSend(state: SendAttemptState, now: number) {
 export function reclaim(state: AccountState, now: number) {
   reclaimSend(state, now);
   state.oauth = state.oauth.filter((entry) => entry.expiresAt > now);
+  state.enrollments = state.enrollments.filter(
+    (entry) => entry.expiresAt > now,
+  );
 
   for (const [key, tombstone] of Object.entries(state.revoked)) {
-    if (tombstone.until <= now) delete state.revoked[key];
+    if (tombstone.until <= now && tombstone.deleteDue === null)
+      delete state.revoked[key];
   }
+
+  state.publicMembers = state.publicMembers.flatMap((member) => {
+    if (member.cleanupAfter === legacyCleanupAt) {
+      const record = state.subscriptions[member.id];
+
+      const cleanupAfter =
+        record &&
+        isAuthorizationLoss(record.status) &&
+        !state.grants[member.id]?.includes("channel:bot") &&
+        state.sender?.id !== member.id &&
+        !state.channels.some((channel) => channel.id === member.id)
+          ? now + Math.max(policy.oauthMs, policy.retentionMs)
+          : null;
+
+      if (cleanupAfter !== null)
+        state.enrollments = state.enrollments.map((entry) =>
+          entry.phase.kind === "member" &&
+          entry.phase.broadcasterId === member.id
+            ? { ...entry, expiresAt: Math.min(entry.expiresAt, cleanupAfter) }
+            : entry,
+        );
+
+      return [{ ...member, cleanupAfter }];
+    }
+
+    if (member.cleanupAfter === null || member.cleanupAfter > now)
+      return [member];
+
+    if (
+      state.grants[member.id]?.includes("channel:bot") ||
+      state.sender?.id === member.id ||
+      state.channels.some((channel) => channel.id === member.id)
+    )
+      return [{ ...member, cleanupAfter: null }];
+
+    delete state.subscriptions[member.id];
+    delete state.grants[member.id];
+
+    return [];
+  });
+}
+
+export function nextCleanup(state: AccountState): number | null {
+  const due = Math.min(
+    ...state.oauth.map((entry) => entry.expiresAt),
+    ...state.enrollments.map((entry) => entry.expiresAt),
+    ...state.publicMembers.map((member) => member.cleanupAfter ?? Infinity),
+    ...Object.values(state.revoked).map(
+      (entry) => entry.deleteDue ?? entry.until,
+    ),
+    ...Object.values(state.attempts).map((entry) => entry.retainUntil),
+    ...state.reservations.map((entry) => entry.at + policy.globalWindowMs),
+  );
+
+  return Number.isFinite(due) ? due : null;
 }
 
 export function reserveAt(
@@ -399,7 +553,7 @@ export function reserveAt(
 }
 
 export function desiredChannels(
-  state: Pick<AccountState, "channels" | "publicMembers">,
+  state: Pick<AccountState, "channels" | "publicMembers" | "lifecycle">,
   senderKind: AccountIdentity["senderKind"],
 ) {
   const channels = new Map<string, AccountState["channels"][number]>(
@@ -411,17 +565,27 @@ export function desiredChannels(
 
   for (const channel of state.channels) channels.set(channel.id, channel);
 
-  return [...channels.values()];
+  return [...channels.values()].filter(
+    (channel) => state.lifecycle[channel.id]?.kind !== "removed",
+  );
 }
 
 export function nextAlarm(
-  state: Pick<AccountState, "repair" | "nextCredentialCheck">,
+  state: Pick<
+    AccountState,
+    | "repair"
+    | "nextCredentialCheck"
+    | "nextCleanupAt"
+    | "nextRecoveryAt"
+    | "sweepAt"
+  >,
 ): number | null {
-  const repair = state.repair.kind === "scheduled" ? state.repair.due : null;
+  const due = Math.min(
+    state.nextRecoveryAt ?? Infinity,
+    state.sweepAt ?? Infinity,
+    state.nextCredentialCheck ?? Infinity,
+    state.nextCleanupAt ?? Infinity,
+  );
 
-  if (repair === null) return state.nextCredentialCheck;
-
-  return state.nextCredentialCheck === null
-    ? repair
-    : Math.min(repair, state.nextCredentialCheck);
+  return Number.isFinite(due) ? due : null;
 }

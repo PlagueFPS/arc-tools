@@ -7,8 +7,10 @@ import {
 } from "@arctools/twitch/server";
 import {
   AccountState,
+  ChannelRecord,
   desiredChannels,
   policy,
+  SharedAccount,
 } from "@arctools/twitch/testing";
 import { digest } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
@@ -62,6 +64,48 @@ const enroll = Effect.fnUntraced(function* (
 
 const snapshot = (h: Effect.Success<ReturnType<typeof harness>>) =>
   Schema.decodeUnknownSync(AccountState)(h.snapshot());
+
+const recovery = (
+  h: Effect.Success<ReturnType<typeof harness>>,
+  id = "400",
+) => {
+  const life = snapshot(h).lifecycle[id];
+
+  if (life?.kind !== "installed" || !life.recovery)
+    throw new Error("Missing channel recovery");
+
+  return life.recovery;
+};
+
+const restoreLegacyCleanupRecords = (
+  h: Effect.Success<ReturnType<typeof harness>>,
+) => {
+  const sessions = snapshot(h).enrollments.map((entry) =>
+    entry.phase.kind === "member"
+      ? { ...entry, expiresAt: initial + policy.enrollmentSessionMs }
+      : entry,
+  );
+
+  const record = Schema.decodeUnknownSync(ChannelRecord)(
+    h.memory.values.get("account:channel:v1/400"),
+  );
+
+  h.memory.values.set("account:channel:v1/400", {
+    ...record,
+    public: record.public.map((entry) => {
+      const { cleanupAfter: _cleanupAfter, ...member } = entry.member;
+
+      return { ...entry, member };
+    }),
+  });
+
+  const { nextCleanupAt: _nextCleanupAt, ...shared } = Schema.decodeUnknownSync(
+    SharedAccount,
+  )(h.memory.values.get("account:shared:v1"));
+
+  h.memory.values.set("account:shared:v1", shared);
+  h.memory.values.set("account:enrollments:v1", sessions);
+};
 
 test(
   "a local dedicated bot cannot begin enrollment before sender authorization",
@@ -196,12 +240,14 @@ for (const stage of ["local-enrollment", "staging", "prod"]) {
         });
         expect(saved.attempts).toEqual(before.attempts);
         expect(saved.reservations).toEqual(before.reservations);
-        expect(saved.repair.kind).toBe("scheduled");
+        expect(saved.repair.kind).toBe("idle");
+        expect(saved.nextRecoveryAt).toBe(initial + 1);
         expect(h.nativeAlarmAt()).toBe(initial + 1);
         expect(JSON.stringify(h.snapshot())).not.toContain("canary-user-token");
         expect(JSON.stringify(h.snapshot())).not.toContain(input.state);
         expect(yield* h.enrollment.status(input.session)).toEqual({
-          kind: "pending",
+          kind: "recovering",
+          login: "public_channel",
         });
         h.time(initial + 1);
         h.consumeAlarm();
@@ -223,6 +269,7 @@ for (const stage of ["local-enrollment", "staging", "prod"]) {
             id: BroadcasterId.make("400"),
             login: "public_channel",
             revocationGeneration: 0,
+            cleanupAfter: null,
           },
         ]);
         const exchanges = h.control.exchanges;
@@ -352,7 +399,7 @@ for (const mismatch of [
 test(
   "one claim exchanges once and lease, generation, revision and expiry fence late completion",
   Effect.gen(function* () {
-    for (const fence of ["lease", "generation", "revision", "expiry"]) {
+    for (const fence of ["lease", "revision", "expiry"]) {
       const h = yield* harness(bot);
       yield* Effect.gen(function* () {
         yield* h.authorize();
@@ -383,17 +430,6 @@ test(
         if (fence === "expiry") h.time(initial + policy.oauthMs);
 
         if (fence === "revision") yield* h.construct("new-revision");
-
-        if (fence === "generation") {
-          const record = snapshot(h).subscriptions["200"];
-
-          if (!record) return yield* Effect.die("Missing fixture subscription");
-          yield* h.account.observeSubscription({
-            ...record,
-            broadcasterId: BroadcasterId.make("200"),
-            status: "user_removed",
-          });
-        }
 
         yield* Deferred.succeed(h.control.exchangeGate, undefined);
         expect((yield* Fiber.join(complete)).code).toBe("state");
@@ -549,7 +585,7 @@ test(
       const recovered = yield* h.construct();
       h.control.failCreate = false;
       h.control.subscriptionStatus = "webhook_callback_verification_pending";
-      h.time(initial + 1 + policy.repairRetryMs);
+      h.time(recovery(h).due);
       h.consumeAlarm();
       yield* recovered.credentialAlarm();
       expect(h.control.remote.some((sub) => sub.id === unknown)).toBeFalse();
@@ -558,7 +594,8 @@ test(
       if (!record)
         return yield* Effect.die("Missing repaired subscription receipt");
       expect(yield* recovered.enrollment.status(input.session)).toEqual({
-        kind: "pending",
+        kind: "recovering",
+        login: "public_channel",
       });
       yield* recovered.service.observeSubscription({
         ...record,
@@ -566,7 +603,8 @@ test(
         status: "webhook_callback_verification_pending",
       });
       expect(yield* recovered.enrollment.status(input.session)).toEqual({
-        kind: "pending",
+        kind: "recovering",
+        login: "public_channel",
       });
       yield* recovered.service.observeSubscription({
         ...record,
@@ -577,7 +615,7 @@ test(
         kind: "ready",
         login: "public_channel",
       });
-      h.time(h.now() + policy.repairRetryMs);
+      h.time(h.now() + 60_000);
       yield* recovered.credentialAlarm();
       expect(snapshot(h).repair).toEqual({ kind: "idle" });
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
@@ -585,33 +623,43 @@ test(
 );
 
 test(
-  "repair retries are bounded and app credential invalidation preserves its native alarm",
+  "recovery persists beyond eight failed attempts and reconstruction without losing grants",
   Effect.gen(function* () {
     const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       const input = yield* enroll(h);
-      h.control.result = { kind: "unauthorized" };
-      yield* h.account.dispatch(h.send("invalidate-before-repair"));
-      expect(snapshot(h).session).toBeNull();
-      expect(h.nativeAlarmAt()).toBe(initial + 1);
       h.control.failCreate = true;
+      const life = snapshot(h).lifecycle["400"];
 
-      for (let attempt = 0; attempt < policy.maxRepairAttempts; attempt++) {
-        h.time(initial + 1 + attempt * policy.repairRetryMs);
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const due = recovery(h).due;
+        h.time(due);
         h.consumeAlarm();
-        yield* h.alarm();
+        const restored = yield* h.construct();
+        yield* restored.credentialAlarm();
+        const next = recovery(h);
+        const base = [60_000, 300_000][attempt] ?? 900_000;
+        expect(next.due - due).toBeGreaterThanOrEqual(base * 0.9);
+        expect(next.due - due).toBeLessThanOrEqual(base * 1.1);
+        expect(snapshot(h).grants["400"]).toEqual(["channel:bot"]);
       }
 
-      expect(snapshot(h).repair).toEqual({ kind: "required" });
-      expect(yield* h.enrollment.status(input.session)).toEqual({
-        kind: "failed",
-        reason: "repair-required",
+      expect(snapshot(h).lifecycle["400"]).toMatchObject({
+        kind: "installed",
+        id: life?.kind === "installed" ? life.id : "missing",
       });
-      const creates = h.control.creates;
-      h.time(h.now() + policy.repairRetryMs);
+      expect(yield* h.enrollment.status(input.session)).toEqual({
+        kind: "recovering",
+        login: "public_channel",
+      });
+      h.control.failCreate = false;
+      h.time(recovery(h).due);
       yield* h.alarm();
-      expect(h.control.creates).toBe(creates);
+      expect(yield* h.enrollment.status(input.session)).toEqual({
+        kind: "ready",
+        login: "public_channel",
+      });
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -634,8 +682,8 @@ test(
         status: "authorization_revoked",
       });
       expect(yield* h.enrollment.status(input.session)).toEqual({
-        kind: "failed",
-        reason: "authorization-required",
+        kind: "left",
+        login: "public_channel",
       });
       expect(
         (yield* h.account.dispatch(h.send("revoked-public", "400"))).kind,
@@ -680,32 +728,312 @@ test(
   }),
 );
 
+for (const status of ["authorization_revoked", "user_removed"] as const)
+  test(
+    `${status} public installation storage expires without traffic while other memberships survive`,
+    Effect.gen(function* () {
+      const h = yield* harness(bot);
+      yield* Effect.gen(function* () {
+        yield* h.authorize();
+        const revoked = yield* enroll(h);
+        const survivor = yield* enrollmentInput();
+        yield* h.enrollment.begin(survivor);
+        publicGrant(h, "public_second", "500");
+        yield* h.enrollment.complete({
+          ...survivor,
+          outcome: { kind: "accepted", code: "second" },
+        });
+        const pending = yield* enrollmentInput();
+        yield* h.enrollment.begin(pending);
+        h.time(initial + 1);
+        yield* h.alarm();
+        const record = snapshot(h).subscriptions["400"];
+
+        if (!record) return yield* Effect.die("Missing public subscription");
+        yield* h.account.observeSubscription({
+          ...record,
+          broadcasterId: BroadcasterId.make("400"),
+          status,
+        });
+        expect(yield* h.enrollment.status(revoked.session)).toEqual({
+          kind: "left",
+          login: "public_channel",
+        });
+
+        const cleanupAt =
+          initial + 1 + Math.max(policy.oauthMs, policy.retentionMs);
+
+        expect(snapshot(h).nextCleanupAt).toBeLessThanOrEqual(cleanupAt);
+        h.time(cleanupAt - 1);
+        h.consumeAlarm();
+        yield* h.alarm();
+        expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+        h.time(cleanupAt);
+        h.consumeAlarm();
+        const restored = yield* h.construct();
+        yield* restored.credentialAlarm();
+        expect(snapshot(h).publicMembers.map((member) => member.id)).toEqual([
+          BroadcasterId.make("500"),
+        ]);
+        expect(snapshot(h).subscriptions["400"]).toBeUndefined();
+        expect(snapshot(h).enrollments.map((entry) => entry.session)).toEqual([
+          survivor.session,
+          revoked.session,
+        ]);
+        expect(snapshot(h).grants["400"]).toBeUndefined();
+        expect(snapshot(h).grants["100"]).toContain("user:bot");
+        expect(snapshot(h).lifecycle["400"]?.kind).toBe("removed");
+        expect(h.memory.values.has("account:channel:v1/500")).toBeTrue();
+        expect(yield* restored.enrollment.status(survivor.session)).toEqual({
+          kind: "ready",
+          login: "public_second",
+        });
+        publicGrant(h);
+        expect(
+          (yield* h.enrollment
+            .complete({
+              ...pending,
+              outcome: { kind: "accepted", code: "stale" },
+            })
+            .pipe(Effect.flip)).code,
+        ).toBe("state");
+        const reinstalled = yield* enroll(h);
+        h.time(h.now() + 1);
+        yield* h.alarm();
+        expect(yield* h.enrollment.status(reinstalled.session)).toEqual({
+          kind: "ready",
+          login: "public_channel",
+        });
+      }).pipe(Effect.provideService(Clock.Clock, h.clock));
+    }),
+  );
+
 test(
-  "a held repair preserves a newer enrollment's repair id and schedule across completion and retries",
+  "an old revocation cannot delete reauthorization during timestamp skew or after deduplication expires",
   Effect.gen(function* () {
     const h = yield* harness(bot);
     yield* Effect.gen(function* () {
       yield* h.authorize();
       yield* enroll(h);
-      const old = snapshot(h).repair;
+      h.time(initial + 1);
+      yield* h.alarm();
+      const old = snapshot(h).subscriptions["400"];
 
-      if (old.kind !== "scheduled") return yield* Effect.die("Missing repair");
-      expect(old.id.length).toBeGreaterThan(0);
+      if (!old) return yield* Effect.die("Missing public subscription");
+
+      const observation = {
+        ...old,
+        broadcasterId: BroadcasterId.make("400"),
+        status: "authorization_revoked",
+      };
+
+      yield* h.account.observeSubscription(observation);
+      const renewed = yield* enroll(h);
+      h.time(initial + 2);
+      yield* h.alarm();
+      const replacement = snapshot(h).subscriptions["400"]?.id;
+      expect(replacement).not.toBe(old.id);
+      h.time(initial + policy.retentionMs + 2);
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(snapshot(h).revoked[old.id]?.until).toBeGreaterThan(h.now());
+      yield* h.account.observeSubscription(observation);
+      expect(snapshot(h).grants["400"]).toEqual(["channel:bot"]);
+      h.time(initial + policy.revocationMs + 2);
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(snapshot(h).revoked[old.id]).toBeUndefined();
+      yield* h.account.observeSubscription(observation);
+      h.time(h.now() + policy.retentionMs);
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(snapshot(h).subscriptions["400"]?.id).toBe(replacement);
+      expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+      expect(yield* h.enrollment.status(renewed.session)).toEqual({
+        kind: "ready",
+        login: "public_channel",
+      });
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "authorization loss discovered near retirement expiry retains a full replay window",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      const record = snapshot(h).subscriptions["400"];
+
+      if (!record) return yield* Effect.die("Missing public subscription");
+      yield* h.store.update((state) => {
+        state.revoked[record.id] = {
+          until: h.now() + 1,
+          reason: "retired",
+          deleteDue: null,
+        };
+      });
+      yield* h.account.observeSubscription({
+        ...record,
+        broadcasterId: BroadcasterId.make("400"),
+        status: "authorization_revoked",
+      });
+      expect(snapshot(h).revoked[record.id]).toMatchObject({
+        until: h.now() + policy.revocationMs,
+        reason: "authorization-revoked",
+        deleteDue: h.now() + 1,
+      });
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "list-confirmed user removal schedules public membership cleanup when its webhook was missed",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      h.control.remote = h.control.remote.map((record) =>
+        record.condition.broadcaster_user_id === "400"
+          ? { ...record, status: "user_removed" }
+          : record,
+      );
+      const creates = h.control.creates;
+      yield* h.account.setup("operator-digest").pipe(Effect.result);
+      expect(snapshot(h).grants["400"]).toBeUndefined();
+      expect(snapshot(h).publicMembers).toEqual([]);
+      expect(snapshot(h).lifecycle["400"]?.kind).toBe("removed");
+      expect(h.control.creates).toBe(creates);
+      h.time(h.now() + Math.max(policy.oauthMs, policy.retentionMs));
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(snapshot(h).lifecycle["400"]?.kind).toBe("removed");
+      expect(snapshot(h).grants["100"]).toContain("user:bot");
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "legacy revoked keyed membership schedules cleanup during reconstruction without new traffic",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      const subscription = snapshot(h).subscriptions["400"];
+
+      if (!subscription)
+        return yield* Effect.die("Missing public subscription");
+      yield* h.store.update((state) => {
+        state.subscriptions["400"] = {
+          ...subscription,
+          status: "authorization_revoked",
+        };
+        delete state.grants["400"];
+      });
+      restoreLegacyCleanupRecords(h);
+      h.time(initial + policy.retentionMs + 2);
+      const restored = yield* h.construct();
+      expect(h.nativeAlarmAt()).toBeLessThanOrEqual(h.now());
+      yield* restored.credentialAlarm();
+      const cleanupAfter = snapshot(h).publicMembers[0]?.cleanupAfter;
+      expect(cleanupAfter).toBe(
+        h.now() + Math.max(policy.oauthMs, policy.retentionMs),
+      );
+      h.time(h.now() + Math.max(policy.oauthMs, policy.retentionMs));
+      h.consumeAlarm();
+      yield* restored.credentialAlarm();
+      expect(snapshot(h).publicMembers).toEqual([]);
+      expect(snapshot(h).enrollments).toEqual([]);
+      expect(snapshot(h).grants["100"]).toContain("user:bot");
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+for (const authorized of [true, false])
+  test(
+    `legacy membership with authorized=${authorized} survives compatibility cleanup without revocation proof`,
+    Effect.gen(function* () {
+      const h = yield* harness(bot);
+      yield* Effect.gen(function* () {
+        yield* h.authorize();
+        yield* enroll(h);
+        h.time(initial + 1);
+        yield* h.alarm();
+
+        if (!authorized)
+          yield* h.store.update((state) => {
+            delete state.grants["400"];
+          });
+
+        restoreLegacyCleanupRecords(h);
+        const restored = yield* h.construct();
+        expect(h.nativeAlarmAt()).toBeLessThanOrEqual(h.now());
+        yield* restored.credentialAlarm();
+        expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
+        h.time(initial + policy.enrollmentSessionMs + 1);
+        h.consumeAlarm();
+        yield* restored.credentialAlarm();
+        expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+        expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
+      }).pipe(Effect.provideService(Clock.Clock, h.clock));
+    }),
+  );
+
+test(
+  "reauthorization before cleanup preserves the renewed installation after the old expiry",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
+      h.time(initial + 1);
+      yield* h.alarm();
+      const record = snapshot(h).subscriptions["400"];
+
+      if (!record) return yield* Effect.die("Missing public subscription");
+      yield* h.account.observeSubscription({
+        ...record,
+        broadcasterId: BroadcasterId.make("400"),
+        status: "authorization_revoked",
+      });
+      const renewed = yield* enroll(h);
+      h.time(initial + 2);
+      yield* h.alarm();
+      h.time(initial + 1 + Math.max(policy.oauthMs, policy.retentionMs));
+      h.consumeAlarm();
+      yield* h.alarm();
+      expect(yield* h.enrollment.status(renewed.session)).toEqual({
+        kind: "ready",
+        login: "public_channel",
+      });
+      expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
+      expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
+      expect(snapshot(h).nextCleanupAt).toBeGreaterThan(h.now());
+    }).pipe(Effect.provideService(Clock.Clock, h.clock));
+  }),
+);
+
+test(
+  "a held recovery cannot consume a newer channel's independent schedule",
+  Effect.gen(function* () {
+    const h = yield* harness(bot);
+    yield* Effect.gen(function* () {
+      yield* h.authorize();
+      yield* enroll(h);
       h.control.listGate = yield* Deferred.make<void>();
       h.control.listStarted = yield* Deferred.make<void>();
       h.time(initial + 1);
-      const lists = h.control.lists;
       const repair = yield* h.alarm().pipe(Effect.forkChild);
-
       yield* Deferred.await(h.control.listStarted);
-      expect(h.control.lists).toBe(lists + 1);
-      const claimed = snapshot(h).repair;
-      expect(claimed).toMatchObject({
-        kind: "scheduled",
-        id: old.id,
-        attempts: 1,
-      });
-
       const input = yield* enrollmentInput();
       yield* h.enrollment.begin(input);
       publicGrant(h, "new_public_channel", "500");
@@ -713,34 +1041,13 @@ test(
         ...input,
         outcome: { kind: "accepted", code: "new-member" },
       });
-      const newer = snapshot(h).repair;
-
-      if (newer.kind !== "scheduled")
-        return yield* Effect.die("Missing newer repair");
-      expect(newer.id).not.toBe(old.id);
-      expect(newer.attempts).toBe(0);
+      const newer = recovery(h, "500");
       yield* Deferred.succeed(h.control.listGate, undefined);
       yield* Fiber.join(repair);
-      expect(snapshot(h).repair).toEqual(newer);
-      expect(h.nativeAlarmAt()).toBe(newer.due);
+      expect(recovery(h, "500")).toEqual(newer);
       expect(snapshot(h).subscriptions["500"]).toBeUndefined();
-
-      h.control.failCreate = true;
       h.time(newer.due);
       yield* h.alarm();
-      const retried = snapshot(h).repair;
-      expect(retried).toMatchObject({
-        kind: "scheduled",
-        id: newer.id,
-        attempts: 1,
-      });
-
-      if (retried.kind !== "scheduled")
-        return yield* Effect.die("Missing retry");
-      h.control.failCreate = false;
-      h.time(retried.due);
-      yield* h.alarm();
-      expect(snapshot(h).repair).toEqual({ kind: "idle" });
       expect(yield* h.enrollment.status(input.session)).toEqual({
         kind: "ready",
         login: "new_public_channel",
@@ -865,8 +1172,8 @@ test(
       expect(snapshot(h).grants["100"]).toEqual(before.grants["100"]);
       expect(snapshot(h).grants["500"]).toEqual(before.grants["500"]);
       expect(yield* h.enrollment.status(first.session)).toEqual({
-        kind: "failed",
-        reason: "authorization-required",
+        kind: "left",
+        login: "public_channel",
       });
       expect(yield* h.enrollment.status(second.session)).toEqual({
         kind: "ready",
@@ -970,9 +1277,7 @@ test(
         "stale",
       );
       expect(snapshot(h).grants["400"]).toBeUndefined();
-      expect(snapshot(h).subscriptions["400"]?.status).toBe(
-        "authorization_revoked",
-      );
+      expect(snapshot(h).subscriptions["400"]).toBeUndefined();
       yield* Deferred.succeed(usersGate, undefined);
       const staleResult = yield* Fiber.join(stale);
       expect(Result.isFailure(staleResult) && staleResult.failure.code).toBe(
@@ -1090,24 +1395,29 @@ test(
 
       if (!remote) return yield* Effect.die("Missing delayed remote create");
       expect(snapshot(h).subscriptions["400"]).toBeUndefined();
-      yield* h.account.observeSubscription({
-        id: remote.id,
-        broadcasterId: BroadcasterId.make("400"),
-        senderId: "100",
-        callback: "https://fixture.invalid/webhooks/twitch",
-        binding: "fixture-binding",
-        status: "authorization_revoked",
-      });
+
+      const revoking = yield* h.account
+        .observeSubscription({
+          id: remote.id,
+          broadcasterId: BroadcasterId.make("400"),
+          senderId: "100",
+          callback: "https://fixture.invalid/webhooks/twitch",
+          binding: "fixture-binding",
+          status: "authorization_revoked",
+        })
+        .pipe(Effect.forkChild);
+
       yield* Deferred.succeed(h.control.createGate, undefined);
       yield* Fiber.join(repair);
+      yield* Fiber.join(revoking);
       expect(snapshot(h).subscriptions["400"]).toBeUndefined();
       expect(snapshot(h).grants["400"]).toBeUndefined();
       expect(snapshot(h).revoked[remote.id]?.reason).toBe(
         "authorization-revoked",
       );
       expect(yield* h.enrollment.status(input.session)).toEqual({
-        kind: "failed",
-        reason: "authorization-required",
+        kind: "left",
+        login: "public_channel",
       });
       expect(
         (yield* h.account.dispatch(h.send("late-public-create", "400"))).kind,

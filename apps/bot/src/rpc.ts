@@ -36,6 +36,15 @@ export const botOperations = <R>(clients: {
 
     return yield* (yield* clients.enrollment).complete(valid);
   }),
+  enrollmentLeave: Effect.fnUntraced(function* (
+    input: Parameters<BotOperations["enrollmentLeave"]>[0],
+  ) {
+    const valid = yield* Schema.decodeUnknownEffect(EnrollmentSession)(
+      input,
+    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+
+    return yield* (yield* clients.enrollment).leave(valid);
+  }),
   enrollmentStatus: Effect.fnUntraced(function* (
     input: Parameters<BotOperations["enrollmentStatus"]>[0],
   ) {

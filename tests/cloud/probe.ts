@@ -1,6 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Stack } from "alchemy";
-import { Cause, Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -197,10 +197,10 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
             .prepare()
             .pipe(
               Effect.map(HttpServerResponse.jsonUnsafe),
-              Effect.catchCause((cause) =>
+              Effect.catchCause(() =>
                 Effect.succeed(
                   HttpServerResponse.jsonUnsafe(
-                    { probeError: Cause.pretty(cause) },
+                    { probeError: "fixture-failure" },
                     { status: 500 },
                   ),
                 ),
@@ -218,10 +218,10 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
             .arm()
             .pipe(
               Effect.map(HttpServerResponse.jsonUnsafe),
-              Effect.catchCause((cause) =>
+              Effect.catchCause(() =>
                 Effect.succeed(
                   HttpServerResponse.jsonUnsafe(
-                    { probeError: Cause.pretty(cause) },
+                    { probeError: "fixture-failure" },
                     { status: 500 },
                   ),
                 ),
@@ -233,10 +233,10 @@ export class ProbeWorker extends Cloudflare.Worker<ProbeWorker>()(
             .snapshot()
             .pipe(
               Effect.map(HttpServerResponse.jsonUnsafe),
-              Effect.catchCause((cause) =>
+              Effect.catchCause(() =>
                 Effect.succeed(
                   HttpServerResponse.jsonUnsafe(
-                    { probeError: Cause.pretty(cause) },
+                    { probeError: "fixture-failure" },
                     { status: 500 },
                   ),
                 ),

@@ -65,6 +65,9 @@ jobs:
             .cloud-tests/*/run.json
             .cloud-tests/*/resources.json
             .cloud-tests/*/result.json
+            .cloud-tests/*/native-alarm-attribution.jsonl
+            .cloud-tests/*/fixture-http-*.jsonl
+            .cloud-tests/*/journeys/*.jsonl
             .cloud-tests/*/alarm-observation.json
             .cloud-tests/*/timings.json
             .cloud-tests/*/twitch-timings.json

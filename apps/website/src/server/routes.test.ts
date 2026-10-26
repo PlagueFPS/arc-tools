@@ -105,6 +105,26 @@ test("native page-host negotiation does not advertise a JSON-only API", async ()
   expect(response.headers.get("Vary")).toContain("Accept");
 });
 
+test("native Leave route enforces POST and rejects missing Origin before loading Bot", async () => {
+  for (const method of ["GET", "HEAD", "PUT", "OPTIONS"]) {
+    const response = await responseFor(
+      new Request("https://site.invalid/oauth/twitch/enroll/leave", { method }),
+    );
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("POST");
+  }
+
+  const response = await responseFor(
+    new Request("https://site.invalid/oauth/twitch/enroll/leave", {
+      method: "POST",
+    }),
+  );
+
+  expect(response.status).toBe(403);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+});
+
 test("the page host dispatches the Discord install link using local configuration", async () => {
   vi.stubEnv("DISCORD_APPLICATION_ID", "123456789012345678");
 

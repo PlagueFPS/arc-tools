@@ -45,3 +45,34 @@ export const canReconnect = (reason: typeof EnrollmentFailure.Type) =>
   reason === "denied" ||
   reason === "expired" ||
   reason === "authorization-failed";
+
+export const canLeaveChannel = (status: typeof EnrollmentStatus.Type) =>
+  status.kind === "ready" ||
+  status.kind === "recovering" ||
+  status.kind === "attention-required";
+
+const attentionGuidance: Readonly<
+  Record<
+    Extract<
+      typeof EnrollmentStatus.Type,
+      { kind: "attention-required" }
+    >["reason"],
+    string
+  >
+> = {
+  "sender-authorization-required":
+    "The bot's Twitch authorization needs to be renewed by its operator. Automatic reconnect cannot finish until that access is restored.",
+  "broadcaster-authorization-required":
+    "Your channel's Twitch authorization needs to be renewed. Connect again to approve access, or leave your channel below.",
+  "ingress-required":
+    "The bot's Twitch callback needs attention from its operator. Automatic reconnect cannot finish until setup is restored.",
+  "setup-required":
+    "The bot's setup needs attention from its operator. Your channel remains installed, and you can still leave below.",
+};
+
+export const attentionMessage = (
+  reason: Extract<
+    typeof EnrollmentStatus.Type,
+    { kind: "attention-required" }
+  >["reason"],
+) => attentionGuidance[reason];

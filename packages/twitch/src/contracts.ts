@@ -1,5 +1,4 @@
-import type { Effect } from "effect";
-import { Context, Schema } from "effect";
+import { Context, type Effect, Schema } from "effect";
 
 import type { EnrollmentStatus } from "./enrollment-contracts.js";
 import { AttemptId, BroadcasterId, Deadline } from "./schemas.js";
@@ -11,9 +10,23 @@ export const bounded = (max: number) =>
 
 export const ReplyId = bounded(128).pipe(Schema.brand("TwitchReplyId"));
 
+export const InstallationId = bounded(128).pipe(
+  Schema.brand("TwitchInstallationId"),
+);
+
+export const ChatSource = Schema.Struct({
+  installationId: InstallationId,
+  subscriptionId: bounded(128),
+});
+
+export type ChatSource = typeof ChatSource.Type;
+
+export const SubscriptionAdmission = Schema.NullOr(ChatSource);
+
 export const Dispatch = Schema.Struct({
   attemptId: AttemptId.check(Schema.isMaxLength(160)),
   broadcasterId: BroadcasterId.check(Schema.isMaxLength(64)),
+  source: ChatSource,
   replyParentId: ReplyId,
   text: bounded(500),
   deadline: Deadline,
@@ -36,9 +49,15 @@ export const enrollmentTiming = {
   callbackMs: 16_000,
 };
 
+export const eventSubTiming = {
+  maxAgeMs: 600_000,
+  futureSkewMs: 30_000,
+};
+
 export class AccountError extends Schema.TaggedError<AccountError>()(
   "AccountError",
   {
+    retryAt: Schema.optional(Schema.Number),
     code: Schema.Literals([
       "configuration",
       "busy",
@@ -132,7 +151,7 @@ export interface Account {
   readonly status: () => Effect.Effect<AccountStatus, AccountError>;
   readonly observeSubscription: (
     input: SubscriptionObservation,
-  ) => Effect.Effect<void, AccountError>;
+  ) => Effect.Effect<ChatSource | null, AccountError>;
 }
 
 export class TwitchAccount extends Context.Service<TwitchAccount, Account>()(
@@ -174,6 +193,9 @@ export class TwitchEnrollment extends Context.Service<
     ) => Effect.Effect<string, AccountError>;
     readonly complete: (
       input: EnrollmentCompletion,
+    ) => Effect.Effect<EnrollmentStatus, AccountError>;
+    readonly leave: (
+      session: typeof EnrollmentSession.Type,
     ) => Effect.Effect<EnrollmentStatus, AccountError>;
     readonly status: (
       session: typeof EnrollmentSession.Type,

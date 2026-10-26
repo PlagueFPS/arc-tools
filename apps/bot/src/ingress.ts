@@ -3,6 +3,7 @@ import {
   BroadcasterId,
   subscriptionBinding,
   bounded,
+  eventSubTiming,
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
@@ -48,9 +49,9 @@ type IngressBodyError = HttpServerError.HttpServerError | IngressError;
 export const ingressPolicy = {
   maxBytes: 64 * 1024,
   bodyMs: 750,
-  twitchAgeMs: 600_000,
+  twitchAgeMs: eventSubTiming.maxAgeMs,
   discordAgeMs: 300_000,
-  futureSkewMs: 30_000,
+  futureSkewMs: eventSubTiming.futureSkewMs,
 } as const;
 
 const TwitchAuthenticationHeaders = Schema.Struct({
@@ -382,6 +383,7 @@ export const ingressHandlers = (config: IngressConfig) =>
             [
               "authorization_revoked",
               "user_removed",
+              "chat_user_banned",
               "notification_failures_exceeded",
               "version_removed",
             ].includes(subscription.status),
@@ -390,7 +392,8 @@ export const ingressHandlers = (config: IngressConfig) =>
         );
 
         if (!valid) return yield* new IngressError({ status: 400 });
-        yield* account.observeSubscription({
+
+        const source = yield* account.observeSubscription({
           id: subscription.id,
           broadcasterId: channel.id,
           senderId: sender.id,
@@ -423,6 +426,7 @@ export const ingressHandlers = (config: IngressConfig) =>
           ),
           Match.when("notification", () =>
             Effect.gen(function* () {
+              if (!source) return HttpServerResponse.empty({ status: 204 });
               const event = envelope.event;
 
               if (!event) return yield* new IngressError({ status: 400 });
@@ -438,6 +442,7 @@ export const ingressHandlers = (config: IngressConfig) =>
 
               const receipt = yield* Schema.decodeUnknownEffect(TwitchReceipt)({
                 id: `twitch:${yield* digest(JSON.stringify([channel.id, event.message_id]))}`,
+                source,
                 broadcasterId: channel.id,
                 replyParentId: event.message_id,
                 invocation,
@@ -445,6 +450,7 @@ export const ingressHandlers = (config: IngressConfig) =>
                 fingerprint: yield* digest(
                   JSON.stringify([
                     channel.id,
+                    source,
                     event.message_id,
                     event.chatter_user_id,
                     invocation,

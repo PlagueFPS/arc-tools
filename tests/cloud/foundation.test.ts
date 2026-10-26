@@ -13,6 +13,7 @@ import {
   CloudResourceEvidence,
   cloudSettings,
 } from "../../scripts/cloud-settings.js";
+import { installHttpEvidence } from "./fixture-evidence.js";
 import {
   get,
   json,
@@ -23,6 +24,8 @@ import {
 import { ProbeSnapshot } from "./probe.js";
 
 const settings = cloudSettings(process.env);
+
+installHttpEvidence();
 
 const options = {
   providers: Cloudflare.providers(),

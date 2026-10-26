@@ -111,7 +111,10 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
         .pipe(Effect.provideService(Clock.Clock, tenantClock)),
   });
 
-  const request = Effect.fnUntraced(function* (receivedAt = worker) {
+  const request = Effect.fnUntraced(function* (
+    receivedAt = worker,
+    subscriptionId = "created-1",
+  ) {
     const handlers = HttpApiBuilder.layer(BotApi).pipe(
       Layer.provide(
         HttpApiBuilder.group(BotApi, "health", (handlers) =>
@@ -148,7 +151,7 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
     const body = new TextEncoder().encode(
       JSON.stringify({
         ...event,
-        subscription: { ...event.subscription, id: "created-1" },
+        subscription: { ...event.subscription, id: subscriptionId },
       }),
     );
 
@@ -256,13 +259,14 @@ for (const [worker, tenant, account] of [
         Schema.decodeUnknownSync(Dispatch)({
           attemptId: `${h.work()?.id}:0`,
           broadcasterId: "200",
+          source: h.dispatches[0]?.source,
           replyParentId: "original-parent",
           text,
           deadline: worker + 10000,
         }),
       ]);
       expect(h.f.source.calls).toHaveLength(1);
-      expect(h.f.alarm()).toBeNull();
+      expect(h.f.alarm()).toBe(worker + 610000);
     }).pipe(Effect.scoped),
   );
 
@@ -414,5 +418,46 @@ test(
       deadline: 10000,
     });
     expect(Object.values(h.a.snapshot().attempts)).toHaveLength(1);
+  }).pipe(Effect.scoped),
+);
+
+test(
+  "signed unknown and retired subscription IDs allocate no Tenant before exact enabled replacement proof",
+  Effect.gen(function* () {
+    const h = yield* fixture(0);
+    expect((yield* h.request(0, "unowned-subscription")).status).toBe(204);
+    expect(h.work()).toBeUndefined();
+    expect(h.f.source.calls).toHaveLength(0);
+    const record = h.a.snapshot().subscriptions["200"];
+    const life = h.a.snapshot().lifecycle["200"];
+
+    if (!record) return yield* Effect.die("Missing original proof");
+    const account = yield* h.a.construct("fixture-signing");
+    yield* account.service.observeSubscription({
+      ...record,
+      broadcasterId: Dispatch.fields.broadcasterId.make("200"),
+      status: "chat_user_banned",
+    });
+    expect((yield* account.service.setup("operator")).status.setup).toBe(
+      "ready",
+    );
+    expect(h.a.snapshot().lifecycle["200"]).toMatchObject({
+      kind: "installed",
+      id: life?.kind === "installed" ? life.id : "missing",
+    });
+    expect((yield* h.request()).status).toBe(204);
+    expect(h.work()).toBeUndefined();
+    expect(h.f.source.calls).toHaveLength(0);
+    const replacement = h.a.snapshot().subscriptions["200"];
+
+    if (!replacement) return yield* Effect.die("Missing replacement proof");
+    expect((yield* h.request(0, replacement.id)).status).toBe(204);
+    yield* h.f.drain;
+    expect(h.work()).toMatchObject({
+      kind: "terminal",
+      outcome: "sent",
+      source: { subscriptionId: replacement.id },
+    });
+    expect(h.posts()).toBe(1);
   }).pipe(Effect.scoped),
 );

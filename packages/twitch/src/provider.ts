@@ -212,6 +212,27 @@ export const makeProvider = Effect.fnUntraced(function* (
       ),
     );
 
+  const throttle = Effect.fnUntraced(function* (
+    response: HttpClientResponse.HttpClientResponse,
+  ) {
+    const now = yield* Clock.currentTimeMillis;
+    const reset = Number(response.headers["ratelimit-reset"]) * 1000;
+    const retryAfter = response.headers["retry-after"] ?? "";
+
+    const retryAt = /^\d+$/.test(retryAfter)
+      ? now + Number(retryAfter) * 1000
+      : Date.parse(retryAfter);
+
+    return yield* new AccountError({
+      code: "provider",
+      retryAt: Math.max(
+        now + 1000,
+        Number.isFinite(reset) ? reset : 0,
+        Number.isFinite(retryAt) ? retryAt : 0,
+      ),
+    });
+  });
+
   const checked = Effect.fnUntraced(function* (
     outgoing: HttpClientRequest.HttpClientRequest,
     token: string,
@@ -220,6 +241,7 @@ export const makeProvider = Effect.fnUntraced(function* (
       authenticated(helix, token, "Bearer"),
       outgoing,
       Effect.fnUntraced(function* (response) {
+        if (response.status === 429) return yield* throttle(response);
         const body = yield* readAcceptedJson(response);
 
         return yield* HttpClientResponse.matchStatus(response, {
@@ -320,11 +342,7 @@ export const makeProvider = Effect.fnUntraced(function* (
           subscriptions.push(...page.data);
           cursor = page.pagination?.cursor;
 
-          if (
-            subscriptions.length > 512 ||
-            seen.size >= 64 ||
-            (cursor && seen.has(cursor))
-          )
+          if (cursor && seen.has(cursor))
             return yield* new AccountError({ code: "capacity" });
 
           if (cursor) seen.add(cursor);
@@ -355,6 +373,7 @@ export const makeProvider = Effect.fnUntraced(function* (
             }),
           ),
           Effect.fnUntraced(function* (response) {
+            if (response.status === 429) return yield* throttle(response);
             const body = yield* readAcceptedJson(response);
 
             return yield* HttpClientResponse.matchStatus(response, {
@@ -403,7 +422,7 @@ export const makeProvider = Effect.fnUntraced(function* (
         effect.pipe(
           Effect.catchTags({
             AccountError: (error) =>
-              error.code === "client"
+              error.code === "client" || error.retryAt !== undefined
                 ? error
                 : Effect.succeed<typeof CreateOutcome.Type>({
                     kind: "unknown",
@@ -421,6 +440,7 @@ export const makeProvider = Effect.fnUntraced(function* (
             urlParams: { id },
           }),
           Effect.fnUntraced(function* (response) {
+            if (response.status === 429) return yield* throttle(response);
             yield* readAcceptedJson(response);
 
             return yield* HttpClientResponse.matchStatus(response, {

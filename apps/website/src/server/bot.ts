@@ -22,3 +22,16 @@ export const botClient = Effect.gen(function* () {
 
   return makeRpcStub<BotOperations>(env.BOT, { errors: [AccountError] });
 });
+
+export const canonicalWebsiteOrigin = Effect.gen(function* () {
+  const { env } = yield* Effect.tryPromise({
+    try: () => import("cloudflare:workers"),
+    catch: () => new WebsiteUnavailable(),
+  });
+
+  return yield* Effect.try({
+    try: () =>
+      websiteOrigin(env.ARC_STAGE, env.ARC_WEBSITE_SELF, env.ARC_WEBSITE_URL),
+    catch: () => new WebsiteUnavailable(),
+  });
+});

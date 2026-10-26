@@ -85,7 +85,7 @@ test(
         f.control.secrets.get(id),
       ),
     }).toEqual({
-      setup: "repair-required",
+      setup: "pending",
       outcome: "rejected",
       sends: 0,
       remote: ["secret-A"],
@@ -260,7 +260,7 @@ for (const change of ["sender", "callback", "binding", "ingress"]) {
 
       yield* f.grants(b.service);
       expect((yield* b.service.status()).setup).toBe(
-        change === "ingress" ? "ingress-required" : "repair-required",
+        change === "ingress" ? "ingress-required" : "pending",
       );
       expect(yield* f.send(b.service, `rotated-${change}`)).toEqual({
         kind: "rejected",
@@ -348,19 +348,24 @@ test(
       .pipe(Effect.exit, Effect.forkChild);
 
     yield* Effect.promise(() => gate.entered.promise);
-    yield* a.service.observeSubscription(
-      observation(a.config, "created-1", "authorization_revoked"),
-    );
-    const retiredUntil = f.snapshot().revoked["created-1"]?.until;
-    expect(retiredUntil).toBeGreaterThan(Date.now());
+
+    const revoking = yield* a.service
+      .observeSubscription(
+        observation(a.config, "created-1", "authorization_revoked"),
+      )
+      .pipe(Effect.forkChild);
+
     f.control.createGate = null;
     gate.release.resolve();
-    expect((yield* Fiber.join(creating))._tag).toBe("Failure");
+    yield* Fiber.join(creating);
+    yield* Fiber.join(revoking);
+    const retiredUntil = f.snapshot().revoked["created-1"]?.until;
+    expect(retiredUntil).toBeGreaterThan(Date.now());
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "enabled"),
     );
     expect(f.snapshot().subscriptions).toEqual({});
-    expect((yield* a.service.status()).sender?.authorized).toBeFalse();
+    expect((yield* a.service.status()).sender?.authorized).toBeTrue();
     expect(yield* f.send(a.service, "revoked-before-receipt")).toEqual({
       kind: "rejected",
     });
@@ -370,7 +375,9 @@ test(
       observation(a.config, "created-1", "enabled"),
     );
     expect(f.snapshot().subscriptions["200"]?.id).toBe("created-2");
-    expect(f.snapshot().revoked["created-1"]?.until).toBe(retiredUntil);
+    expect(f.snapshot().revoked["created-1"]?.until).toBeGreaterThanOrEqual(
+      retiredUntil ?? 0,
+    );
     expect(f.control.calls).toEqual({
       get: 2,
       post: 2,
@@ -454,7 +461,7 @@ test(
     f.control.listGate = null;
     listGate.release.resolve();
     expect((yield* Fiber.join(listing))._tag).toBe("Failure");
-    expect(f.snapshot().revoked).toEqual({});
+    expect(f.snapshot().revoked["created-1"]?.reason).toBe("retired");
     expect(f.control.calls).toEqual({
       get: 2,
       post: 1,
@@ -644,13 +651,18 @@ test(
         .code,
     ).toBe("client");
 
-    for (const status of [200, 201, 403, 429, 500]) {
+    for (const status of [200, 201, 403, 500]) {
       f.control.response = { status, body: {} };
       expect(yield* a.provider.create("app-token", "200", "100")).toEqual({
         kind: "unknown",
       });
     }
 
+    f.control.response = { status: 429, body: {} };
+    expect(
+      (yield* a.provider.create("app-token", "200", "100").pipe(Effect.flip))
+        .retryAt,
+    ).toBeGreaterThan(Date.now());
     f.control.response = null;
     f.control.disconnect = true;
     expect(yield* a.provider.create("app-token", "200", "100")).toEqual({
@@ -788,6 +800,7 @@ test(
       state.revoked["created-1"] = {
         until: 0,
         reason: "authorization-revoked",
+        deleteDue: null,
       };
     });
     yield* a.service.status();
@@ -795,10 +808,9 @@ test(
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "enabled"),
     );
-    expect(f.snapshot().subscriptions["200"]?.status).toBe(
-      "authorization_revoked",
-    );
-    expect((yield* a.service.status()).setup).toBe("repair-required");
+    expect(f.snapshot().subscriptions["200"]).toBeUndefined();
+    expect(f.snapshot().lifecycle["200"]?.kind).toBe("removed");
+    expect((yield* a.service.status()).channels).toEqual([]);
     yield* f.grants(a.service);
     expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
     expect(f.snapshot().subscriptions["200"]?.id).toBe("created-2");
@@ -809,5 +821,219 @@ test(
       conflict: 0,
       send: 0,
     });
+  }),
+);
+
+test(
+  "provider 429 lower bounds survive account reconstruction and prevent another create",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const a = yield* f.construct("secret-A");
+    yield* f.grants(a.service);
+    const due = Math.ceil((Date.now() + 3_600_000) / 1000) * 1000;
+    f.control.responses.set("POST /eventsub/subscriptions", () =>
+      Response.json(
+        {},
+        {
+          status: 429,
+          headers: {
+            "ratelimit-reset": String(due / 1000),
+            "retry-after": "3600",
+          },
+        },
+      ),
+    );
+    const result = yield* a.service.setup("operator").pipe(Effect.flip);
+    expect(result.retryAt).toBeGreaterThanOrEqual(due);
+    expect(f.snapshot().apiBlockedUntil).toBeGreaterThanOrEqual(due);
+
+    const posts = f.control.requests.filter(
+      (entry) =>
+        entry.method === "POST" && entry.path === "/eventsub/subscriptions",
+    ).length;
+
+    yield* f.store.update((state) => {
+      const life = state.lifecycle["200"];
+
+      if (life?.kind === "installed")
+        state.lifecycle["200"] = { ...life, recovery: { due: 0, stage: 0 } };
+    });
+    const reconstructed = yield* f.construct("secret-A");
+    yield* reconstructed.credentialAlarm();
+    expect(
+      f.control.requests.filter(
+        (entry) =>
+          entry.method === "POST" && entry.path === "/eventsub/subscriptions",
+      ),
+    ).toHaveLength(posts);
+    expect(f.snapshot().lifecycle["200"]).toMatchObject({
+      kind: "installed",
+      recovery: { due: f.snapshot().apiBlockedUntil },
+    });
+    expect(f.snapshot().grants["200"]).toEqual(["channel:bot"]);
+  }),
+);
+
+test(
+  "the real HTTP response boundary holds removal through an issued POST",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const a = yield* f.construct("secret-A");
+    yield* f.grants(a.service);
+    yield* a.service.setup("operator");
+    const gate = responseGate();
+    f.control.responses.set("POST /chat/messages", async () => {
+      gate.entered.resolve();
+      await gate.release.promise;
+
+      return Response.json({ data: [{ is_sent: true, message_id: "issued" }] });
+    });
+
+    const sending = yield* f
+      .send(a.service, "issued-before-removal")
+      .pipe(Effect.forkChild);
+
+    yield* Effect.promise(() => gate.entered.promise);
+    const started = performance.now();
+    let removed = false;
+
+    const leaving = yield* a.service
+      .observeSubscription(observation(a.config, "created-1", "user_removed"))
+      .pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            removed = true;
+          }),
+        ),
+        Effect.forkChild,
+      );
+
+    yield* Effect.sleep(100);
+    expect(removed).toBeFalse();
+    gate.release.resolve();
+    expect((yield* Fiber.join(sending)).kind).toBe("sent");
+    yield* Fiber.join(leaving);
+    const elapsed = performance.now() - started;
+    expect((yield* f.send(a.service, "part-after-removal")).kind).toBe(
+      "rejected",
+    );
+    expect(
+      f.control.requests.filter(
+        (entry) => entry.method === "POST" && entry.path === "/chat/messages",
+      ),
+    ).toHaveLength(1);
+    yield* Effect.logInfo("Controlled removal gate latency").pipe(
+      Effect.annotateLogs({
+        elapsedMs: elapsed,
+        providerHeldMs: 100,
+        sends: 1,
+        removal: "committed",
+        samples: 1,
+      }),
+    );
+  }),
+);
+
+test(
+  "a recovery list 401 invalidates only its app credential and preserves channel grants",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const a = yield* f.construct("secret-A");
+    yield* f.grants(a.service);
+    yield* a.service.setup("operator");
+    const before = f.snapshot();
+    yield* a.service.observeSubscription(
+      observation(a.config, "created-1", "chat_user_banned"),
+    );
+    yield* f.store.update((state) => {
+      const life = state.lifecycle["200"];
+
+      if (life?.kind === "installed")
+        state.lifecycle["200"] = { ...life, recovery: { due: 1, stage: 1 } };
+    });
+    f.control.responses.set(
+      "GET /eventsub/subscriptions",
+      () => new Response(null, { status: 401 }),
+    );
+    yield* a.credentialAlarm();
+    expect(f.snapshot().session).toBeNull();
+    expect(f.snapshot().grants).toEqual(before.grants);
+    expect(f.snapshot().lifecycle["200"]?.kind).toBe("installed");
+    f.control.responses.delete("GET /eventsub/subscriptions");
+    expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
+    expect(f.snapshot().session?.generation).not.toBe(
+      before.session?.generation,
+    );
+  }),
+);
+
+test(
+  "a cleanup DELETE 401 retains its durable obligation and invalidates the rejected credential",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const a = yield* f.construct("secret-A");
+    yield* f.grants(a.service);
+    yield* a.service.setup("operator");
+    const sender = f.snapshot().grants["100"];
+    yield* a.service.observeSubscription(
+      observation(a.config, "created-1", "user_removed"),
+    );
+    yield* f.store.update((state) => {
+      const entry = state.revoked["created-1"];
+
+      if (entry) state.revoked["created-1"] = { ...entry, deleteDue: 1 };
+    });
+    f.control.responses.set(
+      "DELETE /eventsub/subscriptions",
+      () => new Response(null, { status: 401 }),
+    );
+    yield* a.credentialAlarm();
+    expect(f.snapshot().session).toBeNull();
+    expect(f.snapshot().grants["100"]).toEqual(sender);
+    expect(f.snapshot().revoked["created-1"]?.deleteDue).toBeGreaterThan(
+      Date.now(),
+    );
+    expect(f.snapshot().lifecycle["200"]?.kind).toBe("removed");
+  }),
+);
+
+test(
+  "a delayed DELETE acknowledgement cannot clear a newer obligation for the same exact ID",
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const a = yield* f.construct("secret-A");
+    yield* f.grants(a.service);
+    yield* a.service.setup("operator");
+    yield* a.service.observeSubscription(
+      observation(a.config, "created-1", "user_removed"),
+    );
+    yield* f.store.update((state) => {
+      const entry = state.revoked["created-1"];
+
+      if (entry) state.revoked["created-1"] = { ...entry, deleteDue: 1 };
+    });
+    const gate = responseGate();
+    f.control.deleteGate = gate;
+    const deleting = yield* a.credentialAlarm().pipe(Effect.forkChild);
+    yield* Effect.promise(() => gate.entered.promise);
+    yield* f.store.update((state) => {
+      const entry = state.revoked["created-1"];
+
+      if (entry)
+        state.revoked["created-1"] = {
+          ...entry,
+          deleteVersion: (entry.deleteVersion ?? 0) + 1,
+          deleteClaim: null,
+          deleteDue: 1,
+        };
+    });
+    const newer = f.snapshot().revoked["created-1"];
+    f.control.deleteGate = null;
+    gate.release.resolve();
+    yield* Fiber.join(deleting);
+    expect(f.snapshot().revoked["created-1"]).toEqual(newer);
+    yield* a.credentialAlarm();
+    expect(f.snapshot().revoked["created-1"]?.deleteDue).toBeNull();
+    expect(f.control.calls.delete).toBe(2);
   }),
 );

@@ -1,4 +1,4 @@
-import { Option } from "effect";
+import { Match, Option } from "effect";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
@@ -8,6 +8,8 @@ import {
   CheckError,
   EnrollmentStatus,
   canReconnect,
+  canLeaveChannel,
+  attentionMessage,
   guidance,
 } from "../domain/enrollment";
 import { Message } from "../message";
@@ -65,49 +67,72 @@ const failure = (error: CheckError, h: HtmlBuilder<Message>) =>
 const enrollment = (
   status: typeof EnrollmentStatus.Type,
   h: HtmlBuilder<Message>,
-): Html => {
-  if (status.kind === "pending")
-    return heading(
-      "CONNECTION IN PROGRESS",
-      "Almost ready.",
-      "Your connection is still being verified. If Twitch authorization is open in another tab, finish there first. Then check your status again.",
-      h,
-    );
-
-  if (status.kind === "failed")
-    return heading(
-      "CONNECTION NEEDS ATTENTION",
-      "Let's get you connected.",
-      guidance(status.reason),
-      h,
-    );
-
-  return h.div(
-    [],
-    [
-      heading(
-        "CHANNEL CONNECTED",
-        "You're raid ready.",
-        `ARC Tools is ready in ${status.login}'s Twitch chat.`,
-        h,
-      ),
-      h.div(
-        [
-          h.Class(
-            "mt-[25px] flex flex-wrap gap-[15px] rounded border border-border bg-muted p-[18px]",
-          ),
-        ],
-        [
-          h.span(
-            [h.Class("self-center text-[9px] tracking-[1.2px]")],
-            ["TRY IT IN YOUR CHAT"],
-          ),
-          h.code([h.Class("text-sm text-foreground")], ["!find sensors"]),
-        ],
-      ),
-    ],
+): Html =>
+  Match.value(status).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      pending: () =>
+        heading(
+          "CONNECTION IN PROGRESS",
+          "Almost ready.",
+          "Your connection is still being verified. If Twitch authorization is open in another tab, finish there first. Then check your status again.",
+          h,
+        ),
+      failed: (status) =>
+        heading(
+          "CONNECTION NEEDS ATTENTION",
+          "Let's get you connected.",
+          guidance(status.reason),
+          h,
+        ),
+      left: (status) =>
+        heading(
+          "CHANNEL LEFT",
+          "Your channel has left.",
+          `ARC Tools has left ${status.login}'s Twitch chat. Connect again whenever you are ready.`,
+          h,
+        ),
+      recovering: (status) =>
+        heading(
+          "CHAT UNAVAILABLE",
+          "Reconnecting automatically.",
+          `ARC Tools is reconnecting to ${status.login}'s Twitch chat. New commands will resume when Twitch confirms access.`,
+          h,
+        ),
+      "attention-required": (status) =>
+        heading(
+          "CONNECTION NEEDS ATTENTION",
+          "Action required.",
+          attentionMessage(status.reason),
+          h,
+        ),
+      ready: (status) =>
+        h.div(
+          [],
+          [
+            heading(
+              "CHANNEL CONNECTED",
+              "You're raid ready.",
+              `ARC Tools is ready in ${status.login}'s Twitch chat.`,
+              h,
+            ),
+            h.div(
+              [
+                h.Class(
+                  "mt-[25px] flex flex-wrap gap-[15px] rounded border border-border bg-muted p-[18px]",
+                ),
+              ],
+              [
+                h.span(
+                  [h.Class("self-center text-[9px] tracking-[1.2px]")],
+                  ["TRY IT IN YOUR CHAT"],
+                ),
+                h.code([h.Class("text-sm text-foreground")], ["!find sensors"]),
+              ],
+            ),
+          ],
+        ),
+    }),
   );
-};
 
 const statusView = (model: Model, h: HtmlBuilder<Message>) =>
   AsyncData.match(model.enrollment, {
@@ -132,7 +157,15 @@ const statusView = (model: Model, h: HtmlBuilder<Message>) =>
   });
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const isPending = AsyncData.isPending(model.enrollment);
+  const leaving = AsyncData.isPending(model.leave);
+  const isPending = AsyncData.isPending(model.enrollment) || leaving;
+
+  const canLeave = Option.match(AsyncData.getData(model.enrollment), {
+    onNone: () => false,
+    onSome: canLeaveChannel,
+  });
+
+  const leaveFailed = Option.isSome(AsyncData.getError(model.leave));
 
   const absent = Option.match(AsyncData.getError(model.enrollment), {
     onNone: () => false,
@@ -142,7 +175,11 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
   const reconnect = Option.match(AsyncData.getData(model.enrollment), {
     onNone: () => false,
     onSome: (status) =>
-      !isPending && status.kind === "failed" && canReconnect(status.reason),
+      !isPending &&
+      (status.kind === "left" ||
+        (status.kind === "attention-required" &&
+          status.reason === "broadcaster-authorization-required") ||
+        (status.kind === "failed" && canReconnect(status.reason))),
   });
 
   return h.section(
@@ -174,6 +211,19 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
             [h.Class("mt-[26px] flex flex-wrap gap-[14px]")],
             [
               absent || reconnect ? connectLink({}, h) : h.empty,
+              canLeave
+                ? button(
+                    {
+                      variant: "secondary",
+                      size: "lg",
+                      type: "button",
+                      isDisabled: leaving,
+                      onClick: Message.ClickedLeaveChannel(),
+                    },
+                    leaving ? "Leaving…" : "Leave channel",
+                    h,
+                  )
+                : h.empty,
               button(
                 {
                   variant: "secondary",
@@ -182,11 +232,21 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
                   isDisabled: isPending,
                   onClick: Message.ClickedCheckStatus(),
                 },
-                isPending ? "Checking…" : "Check status",
+                AsyncData.isPending(model.enrollment)
+                  ? "Checking…"
+                  : "Check status",
                 h,
               ),
             ],
           ),
+          leaveFailed && canLeave
+            ? h.p(
+                [h.Role("alert"), h.Class("mt-4 text-sm")],
+                [
+                  "We could not confirm Leave. Try Leave channel again or check your status.",
+                ],
+              )
+            : h.empty,
           h.p(
             [
               h.Class(

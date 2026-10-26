@@ -37,9 +37,9 @@ test(
       calls: f.control.calls,
     }).toEqual({
       first: "stale",
-      links: ["fixture_channel", "fixture_sender"],
-      sender: false,
-      channel: false,
+      links: ["fixture_channel"],
+      sender: true,
+      channel: undefined,
       calls: { get: 2, post: 1, delete: 0, conflict: 0, send: 0 },
     });
     yield* f.authorize(a.service, second.authorizations);
@@ -125,9 +125,8 @@ test(
     const repair = yield* a.service.setup("operator");
     expect(repair.authorizations.map((entry) => entry.login).sort()).toEqual([
       "fixture_channel",
-      "fixture_sender",
     ]);
-    expect(repair.status.channels[0]?.authorized).toBeFalse();
+    expect(repair.status.channels).toEqual([]);
     yield* f.authorize(a.service, repair.authorizations);
     const generation = f.snapshot().authGeneration;
     yield* a.service.observeSubscription(
@@ -182,8 +181,8 @@ test(
         : "success",
     ).toBe("stale");
     const repair = yield* a.service.setup("operator");
-    expect(repair.authorizations.length).toBe(2);
-    expect(repair.status.sender?.authorized).toBeFalse();
+    expect(repair.authorizations.length).toBe(1);
+    expect(repair.status.sender?.authorized).toBeTrue();
     expect(yield* f.send(a.service, "stale-reconcile")).toEqual({
       kind: "rejected",
     });
@@ -259,7 +258,7 @@ test(
       observation(a.config, "created-1", "authorization_revoked"),
     );
     const repair = yield* a.service.setup("operator");
-    expect(repair.authorizations.length).toBe(2);
+    expect(repair.authorizations.length).toBe(1);
     yield* f.authorize(a.service, repair.authorizations);
     const generation = f.snapshot().authGeneration;
     yield* a.service.observeSubscription(
@@ -323,10 +322,9 @@ test(
     const a = yield* f.construct("secret-A");
     const initial = yield* a.service.setup("operator");
     yield* f.grants(a.service);
-    yield* a.service.setup("operator");
 
     const authorization = initial.authorizations.find(
-      (entry) => entry.login === "fixture_sender",
+      (entry) => entry.login === "fixture_channel",
     );
 
     if (!authorization) throw new Error("missing fixture sender authorization");
@@ -340,8 +338,8 @@ test(
         client_id: a.config.identity.twitchClientId,
         expires_in: 3600,
         scopes: params.get("scope")?.split(" "),
-        user_id: "100",
-        login: "fixture_sender",
+        user_id: "200",
+        login: "fixture_channel",
       });
     });
 
@@ -354,6 +352,7 @@ test(
       .pipe(Effect.result, Effect.forkChild);
 
     yield* Effect.promise(() => gate.entered.promise);
+    yield* a.service.setup("operator");
     const remote = f.control.remote.get("created-1");
 
     if (!remote) throw new Error("missing confirmed fixture subscription");
@@ -371,8 +370,8 @@ test(
       Predicate.isTagged(result, "Failure") ? result.failure.code : "success",
     ).toBe("state");
     const repair = yield* a.service.setup("operator");
-    expect(repair.status.sender?.authorized).toBeFalse();
-    expect(repair.authorizations.length).toBe(2);
+    expect(repair.status.sender?.authorized).toBeTrue();
+    expect(repair.authorizations.length).toBe(1);
     yield* f.authorize(a.service, repair.authorizations);
     expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
     expect(f.control.calls).toEqual({
