@@ -17,7 +17,7 @@ import {
 } from "effect";
 
 import { discordResponse } from "../../apps/bot/src/presentation.js";
-import { cloudSettings } from "../../scripts/cloud-settings.js";
+import { localTestSettings } from "../../scripts/local-test-settings.js";
 import { expectDataFailure } from "./discord-failure.js";
 import { retainJourney } from "./fixture-evidence.js";
 import {
@@ -50,7 +50,7 @@ import {
 import { TenantSnapshot } from "./tenant-fixture.js";
 import { ProviderSnapshot } from "./twitch-provider-fixture.js";
 
-const settings = cloudSettings(process.env);
+const settings = localTestSettings(process.env);
 
 const encode = (value: Schema.Json) =>
   new TextEncoder().encode(
@@ -127,6 +127,7 @@ export function registerTenantTests({
 
     return {
       bot: deployed.url,
+      publicBot: process.env.ARC_BOT_URL ?? deployed.url,
       tenant: deployed.tenantUrl,
       source: journeyUrl(deployed.sourceUrl, "bot"),
       provider: journeyUrl(deployed.providerUrl, "bot"),
@@ -149,9 +150,9 @@ export function registerTenantTests({
         status: remote.status,
         broadcasterId: "200",
         senderId: remote.condition.user_id,
-        callback: `${u.bot}/webhooks/twitch`,
+        callback: `${u.publicBot}/webhooks/twitch`,
         binding: yield* subscriptionBinding({
-          callback: `${u.bot}/webhooks/twitch`,
+          callback: `${u.publicBot}/webhooks/twitch`,
           clientId: "fixture-twitch",
           signingSecret: Redacted.make("fixture-signing"),
         }),
@@ -411,7 +412,7 @@ export function registerTenantTests({
             twitchEvent(
               "stale-twitch",
               "!sell sensors",
-              `${u.bot}/webhooks/twitch`,
+              `${u.publicBot}/webhooks/twitch`,
             ),
             "stale-twitch",
             "notification",
@@ -426,7 +427,7 @@ export function registerTenantTests({
       const context = twitchEvent(
         "wrong-context",
         "!sell sensors",
-        `${u.bot}/webhooks/twitch`,
+        `${u.publicBot}/webhooks/twitch`,
       );
 
       yield* rejected(
@@ -560,7 +561,7 @@ export function registerTenantTests({
         for (const authorization of first.authorizations) {
           const params = new URL(authorization.url).searchParams;
           expect(params.get("redirect_uri")).toBe(
-            `${u.bot}/oauth/twitch/callback`,
+            `${u.publicBot}/oauth/twitch/callback`,
           );
 
           const completion = yield* post(`${u.tenant}/operator-oauth`, {
@@ -603,7 +604,8 @@ export function registerTenantTests({
         ).toBe(true);
 
         const remote = (yield* provider(u.provider)).remote.find(
-          (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
+          (entry) =>
+            entry.transport.callback === `${u.publicBot}/webhooks/twitch`,
         );
 
         if (!remote)
@@ -635,7 +637,12 @@ export function registerTenantTests({
           "!unknown sensors",
           "ARC: !sell sensors",
         ]) {
-          const event = twitchEvent(text, text, `${u.bot}/webhooks/twitch`);
+          const event = twitchEvent(
+            text,
+            text,
+            `${u.publicBot}/webhooks/twitch`,
+          );
+
           event.subscription.id = remote.id;
           const ignored = yield* signedTwitch(u.bot, event, text);
           expect(ignored.status).toBe(204);
@@ -746,7 +753,7 @@ export function registerTenantTests({
       const event = twitchEvent(
         `all-${command}`,
         `!${command} ${input}`,
-        `${u.bot}/webhooks/twitch`,
+        `${u.publicBot}/webhooks/twitch`,
       );
 
       event.subscription.id = remote.id;
@@ -819,7 +826,7 @@ export function registerTenantTests({
     const echo = twitchEvent(
       "generated",
       generated,
-      `${u.bot}/webhooks/twitch`,
+      `${u.publicBot}/webhooks/twitch`,
     );
 
     echo.subscription.id = remote.id;
@@ -1376,7 +1383,7 @@ export function registerTenantTests({
         const event = twitchEvent(
           "ambiguous-parts",
           "!sell long",
-          `${u.bot}/webhooks/twitch`,
+          `${u.publicBot}/webhooks/twitch`,
         );
 
         event.subscription.id = remote.id;

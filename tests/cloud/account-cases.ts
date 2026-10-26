@@ -340,8 +340,9 @@ export function registerAccountTests({
       const child = Bun.spawn(
         [
           process.execPath,
+          "--no-env-file",
           "run",
-          "scripts/ops.ts",
+          new URL("../../scripts/ops.ts", import.meta.url).pathname,
           "status",
           "--stage",
           ready.status.stage,
@@ -1028,7 +1029,7 @@ export function registerAccountTests({
     { timeout: 90_000 },
   );
   test(
-    "Discord cloud fixture reconciles the full registry and detects partial or stale releases",
+    "Discord workerd fixture reconciles the full registry and detects partial or stale releases",
     Effect.gen(function* () {
       const u = yield* urls("registry");
       const health = yield* get(`${u.provider}/health`, ReleaseHealth);

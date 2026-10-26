@@ -296,6 +296,26 @@ export type ObservationKind =
   | "source"
   | "control";
 
+type FixtureRole = "provider" | "account" | "tenant" | "cache" | "metaforge";
+
+const localFixtures = new Map<string, FixtureRole>();
+
+export const registerLocalFixture = (role: FixtureRole, value: string) => {
+  const url = new URL(value);
+
+  if (
+    url.protocol !== "http:" ||
+    url.hostname !== "localhost" ||
+    url.pathname !== "/" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw new Error("Expected a local workerd fixture origin");
+  localFixtures.set(url.origin, role);
+};
+
 export const auditedObservation = <A, I>(
   kind: ObservationKind,
   url: string,
@@ -304,17 +324,19 @@ export const auditedObservation = <A, I>(
   const parsed = new URL(url);
   const path = parsed.pathname.replace(/^\/journeys\/[a-z][a-z0-9-]{0,63}/, "");
 
-  const fixture = disposableHost.test(parsed.hostname)
-    ? /^arc-tools-(provider|account|tenant|cache|metaforge)-test-/.exec(
-        parsed.hostname,
-      )?.[1]
-    : new Map([
-        ["provider.invalid", "provider"],
-        ["account.invalid", "account"],
-        ["tenant.invalid", "tenant"],
-        ["cache.invalid", "cache"],
-        ["source.invalid", "metaforge"],
-      ]).get(parsed.hostname);
+  const fixture =
+    localFixtures.get(parsed.origin) ??
+    (disposableHost.test(parsed.hostname)
+      ? /^arc-tools-(provider|account|tenant|cache|metaforge)-test-/.exec(
+          parsed.hostname,
+        )?.[1]
+      : new Map([
+          ["provider.invalid", "provider"],
+          ["account.invalid", "account"],
+          ["tenant.invalid", "tenant"],
+          ["cache.invalid", "cache"],
+          ["source.invalid", "metaforge"],
+        ]).get(parsed.hostname));
 
   const valid = {
     provider: fixture === "provider" && path === "/snapshot",

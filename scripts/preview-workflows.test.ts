@@ -212,33 +212,6 @@ async function runGuard(
 }
 
 describe("workflow event and dependency behavior", () => {
-  test("missing trusted cloud settings fail with actionable names without printing credentials", async () => {
-    const command = step(ci, "ci", "Require trusted cloud configuration").run;
-
-    if (!command) throw new Error("Missing cloud configuration command");
-
-    for (const [account, token, code, message] of [
-      ["", "CANARY", 1, "CLOUDFLARE_TEST_ACCOUNT_ID"],
-      ["fixture-account", "", 1, "CLOUDFLARE_TEST_API_TOKEN"],
-      ["fixture-account", "CANARY", 0, ""],
-    ] as const) {
-      const child = Bun.spawn(["/bin/bash", "-c", command], {
-        env: { CLOUDFLARE_ACCOUNT_ID: account, CLOUDFLARE_API_TOKEN: token },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
-      const [actual, stdout, stderr] = await Promise.all([
-        child.exited,
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-      ]);
-
-      expect(actual).toBe(code);
-      expect(stdout + stderr).toContain(message);
-      expect(stdout + stderr).not.toContain("CANARY");
-    }
-  });
   test("PR checks and trusted target close events are separate and cleanup never depends on CI", () => {
     const checks = Schema.decodeUnknownSync(trigger)(ci.on.pull_request);
     expect(checks).toEqual({
@@ -253,7 +226,7 @@ describe("workflow event and dependency behavior", () => {
 
     for (const workflow of [ci, release])
       expect(workflow.on.pull_request_target).toBeUndefined();
-    expect(job(ci, "preview").needs).toBe("ci");
+    expect(ci.jobs.preview).toBeUndefined();
     expect(job(ci, "release").needs).toBe("ci");
     expect(job(ci, "release").uses).toBe("./.github/workflows/release.yml");
   });
@@ -290,56 +263,30 @@ describe("workflow event and dependency behavior", () => {
       ).toThrow(name);
     }
   });
-  test("trusted push and PR checks require credentials; forks explicitly skip cloud and preview", () => {
-    const credentialCheck = step(
-      ci,
-      "ci",
-      "Require trusted cloud configuration",
-    );
+  test("all PR checks run workerd without cloud credentials or preview deployment", () => {
+    const integration = step(ci, "ci", "Local workerd integration tests");
+    expect(integration.run).toBe("bun --no-env-file run test:cloud");
 
-    const cloud = step(ci, "ci", "Real Cloudflare integration tests");
-
-    for (const [
-      eventName,
-      fork,
-      cloudExpected,
-      previewExpected,
-      releaseExpected,
-    ] of [
-      ["push", false, true, false, true],
-      ["pull_request", false, true, true, false],
-      ["pull_request", true, false, false, false],
-    ] as const) {
-      const github = context(eventName, fork);
-      expect(enabled(credentialCheck.if, github)).toBe(cloudExpected);
-      expect(enabled(cloud.if, github)).toBe(cloudExpected);
-      expect(enabled(job(ci, "preview").if, github)).toBe(previewExpected);
-      expect(enabled(job(ci, "release").if, github)).toBe(releaseExpected);
-      expect(enabled(step(ci, "ci", "Explain fork isolation").if, github)).toBe(
-        fork,
-      );
+    for (const fork of [false, true]) {
+      expect(enabled(integration.if, context("pull_request", fork))).toBeTrue();
+      expect(
+        enabled(job(ci, "release").if, context("pull_request", fork)),
+      ).toBeFalse();
     }
 
-    for (const name of [
-      "CLOUDFLARE_TEST_ACCOUNT_ID",
-      "CLOUDFLARE_TEST_API_TOKEN",
-    ])
-      expect(credentialCheck.run).toContain(name);
-    expect(cloud.run).toBe("bun --no-env-file run test:cloud");
-    expect(step(ci, "ci", "Retry disposable Cloudflare cleanup").if).toContain(
+    expect(ci.jobs.preview).toBeUndefined();
+
+    for (const entry of job(ci, "ci").steps ?? []) {
+      expect(JSON.stringify(entry)).not.toContain("CLOUDFLARE_");
+      expect(entry.run ?? "").not.toContain("preview:deploy");
+    }
+
+    expect(step(ci, "ci", "Retry local infrastructure cleanup").if).toContain(
       "always()",
     );
     expect(step(ci, "ci", "Preserve cleanup recovery identity").if).toContain(
       "always()",
     );
-
-    for (const result of ["failure", "cancelled", "skipped"]) {
-      for (const downstream of ["preview", "release"]) {
-        const dependency = job(ci, downstream).needs;
-        const outcomes = { ci: result };
-        expect(dependency === "ci" && outcomes.ci === "success").toBeFalse();
-      }
-    }
   });
   test("close cleanup accepts conflicted or deleted same-repository heads and skips forks without checking out PR code", () => {
     const close = job(cleanup, "cleanup");
@@ -415,8 +362,7 @@ describe("workflow event and dependency behavior", () => {
       "pull-requests": "write",
     });
   });
-  test("preview deploy and cleanup share repository and PR locks, preserve recovery, and grant comment writes only to their jobs", () => {
-    const deploy = job(ci, "preview");
+  test("manual preview cleanup retains its PR lock and recovery artifacts", () => {
     const close = job(cleanup, "cleanup");
 
     const expand = (value: string, github: GithubContext, inputs = {}) =>
@@ -429,14 +375,6 @@ describe("workflow event and dependency behavior", () => {
         ),
       );
 
-    expect(
-      expand(deploy.concurrency?.group ?? "", context("pull_request")),
-    ).toBe(
-      expand(
-        close.concurrency?.group ?? "",
-        context("pull_request_target", false, "closed"),
-      ),
-    );
     const manual = context("workflow_dispatch");
 
     const manualContext = {
@@ -446,9 +384,9 @@ describe("workflow event and dependency behavior", () => {
 
     expect(
       expand(close.concurrency?.group ?? "", manualContext, { pr: "10" }),
-    ).toBe(expand(deploy.concurrency?.group ?? "", context("pull_request")));
+    ).toBe(`arc-preview-PlagueFPS/arc-tools-10`);
 
-    for (const value of [deploy, close]) {
+    for (const value of [close]) {
       expect(value.concurrency?.["cancel-in-progress"]).toBeFalse();
       expect(value.permissions?.["pull-requests"]).toBe("write");
       expect(

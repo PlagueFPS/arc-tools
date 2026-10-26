@@ -16,6 +16,19 @@ export const httpsOrigin = (value: string) => {
 
 export function botOrigin(stage: string, actual: string, configured: string) {
   if (stage.startsWith("local-")) return httpsOrigin(configured);
+  const url = new URL(actual);
+
+  const localTest =
+    stage.startsWith("test-") &&
+    url.protocol === "http:" &&
+    url.hostname === "localhost" &&
+    !url.username &&
+    !url.password &&
+    url.pathname === "/" &&
+    !url.search &&
+    !url.hash;
+
+  if (localTest) return httpsOrigin(configured);
   const origin = httpsOrigin(actual);
 
   if (configured && httpsOrigin(configured) !== origin)

@@ -354,3 +354,25 @@ test("Website defaults to localhost outside prod and only prod pins its actual s
     ).toThrow();
   }
 });
+
+test("only disposable test stages accept a local workerd Bot origin", () => {
+  expect(
+    botOrigin(
+      "test-tenant-0123456789ab",
+      "http://localhost:1337",
+      "https://fixture.invalid",
+    ),
+  ).toBe("https://fixture.invalid");
+
+  for (const stage of ["prod", "staging"]) {
+    expect(() => botOrigin(stage, "http://localhost:1337", "")).toThrow();
+  }
+
+  for (const origin of [
+    "http://example.com",
+    "http://localhost:1337/path",
+    "http://user@localhost:1337",
+  ]) {
+    expect(() => botOrigin("test-tenant-0123456789ab", origin, "")).toThrow();
+  }
+});
