@@ -3,7 +3,7 @@
 ## Prepare an environment
 
 1. Install Bun 1.4.3 and run `bun install --frozen-lockfile` at the repository root.
-2. Create a separate Twitch developer application and Discord application for each independently active environment. Local development and staging support either a personal sender in its own channel or a dedicated bot with public enrollment. Production uses a dedicated sender and an explicit channel-login list.
+2. Use the dedicated test Twitch and Discord applications for local development, and the dedicated production applications for `prod`. Use separate applications for staging if it runs alongside local development. Production uses a dedicated sender and an explicit channel-login list.
 3. Copy `.env.example` to an ignored environment file, such as `.env.local` or `.env.staging`. Replace public placeholders and enter secrets through a private editor or your secret manager. Set file permissions with `chmod 600 .env.local`. Never commit the filled file.
 4. Select your Cloudflare account and Alchemy authentication profile. `bunx --no-install alchemy profile list` and `bunx --no-install alchemy profile current` inspect profiles. If needed, use `alchemy profile create` and `alchemy profile edit` through the same `bunx --no-install` prefix.
 
@@ -39,15 +39,21 @@ Bun's `--env-file` loads the environment for the operator scripts, which do not 
 
 ## Develop with local workerd
 
-Set both stage fields to `local-yourname`, `ARC_ENVIRONMENT=personal`, `TWITCH_SENDER_KIND=personal`, and both login fields to your own login. Use separate local portal applications. Set `ARC_BOT_URL` to the Bot HTTPS tunnel origin. Website OAuth defaults to `http://localhost:3000`; omit `ARC_WEBSITE_URL` or set it to that exact value. Origins must omit paths, queries, fragments, and credentials.
+Start from `.env.example`. Set both stage fields to `local-yourname`, `ARC_ENVIRONMENT=bot`, and `TWITCH_SENDER_KIND=bot`. Set `TWITCH_SENDER_LOGIN` to the dedicated test bot and `TWITCH_CHANNEL_LOGINS` to the test broadcaster channels. Use the test portal applications. Set `ARC_BOT_URL` to the Bot HTTPS tunnel origin. Website OAuth defaults to `http://localhost:3000`; omit `ARC_WEBSITE_URL` or set it to that exact value. Origins must omit paths, queries, fragments, and credentials.
 
-For each new tunnel session, configure `ARC_BOT_URL` in the repository root's protected `.env.local`. Only Bot needs an HTTPS tunnel. Twitch returns the browser to Website on your computer; Twitch's servers send EventSub requests to Bot. Keep the Bot tunnel running separately. In terminal 1, start development:
+For each new tunnel session, configure `ARC_BOT_URL` in the repository root's protected `.env.local`. Only Bot needs an HTTPS tunnel. Twitch returns the browser to Website on your computer; Twitch's servers send EventSub requests to Bot. Install [`cloudflared`](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) on your PATH. In terminal 1, start a Quick Tunnel to the Bot listener:
+
+```bash
+bun run tunnel --url http://localhost:1337
+```
+
+Copy the printed HTTPS origin into `ARC_BOT_URL`. The tunnel can start before Bot. Keep it running. In terminal 2, start development:
 
 ```bash
 bun run dev:local
 ```
 
-Alchemy prints the Bot HTTP address. Tunnel that listener. Website listens on strict port 3000 without an explicit host override. The shortcut prints these public routes for you to paste into the corresponding portal applications:
+Alchemy prints the Bot HTTP address. If its port differs from 1337, restart the tunnel with that exact address, update `ARC_BOT_URL`, and restart development. Website listens on strict port 3000 without an explicit host override. The shortcut prints these public routes for you to paste into the corresponding portal applications:
 
 - Discord interactions endpoint is `https://YOUR_BOT_ORIGIN/interactions/discord`.
 - Twitch EventSub callback is `https://YOUR_BOT_ORIGIN/webhooks/twitch`.
@@ -55,7 +61,7 @@ Alchemy prints the Bot HTTP address. Tunnel that listener. Website listens on st
 
 If the Bot tunnel host changes, update the Discord interactions endpoint manually. The localhost Twitch OAuth redirect stays the same. Editing an origin does not change a portal. Setup uses the configured EventSub callback when it repairs subscriptions.
 
-In terminal 2, register Discord commands and run Twitch setup:
+In terminal 3, register Discord commands and run Twitch setup:
 
 ```bash
 bun run setup:local
@@ -71,14 +77,30 @@ Inspect `GET /health` at the local address. It returns `status: "ready"`, the st
 
 A placeholder HTTPS origin can exercise health and signed PING locally without a tunnel or provider calls. It cannot receive live webhooks or OAuth redirects.
 
+## Retire personal-sender setup
+
+The dedicated test and production applications replace personal-sender configuration. Personal mode remains available for own-channel use, but is no longer the default development setup.
+
+| Previous setup                                                                      | Dedicated application setup                                                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Your personal login as `TWITCH_SENDER_LOGIN` and both mode fields set to `personal` | Use the environment's bot login. Set both mode fields to `bot` for local/staging. Production uses `ARC_ENVIRONMENT=production` and `TWITCH_SENDER_KIND=bot`.                                                                                       |
+| One personal account authorizing combined sender and broadcaster scopes             | Authorize sender scopes as the bot. Authorize `channel:bot` as each broadcaster, including your personal account if you install the bot in your channel.                                                                                           |
+| Hand-generated user tokens, refresh commands, or a local `tokens.json`              | The current runtime uses neither user-token files nor operator token-refresh commands. Remove obsolete copies from this project's private setup after switching. Keep the application secrets in the protected environment file or secret manager. |
+| Repeating grants and Discord registration every session                             | With unchanged configuration and retained local storage, use `dev:local` and `status:local`. Run `setup:local` for initial setup or grant/subscription repair. Use `sync:discord:local` for command drift.                                         |
+| Operator setup for every new public broadcaster                                     | Prepare the bot sender and configured channels through setup. Additional broadcasters use Website's public enrollment flow.                                                                                                                        |
+
+When migrating an existing protected file, replace its mode fields, sender login, and Twitch and Discord application credentials with the test application's values. Keep at least one configured broadcaster. Use the production credentials only in the production environment. Grants from the old Twitch application do not authorize the new client ID. Run setup and complete the new application's grants before retiring the old setup. Revoke an old personal-application grant only after confirming that no remaining consumer needs it.
+
+Dedicated applications do not remove Twitch consent. The bot still grants `user:read:chat`, `user:write:chat`, and `user:bot`; each broadcaster grants `channel:bot`. See [Twitch cloud chatbot authentication](https://dev.twitch.tv/docs/chat/authenticating/). App-token creation, validation, and subscription repair are handled by the account runtime. Configuration changes, lost local storage, or revoked grants can require authorization again.
+
 ## Exercise public enrollment through a local tunnel
 
 Use a separate real Twitch application and dedicated test bot account. A real test application uses ordinary provider credentials and `ARC_STAGE=local-yourname`. Reserved `test-*` stages are synthetic fixtures with fixed IDs and credentials. They cannot exercise live public enrollment.
 
-Rename the Bot URL key to `ARC_BOT_URL` in protected files and GitHub environment variables manually. Production must configure `ARC_WEBSITE_URL`; nonproduction defaults to localhost. Register the Website callback for both OAuth flows. To switch a local personal file to a dedicated bot, change both `ARC_ENVIRONMENT` and `TWITCH_SENDER_KIND` to `bot`. Replace the sender, configured channels, and application credentials with those for the test application. Keep `ARC_STAGE` and `APPLICATION_STAGE` on the same `local-*` value. Stage metadata does not prove application ownership, and no Twitch client ID identifies production in code. Changing identity, secrets, or either origin changes the account revision and requires renewed grants and setup. Stored public memberships survive, but their grants must be renewed.
+Use the [local development setup](#develop-with-local-workerd) and the dedicated test application. Production must configure `ARC_WEBSITE_URL`; nonproduction defaults to localhost. Register the Website callback for both OAuth flows. Keep `ARC_STAGE` and `APPLICATION_STAGE` on the same `local-*` value. Changing identity, secrets, or either origin changes the account revision and requires renewed grants and setup. Stored public memberships survive, but their grants must be renewed.
 
 1. Copy `.env.example` to the ignored, protected `.env.local`. Select `ARC_ENVIRONMENT=bot` and `TWITCH_SENDER_KIND=bot`. Supply the test bot login, at least one configured channel login, and separate Twitch and Discord application credentials privately. Keep all Discord bindings because the full Bot and `setup:local` require them.
-2. Set `ARC_BOT_URL` to your Bot HTTPS tunnel origin. Keep `ARC_WEBSITE_URL` absent or set to `http://localhost:3000`. An existing stable named tunnel avoids callback changes between sessions. Do not create or reconfigure a remote tunnel as part of this setup without authorization.
+2. Set `ARC_BOT_URL` to your Bot HTTPS tunnel origin. Keep `ARC_WEBSITE_URL` absent or set to `http://localhost:3000`. Use `bun run tunnel --url http://localhost:1337` with the actual Bot port. For an existing locally managed named tunnel, `bun run tunnel run <name>` uses its configured routing and keeps the hostname stable.
 3. Run `bun run dev:local`. Tunnel the **Bot** listener printed by Alchemy. Open Website at `http://localhost:3000` on the computer running the browser. Port 3000 must be free; startup fails instead of silently choosing another port. Native Foldkit SSR development renders pages in Node without the Bot binding, including `dev:web` and the documented Alchemy dev host. Account operations that need that binding return private unavailable responses. Use the generated Website Worker in a binding-capable runtime for complete OAuth verification. Leave existing user processes alone.
 4. Register exactly `http://localhost:3000/oauth/twitch/callback` as an OAuth redirect on the **test Twitch application**. Configure the separate Discord application's interactions endpoint as printed by `dev:local`. Portal edits are manual and require the application's operator. See [Twitch application registration](https://dev.twitch.tv/docs/authentication/register-app/).
 5. Run `bun run setup:local` privately. Authorize the sender link as the dedicated test bot and each configured broadcaster link as its broadcaster. Repeat setup after grants complete. The sender requires `user:read:chat`, `user:write:chat`, and `user:bot`. Broadcasters require `channel:bot`. Use `bun run status:local` to inspect setup and subscription state. If Discord registration is unavailable, the existing `ops setup` CLI can prepare Twitch alone with the same local stage and HTTPS endpoint, as described below.
@@ -90,7 +112,7 @@ Live grants, portal edits, remote tunnel creation, deployment, and chat sends re
 
 ## Deploy and register a release
 
-Set both stage fields to `staging` and use the staging portal applications. Select both mode fields as `personal` for own-channel operation or `bot` for dedicated-bot public enrollment. Set `ARC_BUILD_REVISION` to the intended commit. Configure the deployed Bot origin before release. Staging defaults to the localhost OAuth redirect; an HTTPS Website override supports remote browser onboarding. Production requires the deployed HTTPS Website origin. Register the chosen Website callback. The stack retains `url` as the Bot operator endpoint and adds `websiteUrl` for browser entry. For production, set both stage fields to `prod`, `ARC_ENVIRONMENT=production`, and `TWITCH_SENDER_KIND=bot`; supply the dedicated sender and manual channel logins.
+Set both stage fields to `staging` and use the staging portal applications. Set `ARC_ENVIRONMENT=bot` and `TWITCH_SENDER_KIND=bot` for the dedicated staging bot. Set `ARC_BUILD_REVISION` to the intended commit. Configure the deployed Bot origin before release. Staging defaults to the localhost OAuth redirect; an HTTPS Website override supports remote browser onboarding. Production requires the deployed HTTPS Website origin. Register the chosen Website callback. The stack retains `url` as the Bot operator endpoint and adds `websiteUrl` for browser entry. For production, set both stage fields to `prod`, `ARC_ENVIRONMENT=production`, and `TWITCH_SENDER_KIND=bot`; supply the dedicated sender and manual channel logins.
 
 ```bash
 bun run build
