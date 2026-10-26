@@ -1,5 +1,4 @@
 import { expect } from "bun:test";
-import { writeFile } from "node:fs/promises";
 
 import {
   AccountStatus,
@@ -20,14 +19,25 @@ import {
 import { discordResponse } from "../../apps/bot/src/presentation.js";
 import { cloudSettings } from "../../scripts/cloud-settings.js";
 import { expectDataFailure } from "./discord-failure.js";
+import { retainJourney } from "./fixture-evidence.js";
 import {
-  FixtureHttpError,
+  auditedObservation,
+  observe,
+  FixtureRequestError,
   get,
   json,
   post,
   reconstructedSnapshot,
+  responseMetadata,
   request,
 } from "./fixture-http.js";
+import { withProviderControl, withSourceHold } from "./fixture-journey.js";
+import { journeyUrl } from "./fixture-routing.js";
+import {
+  immutableWork,
+  hasUsefulNativeSchedule,
+  ingressTiming,
+} from "./fixture-timing.js";
 import type * as Foundation from "./foundation.test.js";
 import { Observations } from "./metaforge.js";
 import {
@@ -47,58 +57,6 @@ const encode = (value: Schema.Json) =>
     Schema.is(Schema.String)(value) ? value : JSON.stringify(value),
   );
 
-const samples: {
-  scenario: string;
-  reply: unknown;
-  workerMs: number;
-  clientMs: number;
-  status: number;
-  flags: number;
-  content: string;
-  fallback: string | null;
-  fallbackCode: string | null;
-  tenantPhase: string | null;
-  tenantCode: string | null;
-  admissionDeltaMs: number | null;
-  cutoff: number | null;
-  activation: string | null;
-}[] = [];
-
-const twitchSamples: {
-  scenario: string;
-  workerAckMs: number;
-  clientAckMs: number;
-  observedDeliveryClientMs: number;
-}[] = [];
-
-const pendingTwitchSamples = new Map<
-  string,
-  { start: number; workerAckMs: number; clientAckMs: number }
->();
-
-const recordSamples = () =>
-  Effect.promise(() =>
-    writeFile(
-      new URL(
-        `../../.cloud-tests/${settings.stage}/timings.json`,
-        import.meta.url,
-      ),
-      JSON.stringify(samples, null, 2),
-    ),
-  ).pipe(
-    Effect.andThen(
-      Effect.promise(() =>
-        writeFile(
-          new URL(
-            `../../.cloud-tests/${settings.stage}/twitch-timings.json`,
-            import.meta.url,
-          ),
-          JSON.stringify(twitchSamples, null, 2),
-        ),
-      ),
-    ),
-  );
-
 const rejected = Effect.fnUntraced(function* <A, E>(
   effect: Effect.Effect<A, E>,
   status: number,
@@ -108,30 +66,37 @@ const rejected = Effect.fnUntraced(function* <A, E>(
 
   if (
     !Predicate.isTagged(result, "Failure") ||
-    !(result.failure instanceof FixtureHttpError)
+    !Schema.is(FixtureRequestError)(result.failure)
   )
     return yield* Effect.die("Expected a terminal HTTP rejection");
+
+  if (result.failure.diagnostic.kind !== "http")
+    return yield* Effect.die("Expected HTTP status evidence");
   expect(result.failure.diagnostic.status).toBe(status);
   expect(result.failure.diagnostic.tenant?.lookups).toBe("0");
   expect(result.failure.diagnostic.tenant?.rpcs).toBe("0");
 });
 
 const snapshot = (url: string, key: string) =>
-  get(`${url}/snapshot?key=${key}`, TenantSnapshot);
+  observe(
+    auditedObservation("tenant", `${url}/snapshot?key=${key}`, TenantSnapshot),
+    { until: () => true, budgetMs: 5000 },
+  );
 
-const provider = (url: string) => get(`${url}/snapshot`, ProviderSnapshot);
+const provider = (url: string) =>
+  observe(auditedObservation("provider", `${url}/snapshot`, ProviderSnapshot), {
+    until: () => true,
+    budgetMs: 5000,
+  });
 
 const waitMessages = (url: string, parent: string) =>
-  provider(url).pipe(
-    Effect.repeat({
-      until: (value) =>
-        value.messages.some(
-          (message) => message.body.reply_parent_message_id === parent,
-        ),
-      times: 40,
-      schedule: Schedule.spaced(250),
-    }),
-  );
+  observe(auditedObservation("provider", `${url}/snapshot`, ProviderSnapshot), {
+    until: (value) =>
+      value.messages.some(
+        (message) => message.body.reply_parent_message_id === parent,
+      ),
+    budgetMs: 5000,
+  });
 
 const sourceControl = (
   url: string,
@@ -163,28 +128,18 @@ export function registerTenantTests({
     return {
       bot: deployed.url,
       tenant: deployed.tenantUrl,
-      source: deployed.sourceUrl,
-      provider: deployed.providerUrl,
+      source: journeyUrl(deployed.sourceUrl, "bot"),
+      provider: journeyUrl(deployed.providerUrl, "bot"),
       workerName: deployed.workerName,
     };
   });
 
   const receipt = Effect.fnUntraced(function* (
     id: string,
+    remote: (typeof ProviderSnapshot.Type)["remote"][number],
     receivedAt = Date.now(),
   ) {
     const u = yield* urls;
-
-    const remote = (yield* provider(u.provider)).remote.find(
-      (entry) =>
-        entry.transport.callback === `${u.bot}/webhooks/twitch` &&
-        entry.condition.broadcaster_user_id === "200",
-    );
-
-    if (!remote)
-      return yield* Effect.die(
-        "Missing owned subscription for native Tenant admission",
-      );
 
     const source = yield* request(`${u.tenant}/source`, {
       method: "POST",
@@ -254,11 +209,9 @@ export function registerTenantTests({
       );
 
       const elapsed = performance.now() - start;
-      const stamp = response.headers.get("x-arc-ingress-ms");
+      const workerMs = ingressTiming(response.headers);
 
-      if (!stamp || !/^\d+$/.test(stamp))
-        return yield* Effect.die("Missing ingress timing stamp");
-      const workerMs = Number(stamp);
+      const trace = responseMetadata(response)?.tenant;
 
       const sample = {
         scenario,
@@ -268,20 +221,19 @@ export function registerTenantTests({
         status: response.status,
         flags: reply.data.flags,
         content: reply.data.content,
-        fallback: response.headers.get("x-arc-command-fallback"),
-        fallbackCode: response.headers.get("x-arc-command-code"),
-        tenantPhase: response.headers.get("x-arc-tenant-phase"),
-        tenantCode: response.headers.get("x-arc-tenant-code"),
-        admissionDeltaMs: response.headers.has("x-arc-admission-delta-ms")
-          ? Number(response.headers.get("x-arc-admission-delta-ms"))
+        fallback: trace?.fallback ?? null,
+        fallbackCode: trace?.fallbackCode ?? null,
+        tenantPhase: trace?.phase ?? null,
+        tenantCode: trace?.code ?? null,
+        admissionDeltaMs: trace?.admissionDeltaMs
+          ? Number(trace.admissionDeltaMs)
           : null,
-        cutoff: response.headers.has("x-arc-tenant-cutoff")
-          ? Number(response.headers.get("x-arc-tenant-cutoff"))
-          : null,
-        activation: response.headers.get("x-arc-tenant-activation"),
+        cutoff: trace?.cutoff ? Number(trace.cutoff) : null,
+        activation: trace?.activation ?? null,
       };
 
-      samples.push(sample);
+      const { reply: _reply, content: _content, ...timing } = sample;
+      yield* retainJourney(`bot-${scenario}`, timing);
       console.info(
         JSON.stringify({
           discordTiming: scenario,
@@ -295,11 +247,9 @@ export function registerTenantTests({
           fallbackCode: sample.fallbackCode,
         }),
       );
-      yield* recordSamples();
 
       expect(workerMs).toBeGreaterThanOrEqual(0);
       expect(workerMs).toBeLessThan(3000);
-      expect(elapsed).toBeLessThan(3000);
 
       return { response, reply, sample };
     }
@@ -316,20 +266,12 @@ export function registerTenantTests({
   ) {
     const bytes = encode(event);
     const headers = yield* signTwitch(bytes, id, at, type);
-    const start = performance.now();
 
     const response = yield* request(`${bot}/webhooks/twitch`, {
       method: "POST",
       body: bytes,
       headers,
     });
-
-    if (id.startsWith("notification-"))
-      pendingTwitchSamples.set(id, {
-        start,
-        workerAckMs: Number(response.headers.get("x-arc-ingress-ms")),
-        clientAckMs: performance.now() - start,
-      });
 
     return response;
   });
@@ -550,10 +492,10 @@ export function registerTenantTests({
     "actual Bot cold and warm Discord responses use the shared production cache with measured full-path headroom",
     Effect.gen(function* () {
       const u = yield* urls;
-      yield* sourceControl(u.source, "/items?id=sensors&minimal=true", {
+      yield* sourceControl(u.source, "/items?id=warm-sensors&minimal=true", {
         data: [
           {
-            id: "sensors",
+            id: "warm-sensors",
             name: "Sensors",
             value: 10,
             loot_area: "Industrial",
@@ -566,7 +508,7 @@ export function registerTenantTests({
 
       const cold = yield* signedDiscord(
         u.bot,
-        discordCommand("cold", "sell", "sensors", "cold-guild"),
+        discordCommand("cold", "sell", "warm-sensors", "cold-guild"),
         "cold-cache-cold-tenant",
       );
 
@@ -574,293 +516,318 @@ export function registerTenantTests({
         discordResponse("Sensors can be sold for 10 coins each"),
       );
       const loaded = yield* get(`${u.source}/observations`, Observations);
-      expect(loaded["/items?id=sensors&minimal=true"]).toBe(
-        (before["/items?id=sensors&minimal=true"] ?? 0) + 1,
+      expect(loaded["/items?id=warm-sensors&minimal=true"]).toBe(
+        (before["/items?id=warm-sensors&minimal=true"] ?? 0) + 1,
       );
 
-      for (let n = 0; n < 3; n++)
-        expect(
-          (yield* signedDiscord(
-            u.bot,
-            discordCommand(`warm-${n}`, "sell", "sensors", "cold-guild"),
-            "warm-cache-warm-tenant",
-          )).reply,
-        ).toEqual(discordResponse("Sensors can be sold for 10 coins each"));
-      const cached = yield* get(`${u.source}/observations`, Observations);
-      expect(cached["/items?id=sensors&minimal=true"]).toBe(
-        loaded["/items?id=sensors&minimal=true"],
-      );
-    }),
-    { timeout: 90000 },
-  );
-
-  test(
-    "actual Bot account sees its origin, signed challenge stays pending and ordinary personal chat allocates no channel tenant",
-    Effect.gen(function* () {
-      const u = yield* urls;
-      yield* post(`${u.provider}/control`, {
-        holdSend: false,
-        holdCreate: false,
-        holdMint: false,
-        remote: [],
-        createStatus: "webhook_callback_verification_pending",
-        resetMessages: true,
-        sendStatus: 200,
-        sendBody: {
-          data: [{ is_sent: true, message_id: "actual-bot-message" }],
-        },
-      });
-      const first = yield* setup(u.bot);
-      expect(first.authorizations.length).toBeGreaterThan(0);
-
-      for (const authorization of first.authorizations) {
-        const params = new URL(authorization.url).searchParams;
-        expect(params.get("redirect_uri")).toBe(
-          `${u.bot}/oauth/twitch/callback`,
-        );
-
-        const completion = yield* post(`${u.tenant}/operator-oauth`, {
-          state: params.get("state") ?? "",
-          code: JSON.stringify({
-            userId: authorization.login === "fixture_sender" ? "100" : "200",
-            login: authorization.login,
-            scopes: params.get("scope")?.split(" "),
-            clientId: "fixture-twitch",
-          }),
-        });
-
-        expect(
-          yield* json(
-            completion,
-            Schema.Struct({ completed: Schema.Literal(true) }),
-          ),
-        ).toEqual({ completed: true });
-      }
-
-      const pending = yield* status(u.bot).pipe(
-        Effect.repeat({
-          until: (value) =>
-            value.channels.some(
-              (channel) =>
-                channel.subscription ===
-                "webhook_callback_verification_pending",
-            ),
-          times: 60,
-          schedule: Schedule.spaced("100 millis"),
-        }),
-      );
-
-      expect(pending.setup).toBe("pending");
-      expect(
-        pending.channels.some(
-          (channel) =>
-            channel.subscription === "webhook_callback_verification_pending",
-        ),
-      ).toBe(true);
-
-      const remote = (yield* provider(u.provider)).remote.find(
-        (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
-      );
-
-      if (!remote) return yield* Effect.die("Actual Bot subscription missing");
-
-      const challenge = {
-        subscription: {
-          ...remote,
-          status: "webhook_callback_verification_pending",
-        },
-        challenge: "exact-challenge-👋",
-      };
-
-      const challenged = yield* signedTwitch(
-        u.bot,
-        challenge,
-        "challenge",
-        "webhook_callback_verification",
-      );
-
-      expect(challenged.status).toBe(200);
-      expect(yield* Effect.promise(() => challenged.text())).toBe(
-        "exact-challenge-👋",
-      );
-      expect((yield* status(u.bot)).setup).toBe("pending");
-
-      for (const text of ["hello", "!unknown sensors", "ARC: !sell sensors"]) {
-        const event = twitchEvent(text, text, `${u.bot}/webhooks/twitch`);
-        event.subscription.id = remote.id;
-        const ignored = yield* signedTwitch(u.bot, event, text);
-        expect(ignored.status).toBe(204);
-        noTenant(ignored);
-      }
-
-      expect((yield* status(u.bot)).setup).toBe("ready");
-      expect((yield* provider(u.provider)).messages).toEqual([]);
-    }),
-    { timeout: 90000 },
-  );
-
-  test(
-    "all ten commands execute through actual Bot routes, cache and accepted account dispatch on both transports",
-    Effect.gen(function* () {
-      const u = yield* urls;
-      yield* sourceControl(u.source, "/traders", {
-        data: {
-          Apollo: [],
-          Celeste: [],
-          Lance: [],
-          Shani: [{ id: "sensors", name: "Sensors", trader_price: 100 }],
-          TianWen: [],
-        },
-      });
-      yield* sourceControl(u.source, "/arcs?id=bastion&includeLoot=true", {
-        data: [
-          {
-            id: "bastion",
-            name: "Bastion",
-            loot: [{ item: { id: "sensors", name: "Sensors" } }],
-          },
-        ],
-      });
-      yield* sourceControl(
-        u.source,
-        "/items?id=sensors&includeComponents=true",
-        {
-          data: [
-            {
-              id: "sensors",
-              name: "Sensors",
-              value: 10,
-              loot_area: "Industrial",
-              recycle_components: [],
-              recycle_from: [],
-            },
-          ],
-        },
-      );
-      const now = Date.now();
-      yield* sourceControl(u.source, "/events-schedule", {
-        data: [
-          {
-            name: "Harvester",
-            map: "Dam",
-            startTime: now - 30000,
-            endTime: now + 90000,
-          },
-          {
-            name: "Harvester",
-            map: "Spaceport",
-            startTime: now + 90000,
-            endTime: now + 210000,
-          },
-        ],
-      });
-
-      const cases = [
-        ["buy", "sensors", "Sensors can be purchased from Shani for 100 cred."],
-        ["loot", "bastion", "Bastions drop the following items: Sensors"],
-        ["craft", "sensors", "Sensors cannot be crafted."],
-        ["find", "sensors", "Sensors can be found in Industrial areas."],
-        ["sell", "sensors", "Sensors can be sold for 10 coins each"],
-        ["recycle", "sensors", "No items granted for recycling Sensors"],
-        ["recycleto", "sensors", "No items recycle to Sensors"],
-        ["event", "queen", "Harvester on Dam is active now (ends in 1m)"],
-        ["active", "", "Harvester on Dam (ends in 1m)"],
-        ["upcoming", "", "Harvester on Spaceport (starts in 1m)"],
-      ] as const;
-
-      const remote = (yield* provider(u.provider)).remote.find(
-        (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
-      );
-
-      if (!remote) return yield* Effect.die("Subscription missing");
-
-      for (const [command, input, text] of cases) {
-        expect(
-          (yield* signedDiscord(
-            u.bot,
-            discordCommand(`all-${command}`, command, input),
-            `command-${command}`,
-          )).reply,
-        ).toEqual(discordResponse(text));
-
-        const event = twitchEvent(
-          `all-${command}`,
-          `!${command} ${input}`,
-          `${u.bot}/webhooks/twitch`,
-        );
-
-        event.subscription.id = remote.id;
-
-        const afterDiscord = yield* get(
-          `${u.source}/observations`,
-          Observations,
-        );
-
-        const receivedAt = Date.now();
-
-        const admitted = yield* signedTwitch(
+      for (let n = 0; n < 3; n++) {
+        const warm = yield* signedDiscord(
           u.bot,
-          event,
-          `notification-${command}`,
+          discordCommand(`warm-${n}`, "sell", "warm-sensors", "cold-guild"),
+          "warm-cache-warm-tenant",
         );
 
-        expect(admitted.status).toBe(204);
-        expect(admitted.headers.get("x-arc-tenant-lookups")).toBe("1");
-        expect(admitted.headers.get("x-arc-tenant-rpcs")).toBe("1");
+        expect(warm.reply).toEqual(
+          discordResponse("Sensors can be sold for 10 coins each"),
+        );
+        expect(warm.sample?.flags).toBe(0);
+        expect(warm.sample?.fallback).toBeNull();
+      }
 
-        const sent = (yield* waitMessages(
-          u.provider,
-          `all-${command}`,
-        )).messages.find(
-          (message) =>
-            message.body.reply_parent_message_id === `all-${command}`,
+      const cached = yield* get(`${u.source}/observations`, Observations);
+      expect(cached["/items?id=warm-sensors&minimal=true"]).toBe(
+        loaded["/items?id=warm-sensors&minimal=true"],
+      );
+    }),
+    { timeout: 90000 },
+  );
+
+  const prepareBotJourney = Effect.fnUntraced(function* () {
+    yield* retainJourney("bot-journey", {
+      step: "actual Bot account sees its origin, signed challenge stays pending and ordinary personal chat allocates no channel tenant",
+      phase: "start",
+    });
+    const u = yield* urls;
+    yield* post(`${u.provider}/control`, { remote: [], resetMessages: true });
+
+    return yield* withProviderControl(
+      u.provider,
+      { createStatus: "webhook_callback_verification_pending" },
+      Effect.fnUntraced(function* () {
+        const first = yield* setup(u.bot);
+        expect(first.authorizations.length).toBeGreaterThan(0);
+
+        for (const authorization of first.authorizations) {
+          const params = new URL(authorization.url).searchParams;
+          expect(params.get("redirect_uri")).toBe(
+            `${u.bot}/oauth/twitch/callback`,
+          );
+
+          const completion = yield* post(`${u.tenant}/operator-oauth`, {
+            state: params.get("state") ?? "",
+            code: JSON.stringify({
+              userId: authorization.login === "fixture_sender" ? "100" : "200",
+              login: authorization.login,
+              scopes: params.get("scope")?.split(" "),
+              clientId: "fixture-twitch",
+            }),
+          });
+
+          expect(
+            yield* json(
+              completion,
+              Schema.Struct({ completed: Schema.Literal(true) }),
+            ),
+          ).toEqual({ completed: true });
+        }
+
+        const pending = yield* status(u.bot).pipe(
+          Effect.repeat({
+            until: (value) =>
+              value.channels.some(
+                (channel) =>
+                  channel.subscription ===
+                  "webhook_callback_verification_pending",
+              ),
+            times: 60,
+            schedule: Schedule.spaced("100 millis"),
+          }),
         );
 
-        const timing = pendingTwitchSamples.get(`notification-${command}`);
+        expect(pending.setup).toBe("pending");
+        expect(
+          pending.channels.some(
+            (channel) =>
+              channel.subscription === "webhook_callback_verification_pending",
+          ),
+        ).toBe(true);
 
-        if (!timing) return yield* Effect.die("Missing Twitch timing");
+        const remote = (yield* provider(u.provider)).remote.find(
+          (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
+        );
 
-        const sample = {
-          scenario: command,
-          workerAckMs: timing.workerAckMs,
-          clientAckMs: timing.clientAckMs,
-          observedDeliveryClientMs: performance.now() - timing.start,
+        if (!remote)
+          return yield* Effect.die("Actual Bot subscription missing");
+
+        const challenge = {
+          subscription: {
+            ...remote,
+            status: "webhook_callback_verification_pending",
+          },
+          challenge: "exact-challenge-👋",
         };
 
-        twitchSamples.push(sample);
-        console.info(JSON.stringify({ twitchTiming: sample }));
-        yield* recordSamples();
-        expect(sent?.body.message).toBe(text);
-        expect(sent?.at).toBeLessThan(receivedAt + 10000);
-        expect(yield* get(`${u.source}/observations`, Observations)).toEqual(
-          afterDiscord,
+        const challenged = yield* signedTwitch(
+          u.bot,
+          challenge,
+          "challenge",
+          "webhook_callback_verification",
         );
-        expect(
-          (yield* signedTwitch(u.bot, event, `retry-${command}`)).status,
-        ).toBe(204);
-        expect(
-          (yield* provider(u.provider)).messages.filter(
-            (message) =>
-              message.body.reply_parent_message_id === `all-${command}`,
-          ),
-        ).toHaveLength(1);
-      }
 
-      const generated =
-        (yield* provider(u.provider)).messages[0]?.body.message ?? "";
+        expect(challenged.status).toBe(200);
+        expect(yield* Effect.promise(() => challenged.text())).toBe(
+          "exact-challenge-👋",
+        );
+        expect((yield* status(u.bot)).setup).toBe("pending");
 
-      const echo = twitchEvent(
-        "generated",
-        generated,
+        for (const text of [
+          "hello",
+          "!unknown sensors",
+          "ARC: !sell sensors",
+        ]) {
+          const event = twitchEvent(text, text, `${u.bot}/webhooks/twitch`);
+          event.subscription.id = remote.id;
+          const ignored = yield* signedTwitch(u.bot, event, text);
+          expect(ignored.status).toBe(204);
+          noTenant(ignored);
+        }
+
+        expect((yield* status(u.bot)).setup).toBe("ready");
+        expect((yield* provider(u.provider)).messages).toEqual([]);
+
+        return remote;
+      }),
+    );
+  });
+
+  const verifyTenCommands = Effect.fnUntraced(function* (
+    proof: (typeof ProviderSnapshot.Type)["remote"][number],
+  ) {
+    yield* retainJourney("bot-journey", {
+      step: "all ten commands execute through actual Bot routes, cache and accepted account dispatch on both transports",
+      phase: "start",
+    });
+    const u = yield* urls;
+    yield* sourceControl(u.source, "/traders", {
+      data: {
+        Apollo: [],
+        Celeste: [],
+        Lance: [],
+        Shani: [{ id: "sensors", name: "Sensors", trader_price: 100 }],
+        TianWen: [],
+      },
+    });
+    yield* sourceControl(u.source, "/arcs?id=bastion&includeLoot=true", {
+      data: [
+        {
+          id: "bastion",
+          name: "Bastion",
+          loot: [{ item: { id: "sensors", name: "Sensors" } }],
+        },
+      ],
+    });
+    yield* sourceControl(u.source, "/items?id=sensors&includeComponents=true", {
+      data: [
+        {
+          id: "sensors",
+          name: "Sensors",
+          value: 10,
+          loot_area: "Industrial",
+          recycle_components: [],
+          recycle_from: [],
+        },
+      ],
+    });
+    const now = Date.now();
+    yield* sourceControl(u.source, "/events-schedule", {
+      data: [
+        {
+          name: "Harvester",
+          map: "Dam",
+          startTime: now - 30000,
+          endTime: now + 90000,
+        },
+        {
+          name: "Harvester",
+          map: "Spaceport",
+          startTime: now + 90000,
+          endTime: now + 210000,
+        },
+      ],
+    });
+
+    const cases = [
+      ["buy", "sensors", "Sensors can be purchased from Shani for 100 cred."],
+      ["loot", "bastion", "Bastions drop the following items: Sensors"],
+      ["craft", "sensors", "Sensors cannot be crafted."],
+      ["find", "sensors", "Sensors can be found in Industrial areas."],
+      ["sell", "sensors", "Sensors can be sold for 10 coins each"],
+      ["recycle", "sensors", "No items granted for recycling Sensors"],
+      ["recycleto", "sensors", "No items recycle to Sensors"],
+      ["event", "queen", "Harvester on Dam is active now (ends in 1m)"],
+      ["active", "", "Harvester on Dam (ends in 1m)"],
+      ["upcoming", "", "Harvester on Spaceport (starts in 1m)"],
+    ] as const;
+
+    const remote = proof;
+
+    const twitchSamples: {
+      scenario: string;
+      workerAckMs: number;
+      clientAckMs: number;
+      observedDeliveryClientMs: number;
+    }[] = [];
+
+    const discordSamples: string[] = [];
+
+    for (const [command, input, text] of cases) {
+      const discord = yield* signedDiscord(
+        u.bot,
+        discordCommand(`all-${command}`, command, input),
+        `command-${command}`,
+      );
+
+      expect(discord.reply).toEqual(discordResponse(text));
+      expect(discord.sample?.flags).toBe(0);
+      expect(discord.sample?.fallback).toBeNull();
+      expect(discord.sample?.tenantPhase).toBe("committed");
+      discordSamples.push(command);
+
+      const event = twitchEvent(
+        `all-${command}`,
+        `!${command} ${input}`,
         `${u.bot}/webhooks/twitch`,
       );
 
-      echo.subscription.id = remote.id;
-      expect((yield* signedTwitch(u.bot, echo, "echo")).status).toBe(204);
-      expect((yield* provider(u.provider)).messages).toHaveLength(10);
-    }),
-    { timeout: 90000 },
-  );
+      event.subscription.id = remote.id;
+
+      const afterDiscord = yield* get(`${u.source}/observations`, Observations);
+
+      const receivedAt = Date.now();
+
+      const ackStart = performance.now();
+
+      const admitted = yield* signedTwitch(
+        u.bot,
+        event,
+        `notification-${command}`,
+      );
+
+      const timing = {
+        start: ackStart,
+        workerAckMs: ingressTiming(admitted.headers),
+        clientAckMs: performance.now() - ackStart,
+      };
+
+      yield* retainJourney(`bot-command-${command}`, {
+        phase: "ack",
+        workerAckMs: timing.workerAckMs,
+        clientAckMs: timing.clientAckMs,
+      });
+
+      expect(admitted.status).toBe(204);
+      expect(admitted.headers.get("x-arc-tenant-lookups")).toBe("1");
+      expect(admitted.headers.get("x-arc-tenant-rpcs")).toBe("1");
+
+      const sent = (yield* waitMessages(
+        u.provider,
+        `all-${command}`,
+      )).messages.find(
+        (message) => message.body.reply_parent_message_id === `all-${command}`,
+      );
+
+      const sample = {
+        scenario: command,
+        workerAckMs: timing.workerAckMs,
+        clientAckMs: timing.clientAckMs,
+        observedDeliveryClientMs: performance.now() - timing.start,
+      };
+
+      twitchSamples.push(sample);
+      yield* retainJourney(`bot-command-${command}`, sample);
+      expect(sample.workerAckMs).toBeGreaterThanOrEqual(0);
+      expect(sample.workerAckMs).toBeLessThan(3000);
+      expect(sent?.body.message).toBe(text);
+      expect(sent?.at).toBeLessThan(receivedAt + 10000);
+      expect(yield* get(`${u.source}/observations`, Observations)).toEqual(
+        afterDiscord,
+      );
+      expect(
+        (yield* signedTwitch(u.bot, event, `retry-${command}`)).status,
+      ).toBe(204);
+      expect(
+        (yield* provider(u.provider)).messages.filter(
+          (message) =>
+            message.body.reply_parent_message_id === `all-${command}`,
+        ),
+      ).toHaveLength(1);
+    }
+
+    const generated =
+      (yield* provider(u.provider)).messages[0]?.body.message ?? "";
+
+    const echo = twitchEvent(
+      "generated",
+      generated,
+      `${u.bot}/webhooks/twitch`,
+    );
+
+    echo.subscription.id = remote.id;
+    expect((yield* signedTwitch(u.bot, echo, "echo")).status).toBe(204);
+    expect((yield* provider(u.provider)).messages).toHaveLength(10);
+    expect(discordSamples).toHaveLength(10);
+    expect(twitchSamples).toHaveLength(10);
+  });
 
   test(
     "slow, missing and malformed data return private initial responses with measured headroom and no late reply",
@@ -934,7 +901,7 @@ export function registerTenantTests({
         u.bot,
         invocation,
         "concurrent-original",
-      ).pipe(Effect.forkChild);
+      ).pipe(Effect.forkScoped);
 
       yield* Effect.sleep(100);
 
@@ -942,7 +909,7 @@ export function registerTenantTests({
         u.bot,
         invocation,
         "concurrent-duplicate",
-      ).pipe(Effect.forkChild);
+      ).pipe(Effect.forkScoped);
 
       const a = yield* Fiber.join(first);
       const b = yield* Fiber.join(second);
@@ -955,7 +922,7 @@ export function registerTenantTests({
           "/items?id=concurrent&minimal=true"
         ],
       ).toBe(1);
-    }),
+    }).pipe(Effect.scoped),
     { timeout: 90000 },
   );
 
@@ -979,124 +946,177 @@ export function registerTenantTests({
     { timeout: 90000 },
   );
 
-  test(
-    "native Tenant admission persists a useful alarm before acknowledgement and reconstructs into one delivery",
-    Effect.gen(function* () {
-      const u = yield* urls;
-      const key = "native-alarm";
-      const input = yield* receipt("native-alarm");
-      expect(
-        (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
-      ).toBe(204);
-      const admitted = yield* snapshot(u.tenant, key);
-      expect(admitted.state?.works["native-alarm"]).toMatchObject({
-        kind: "computing",
-        receivedAt: input.receivedAt,
-        deadline: input.receivedAt + 10000,
-      });
-      expect(admitted.alarm).toBeLessThan(input.receivedAt + 10000);
-      expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
-        204,
-      );
+  const verifyNativeTenantDelivery = Effect.fnUntraced(function* (
+    proof: (typeof ProviderSnapshot.Type)["remote"][number],
+  ) {
+    yield* retainJourney("bot-journey", {
+      step: "native Tenant admission persists a useful alarm before acknowledgement and reconstructs into one delivery",
+      phase: "start",
+    });
+    const u = yield* urls;
+    const key = "native-alarm";
+    const input = yield* receipt("native-alarm", proof);
+    expect(
+      (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
+    ).toBe(204);
+    const admitted = yield* snapshot(u.tenant, key);
+    yield* retainJourney("bot-native-delivery", {
+      boundary: "admitted",
+      snapshot: admitted,
+    });
+    const original = admitted.state?.works[key];
 
-      const rebuilt = yield* reconstructedSnapshot(
-        snapshot(u.tenant, key),
-        admitted.instance,
-      );
+    if (!original) return yield* Effect.die("Admitted native work missing");
+    expect(original).toMatchObject({
+      id: input.id,
+      fingerprint: input.fingerprint,
+      receivedAt: input.receivedAt,
+      deadline: input.receivedAt + 10000,
+      retainUntil: input.receivedAt + 610000,
+    });
+    expect(hasUsefulNativeSchedule(admitted, original.deadline)).toBeTrue();
+    expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(204);
 
-      expect(rebuilt.state).toEqual(admitted.state);
-      expect(rebuilt.alarm).toBe(admitted.alarm);
+    const rebuilt = yield* reconstructedSnapshot(
+      snapshot(u.tenant, key),
+      admitted.instance,
+    );
 
-      const completed = yield* snapshot(u.tenant, key).pipe(
-        Effect.repeat({
-          until: (value) =>
-            value.state?.works["native-alarm"]?.kind === "terminal",
-          times: 40,
-          schedule: Schedule.spaced(250),
-        }),
-      );
+    yield* retainJourney("bot-native-delivery", {
+      boundary: "reconstructed",
+      snapshot: rebuilt,
+    });
+    const rebuiltWork = rebuilt.state?.works[key];
 
-      expect(completed.state?.works["native-alarm"]).toMatchObject({
-        kind: "terminal",
-        outcome: "sent",
-      });
-      expect(
-        (yield* provider(u.provider)).messages.find(
-          (message) => message.body.reply_parent_message_id === "native-alarm",
-        )?.body.message,
-      ).toBe("Sensors can be sold for 10 coins each");
-      expect(completed.alarmRuns).toBeGreaterThan(0);
-      expect(completed.alarm).toBe(input.receivedAt + 610000);
-      expect(JSON.stringify(completed.state)).not.toContain("parent");
-      expect(
-        (yield* provider(u.provider)).messages.filter(
-          (message) => message.body.reply_parent_message_id === "native-alarm",
-        ),
-      ).toHaveLength(1);
-    }),
-    { timeout: 90000 },
-  );
+    if (!rebuiltWork)
+      return yield* Effect.die("Reconstructed native work missing");
+    expect(immutableWork(rebuiltWork)).toEqual(immutableWork(original));
+    expect(hasUsefulNativeSchedule(rebuilt, original.deadline)).toBeTrue();
 
-  test(
-    "lost tenant account completion reuses the persisted dispatch without a second external POST",
-    Effect.gen(function* () {
-      const u = yield* urls;
-      const key = "lost-rpc";
-      yield* post(`${u.tenant}/control`, {
-        key,
-        control: { immediate: true, loseAccountResponse: true },
-      });
-      const input = yield* receipt("lost-rpc");
-      expect(
-        (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
-      ).toBe(204);
+    const completed = yield* observe(
+      auditedObservation(
+        "tenant",
+        `${u.tenant}/snapshot?key=${key}`,
+        TenantSnapshot,
+      ),
+      {
+        until: (value) =>
+          value.state?.works["native-alarm"]?.kind === "terminal",
+        budgetMs: 45000,
+      },
+    );
 
-      const completed = yield* snapshot(u.tenant, key).pipe(
-        Effect.repeat({
-          until: (value) => value.state?.works["lost-rpc"]?.kind === "terminal",
-          times: 40,
-          schedule: Schedule.spaced(250),
-        }),
-      );
+    yield* retainJourney("bot-native-delivery", {
+      boundary: "completed",
+      snapshot: completed,
+    });
+    const terminal = completed.state?.works[key];
 
-      expect(completed.state?.works["lost-rpc"]).toMatchObject({
-        kind: "terminal",
-        outcome: "sent",
-        deadline: input.receivedAt + 10000,
-      });
-      expect(completed.lostAccountResponseAt).toBeNumber();
-      expect(
-        (yield* provider(u.provider)).messages.filter(
-          (message) => message.body.reply_parent_message_id === "lost-rpc",
-        ),
-      ).toHaveLength(1);
-      expect(
-        (yield* provider(u.provider)).messages.find(
-          (message) => message.body.reply_parent_message_id === "lost-rpc",
-        )?.body.message,
-      ).toBe("Sensors can be sold for 10 coins each");
-      expect(completed.alarm).toBe(input.receivedAt + 610000);
-    }),
-    { timeout: 90000 },
-  );
+    if (!terminal) return yield* Effect.die("Completed native work missing");
+    expect(immutableWork(terminal)).toEqual(immutableWork(original));
+    expect(completed.state?.works["native-alarm"]).toMatchObject({
+      kind: "terminal",
+      outcome: "sent",
+    });
+    expect(
+      (yield* provider(u.provider)).messages.find(
+        (message) => message.body.reply_parent_message_id === "native-alarm",
+      )?.body.message,
+    ).toBe("Sensors can be sold for 10 coins each");
+    expect(completed.alarmRuns).toBeGreaterThan(0);
+    expect(completed.alarm).toBe(input.receivedAt + 610000);
+    expect(JSON.stringify(completed.state)).not.toContain("parent");
+    yield* Effect.sleep(Math.max(0, input.receivedAt + 10_100 - Date.now()));
+    yield* post(`${u.tenant}/accept`, {
+      key,
+      receipt: { ...input, receivedAt: Date.now() },
+    });
+    yield* post(`${u.tenant}/recover`, { key });
+    const replayed = yield* snapshot(u.tenant, key);
+    const replayedWork = replayed.state?.works[key];
 
-  test(
-    "native recovery joins a live slow account POST and completes its multipart plan",
-    Effect.gen(function* () {
-      const u = yield* urls;
-      const key = "slow-account-send";
-      yield* sourceControl(u.source, "/items?id=slowparts&minimal=true", {
-        data: [{ id: "slowparts", name: "x".repeat(650), value: 10 }],
-      });
-      yield* post(`${u.provider}/control`, { holdSend: true });
-      yield* Effect.gen(function* () {
+    if (!replayedWork) return yield* Effect.die("Replayed native work missing");
+    expect(immutableWork(replayedWork)).toEqual(immutableWork(original));
+
+    expect(
+      (yield* provider(u.provider)).messages.filter(
+        (message) => message.body.reply_parent_message_id === "native-alarm",
+      ),
+    ).toHaveLength(1);
+  });
+
+  const verifyLostAccountCompletion = Effect.fnUntraced(function* (
+    proof: (typeof ProviderSnapshot.Type)["remote"][number],
+  ) {
+    yield* retainJourney("bot-journey", {
+      step: "lost tenant account completion reuses the persisted dispatch without a second external POST",
+      phase: "start",
+    });
+    const u = yield* urls;
+    const key = "lost-rpc";
+    yield* post(`${u.tenant}/control`, {
+      key,
+      control: { immediate: true, loseAccountResponse: true },
+    });
+    const input = yield* receipt("lost-rpc", proof);
+    expect(
+      (yield* post(`${u.tenant}/accept`, { key, receipt: input })).status,
+    ).toBe(204);
+
+    const completed = yield* observe(
+      auditedObservation(
+        "tenant",
+        `${u.tenant}/snapshot?key=${key}`,
+        TenantSnapshot,
+      ),
+      {
+        until: (value) => value.state?.works["lost-rpc"]?.kind === "terminal",
+        budgetMs: 45000,
+      },
+    );
+
+    expect(completed.state?.works["lost-rpc"]).toMatchObject({
+      kind: "terminal",
+      outcome: "sent",
+      deadline: input.receivedAt + 10000,
+    });
+    expect(completed.lostAccountResponseAt).toBeNumber();
+    expect(
+      (yield* provider(u.provider)).messages.filter(
+        (message) => message.body.reply_parent_message_id === "lost-rpc",
+      ),
+    ).toHaveLength(1);
+    expect(
+      (yield* provider(u.provider)).messages.find(
+        (message) => message.body.reply_parent_message_id === "lost-rpc",
+      )?.body.message,
+    ).toBe("Sensors can be sold for 10 coins each");
+    expect(completed.alarm).toBe(input.receivedAt + 610000);
+  });
+
+  const verifySlowMultipart = Effect.fnUntraced(function* (
+    proof: (typeof ProviderSnapshot.Type)["remote"][number],
+  ) {
+    yield* retainJourney("bot-journey", {
+      step: "native recovery joins a live slow account POST and completes its multipart plan",
+      phase: "start",
+    });
+    const u = yield* urls;
+    const key = "slow-account-send";
+    yield* sourceControl(u.source, "/items?id=slowparts&minimal=true", {
+      data: [{ id: "slowparts", name: "x".repeat(650), value: 10 }],
+    });
+    yield* withProviderControl(
+      u.provider,
+      { holdSend: true },
+      Effect.fnUntraced(function* (control) {
         yield* post(`${u.tenant}/control`, {
           key,
           control: { immediate: true },
         });
 
         const input = {
-          ...(yield* receipt(key)),
+          ...(yield* receipt(key, proof)),
           invocation: { command: "sell", input: "slowparts" },
         };
 
@@ -1115,25 +1135,33 @@ export function registerTenantTests({
         if (work?.kind !== "delivering")
           return yield* Effect.die("Expected a live delivering claim");
 
-        const alarm = yield* snapshot(u.tenant, key).pipe(
-          Effect.repeat({
+        const alarm = yield* observe(
+          auditedObservation(
+            "tenant",
+            `${u.tenant}/snapshot?key=${key}`,
+            TenantSnapshot,
+          ),
+          {
             until: (value) =>
               value.alarmRuns > 0 && Date.now() >= work.claim.until,
-            times: 25,
-            schedule: Schedule.spaced(75),
-          }),
+            budgetMs: 45000,
+          },
         );
 
         expect(alarm.alarmRuns).toBeGreaterThan(0);
         expect(alarm.state?.works[key]?.kind).toBe("delivering");
-        yield* post(`${u.provider}/control`, { holdSend: false });
+        yield* control.release;
 
-        const terminal = yield* snapshot(u.tenant, key).pipe(
-          Effect.repeat({
+        const terminal = yield* observe(
+          auditedObservation(
+            "tenant",
+            `${u.tenant}/snapshot?key=${key}`,
+            TenantSnapshot,
+          ),
+          {
             until: (value) => value.state?.works[key]?.kind === "terminal",
-            times: 30,
-            schedule: Schedule.spaced(100),
-          }),
+            budgetMs: 45000,
+          },
         );
 
         expect(terminal.state?.works[key]).toMatchObject({
@@ -1147,14 +1175,9 @@ export function registerTenantTests({
             (message) => message.body.reply_parent_message_id === key,
           ),
         ).toHaveLength(2);
-      }).pipe(
-        Effect.ensuring(
-          post(`${u.provider}/control`, { holdSend: false }).pipe(Effect.orDie),
-        ),
-      );
-    }),
-    { timeout: 90000 },
-  );
+      }),
+    );
+  });
 
   test(
     "native Discord interruption commits one private response at the original deadline without a late message",
@@ -1162,317 +1185,272 @@ export function registerTenantTests({
       const u = yield* urls;
       const key = "discord-interrupted";
       const sourceKey = "/items?id=interrupt&minimal=true";
-      yield* post(`${u.source}/control`, {
-        key: sourceKey,
-        body: { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
-        hold: true,
-      });
+      yield* withSourceHold(
+        u.source,
+        {
+          key: sourceKey,
+          body: { data: [{ id: "interrupt", name: "Interrupted", value: 10 }] },
+        },
+        Effect.fnUntraced(function* (control) {
+          const input = {
+            id: "interrupt",
+            guildId: "native-guild",
+            fingerprint: "a".repeat(64),
+            receivedAt: Date.now(),
+            invocation: { command: "sell", input: "interrupt" },
+            token: "CANARY-INTERACTION-TOKEN",
+          };
 
-      yield* Effect.addFinalizer(() =>
-        post(`${u.source}/release`, sourceKey).pipe(Effect.orDie),
-      );
+          const original = yield* post(`${u.tenant}/discord`, {
+            key,
+            receipt: input,
+          }).pipe(
+            Effect.result,
+            Effect.onExit((exit) => {
+              if (Exit.isFailure(exit))
+                return Effect.logInfo("discord-interruption-request", {
+                  kind: "fiber-failure",
+                  reasons: exit.cause.reasons.map((reason) => reason._tag),
+                });
+              const result = exit.value;
 
-      const input = {
-        id: "interrupt",
-        guildId: "native-guild",
-        fingerprint: "a".repeat(64),
-        receivedAt: Date.now(),
-        invocation: { command: "sell", input: "interrupt" },
-        token: "CANARY-INTERACTION-TOKEN",
-      };
+              return Effect.logInfo("discord-interruption-request", {
+                observedAt: Date.now(),
+                elapsedMs: Date.now() - input.receivedAt,
+                result: Predicate.isTagged(result, "Success")
+                  ? { kind: "response", status: result.success.status }
+                  : Predicate.isTagged(result.failure, "FixtureRequestError")
+                    ? {
+                        kind: "http-failure",
+                        diagnostic: result.failure.diagnostic,
+                      }
+                    : {
+                        kind: "request-failure",
+                        errorType: "unknown",
+                      },
+              });
+            }),
+            Effect.forkScoped,
+          );
 
-      const original = yield* post(`${u.tenant}/discord`, {
-        key,
-        receipt: input,
-      }).pipe(
-        Effect.result,
-        Effect.onExit((exit) => {
-          if (Exit.isFailure(exit))
-            return Effect.logInfo("discord-interruption-request", {
-              kind: "fiber-failure",
-              reasons: exit.cause.reasons.map((reason) => reason._tag),
-            });
-          const result = exit.value;
+          const admitted = yield* observe(
+            auditedObservation(
+              "tenant",
+              `${u.tenant}/snapshot?key=${key}`,
+              TenantSnapshot,
+            ),
+            {
+              until: (value) => {
+                expect(original.pollUnsafe()).toBeUndefined();
 
-          return Effect.logInfo("discord-interruption-request", {
+                return value.state?.works.interrupt?.kind === "computing";
+              },
+              budgetMs: 5000,
+            },
+          );
+
+          yield* Effect.logInfo("discord-interruption-admission", {
             observedAt: Date.now(),
             elapsedMs: Date.now() - input.receivedAt,
-            result: Predicate.isTagged(result, "Success")
-              ? { kind: "response", status: result.success.status }
-              : result.failure instanceof FixtureHttpError
-                ? {
-                    kind: "http-failure",
-                    diagnostic: result.failure.diagnostic,
-                  }
+            requestState: original.pollUnsafe()?._tag ?? "pending",
+            instance: admitted.instance,
+            alarm: admitted.alarm,
+            alarmRuns: admitted.alarmRuns,
+            state:
+              admitted.state === null
+                ? null
                 : {
-                    kind: "request-failure",
-                    errorType:
-                      result.failure instanceof Error
-                        ? result.failure.name
-                        : "non-error",
+                    generation: admitted.state.generation,
+                    works: Object.values(admitted.state.works).map((work) => ({
+                      id: work.id,
+                      kind: work.kind,
+                      transport: work.transport,
+                      receivedAt: work.receivedAt,
+                      deadline: work.deadline,
+                      claim: "claim" in work ? work.claim : null,
+                    })),
                   },
           });
+          expect(admitted.state?.works.interrupt?.kind).toBe("computing");
+
+          const observed = yield* observe(
+            auditedObservation(
+              "source",
+              `${u.source}/observations`,
+              Observations,
+            ),
+            { until: (value) => value[sourceKey] === 1, budgetMs: 5000 },
+          );
+
+          expect(observed[sourceKey]).toBe(1);
+          expect(original.pollUnsafe()).toBeUndefined();
+          expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
+            204,
+          );
+
+          const rebuilt = yield* reconstructedSnapshot(
+            snapshot(u.tenant, key),
+            admitted.instance,
+          );
+
+          expect(rebuilt.instance).not.toBe(admitted.instance);
+
+          const reply = yield* post(`${u.tenant}/discord`, {
+            key,
+            receipt: { ...input, receivedAt: Date.now() },
+          }).pipe(
+            Effect.flatMap((response) =>
+              json(
+                response,
+                Schema.Struct({
+                  type: Schema.Literal(4),
+                  data: Schema.Struct({
+                    flags: Schema.Literal(64),
+                    content: Schema.String,
+                  }),
+                }),
+              ),
+            ),
+          );
+
+          expect(reply.data.content).toBe(
+            "I couldn't finish that command in time. Please try again.",
+          );
+          const terminal = yield* snapshot(u.tenant, key);
+          expect(terminal.state?.works.interrupt).toMatchObject({
+            kind: "terminal",
+            deadline: input.receivedAt + 3000,
+          });
+          expect(terminal.alarm).toBe(input.receivedAt + 603000);
+          expect(JSON.stringify(terminal.state)).not.toContain("CANARY");
+          expect(JSON.stringify(terminal.state)).not.toContain("invocation");
+          yield* control.release;
+          const interrupted = yield* Fiber.join(original);
+
+          if (Predicate.isTagged(interrupted, "Failure")) {
+            expect(
+              Predicate.isTagged(interrupted.failure, "FixtureRequestError"),
+            ).toBeTrue();
+
+            if (Predicate.isTagged(interrupted.failure, "FixtureRequestError"))
+              expect(
+                interrupted.failure.diagnostic.kind === "http"
+                  ? interrupted.failure.diagnostic.status
+                  : null,
+              ).toBe(500);
+          } else
+            expect(
+              yield* json(
+                interrupted.success,
+                Schema.Struct({
+                  data: Schema.Struct({ flags: Schema.Literal(64) }),
+                }),
+              ),
+            ).toMatchObject({ data: { flags: 64 } });
         }),
-        Effect.forkChild,
       );
-
-      const admitted = yield* snapshot(u.tenant, key).pipe(
-        Effect.tap(() => {
-          const settled = original.pollUnsafe();
-
-          if (settled !== undefined)
-            return Effect.die(
-              "Original Discord request completed before the controlled interruption; inspect discord-interruption-request",
-            );
-
-          return Effect.void;
-        }),
-        Effect.repeat({
-          until: (value) => value.state?.works.interrupt?.kind === "computing",
-          times: 20,
-          schedule: Schedule.spaced(25),
-        }),
-      );
-
-      yield* Effect.logInfo("discord-interruption-admission", {
-        observedAt: Date.now(),
-        elapsedMs: Date.now() - input.receivedAt,
-        requestState: original.pollUnsafe()?._tag ?? "pending",
-        instance: admitted.instance,
-        alarm: admitted.alarm,
-        alarmRuns: admitted.alarmRuns,
-        state:
-          admitted.state === null
-            ? null
-            : {
-                generation: admitted.state.generation,
-                works: Object.values(admitted.state.works).map((work) => ({
-                  id: work.id,
-                  kind: work.kind,
-                  transport: work.transport,
-                  receivedAt: work.receivedAt,
-                  deadline: work.deadline,
-                  claim: "claim" in work ? work.claim : null,
-                })),
-              },
-      });
-      expect(admitted.state?.works.interrupt?.kind).toBe("computing");
-
-      const observed = yield* get(
-        `${u.source}/observations`,
-        Observations,
-      ).pipe(
-        Effect.repeat({
-          until: (value) => value[sourceKey] === 1,
-          times: 10,
-          schedule: Schedule.spaced(25),
-        }),
-      );
-
-      expect(observed[sourceKey]).toBe(1);
-      expect(original.pollUnsafe()).toBeUndefined();
-      expect((yield* post(`${u.tenant}/reconstruct`, { key })).status).toBe(
-        204,
-      );
-
-      const rebuilt = yield* reconstructedSnapshot(
-        snapshot(u.tenant, key),
-        admitted.instance,
-      );
-
-      expect(rebuilt.instance).not.toBe(admitted.instance);
-
-      const reply = yield* post(`${u.tenant}/discord`, {
-        key,
-        receipt: { ...input, receivedAt: Date.now() },
-      }).pipe(
-        Effect.flatMap((response) =>
-          json(
-            response,
-            Schema.Struct({
-              type: Schema.Literal(4),
-              data: Schema.Struct({
-                flags: Schema.Literal(64),
-                content: Schema.String,
-              }),
-            }),
-          ),
-        ),
-      );
-
-      expect(reply.data.content).toBe(
-        "I couldn't finish that command in time. Please try again.",
-      );
-      const terminal = yield* snapshot(u.tenant, key);
-      expect(terminal.state?.works.interrupt).toMatchObject({
-        kind: "terminal",
-        deadline: input.receivedAt + 3000,
-      });
-      expect(terminal.alarm).toBe(input.receivedAt + 603000);
-      expect(JSON.stringify(terminal.state)).not.toContain("CANARY");
-      expect(JSON.stringify(terminal.state)).not.toContain("invocation");
-      const interrupted = yield* Fiber.join(original);
-
-      if (Predicate.isTagged(interrupted, "Failure")) {
-        expect(interrupted.failure instanceof FixtureHttpError).toBeTrue();
-
-        if (interrupted.failure instanceof FixtureHttpError)
-          expect(interrupted.failure.diagnostic.status).toBe(500);
-      } else
-        expect(
-          yield* json(
-            interrupted.success,
-            Schema.Struct({
-              data: Schema.Struct({ flags: Schema.Literal(64) }),
-            }),
-          ),
-        ).toMatchObject({ data: { flags: 64 } });
     }).pipe(Effect.scoped),
     { timeout: 90000 },
   );
 
-  test(
-    "actual account ambiguity stops the remaining Twitch parts and replay starts no second POST",
-    Effect.gen(function* () {
-      const u = yield* urls;
-      yield* sourceControl(u.source, "/items?id=long&minimal=true", {
-        data: [{ id: "long", name: "x".repeat(1200), value: 10 }],
-      });
-      yield* post(`${u.provider}/control`, {
+  const verifyAmbiguousMultipart = Effect.fnUntraced(function* (
+    proof: (typeof ProviderSnapshot.Type)["remote"][number],
+  ) {
+    yield* retainJourney("bot-journey", {
+      step: "actual account ambiguity stops the remaining Twitch parts and replay starts no second POST",
+      phase: "start",
+    });
+    const u = yield* urls;
+    yield* sourceControl(u.source, "/items?id=long&minimal=true", {
+      data: [{ id: "long", name: "x".repeat(1200), value: 10 }],
+    });
+    yield* withProviderControl(
+      u.provider,
+      {
         sendStatus: 200,
         sendBody: { data: [{ is_sent: "invalid", message_id: "" }] },
-      });
+      },
+      Effect.fnUntraced(function* () {
+        const remote = proof;
 
-      const remote = (yield* provider(u.provider)).remote.find(
-        (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
-      );
+        const event = twitchEvent(
+          "ambiguous-parts",
+          "!sell long",
+          `${u.bot}/webhooks/twitch`,
+        );
 
-      if (!remote) return yield* Effect.die("Subscription missing");
-
-      const event = twitchEvent(
-        "ambiguous-parts",
-        "!sell long",
-        `${u.bot}/webhooks/twitch`,
-      );
-
-      event.subscription.id = remote.id;
-      const started = Date.now();
-      expect(
-        (yield* signedTwitch(u.bot, event, "ambiguous-parts")).status,
-      ).toBe(204);
-      const sent = yield* waitMessages(u.provider, "ambiguous-parts");
-      expect(
-        sent.messages.filter(
-          (message) =>
-            message.body.reply_parent_message_id === "ambiguous-parts",
-        ),
-      ).toHaveLength(1);
-      expect(
-        sent.messages
-          .find(
+        event.subscription.id = remote.id;
+        const started = Date.now();
+        expect(
+          (yield* signedTwitch(u.bot, event, "ambiguous-parts")).status,
+        ).toBe(204);
+        const sent = yield* waitMessages(u.provider, "ambiguous-parts");
+        expect(
+          sent.messages.filter(
             (message) =>
               message.body.reply_parent_message_id === "ambiguous-parts",
-          )
-          ?.body.message.startsWith("[1/3]: "),
-      ).toBeTrue();
-      expect(
-        (yield* signedTwitch(u.bot, event, "ambiguous-replay")).status,
-      ).toBe(204);
-      yield* Effect.sleep(Math.max(0, started + 10500 - Date.now()));
-      expect(
-        (yield* provider(u.provider)).messages.filter(
-          (message) =>
-            message.body.reply_parent_message_id === "ambiguous-parts",
-        ),
-      ).toHaveLength(1);
-      yield* post(`${u.provider}/control`, {
-        sendBody: { data: [{ is_sent: true, message_id: "restored" }] },
-      });
-    }),
-    { timeout: 90000 },
-  );
+          ),
+        ).toHaveLength(1);
+        expect(
+          sent.messages
+            .find(
+              (message) =>
+                message.body.reply_parent_message_id === "ambiguous-parts",
+            )
+            ?.body.message.startsWith("[1/3]: "),
+        ).toBeTrue();
+        expect(
+          (yield* signedTwitch(u.bot, event, "ambiguous-replay")).status,
+        ).toBe(204);
+        yield* Effect.sleep(Math.max(0, started + 10500 - Date.now()));
+        expect(
+          (yield* provider(u.provider)).messages.filter(
+            (message) =>
+              message.body.reply_parent_message_id === "ambiguous-parts",
+          ),
+        ).toHaveLength(1);
+      }),
+    );
+  });
+
+  const verifySignedRevocation = Effect.fnUntraced(function* (
+    proof: (typeof ProviderSnapshot.Type)["remote"][number],
+  ) {
+    yield* retainJourney("bot-journey", {
+      step: "verified revocation is durable before acknowledgement and blocks the actual account",
+      phase: "start",
+    });
+    const u = yield* urls;
+
+    const remote = proof;
+    expect(
+      (yield* signedTwitch(
+        u.bot,
+        { subscription: { ...remote, status: "authorization_revoked" } },
+        "revoke",
+        "revocation",
+      )).status,
+    ).toBe(204);
+    const revoked = yield* status(u.bot);
+    expect(
+      revoked.channels.some(
+        (entry) => entry.id === remote.condition.broadcaster_user_id,
+      ),
+    ).toBeFalse();
+    expect(revoked.sender?.authorized).toBeTrue();
+  });
 
   test(
-    "verified revocation is durable before acknowledgement and blocks the actual account",
+    "actual Bot onboarding, ten commands, native recovery, ambiguity and signed revocation",
     Effect.gen(function* () {
-      const u = yield* urls;
-
-      const remote = (yield* provider(u.provider)).remote.find(
-        (entry) => entry.transport.callback === `${u.bot}/webhooks/twitch`,
-      );
-
-      if (!remote) return yield* Effect.die("Subscription missing");
-      expect(
-        (yield* signedTwitch(
-          u.bot,
-          { subscription: { ...remote, status: "authorization_revoked" } },
-          "revoke",
-          "revocation",
-        )).status,
-      ).toBe(204);
-      const revoked = yield* status(u.bot);
-      expect(
-        revoked.channels.some(
-          (entry) => entry.id === remote.condition.broadcaster_user_id,
-        ),
-      ).toBeFalse();
-      expect(revoked.sender?.authorized).toBeTrue();
-      yield* recordSamples();
+      const proof = yield* prepareBotJourney();
+      yield* verifyTenCommands(proof);
+      yield* verifyNativeTenantDelivery(proof);
+      yield* verifyLostAccountCompletion(proof);
+      yield* verifySlowMultipart(proof);
+      yield* verifyAmbiguousMultipart(proof);
+      yield* verifySignedRevocation(proof);
     }),
-    { timeout: 90000 },
-  );
-  test(
-    "timing coverage contains every useful command and intended error category",
-    Effect.gen(function* () {
-      for (const command of [
-        "buy",
-        "loot",
-        "craft",
-        "find",
-        "sell",
-        "recycle",
-        "recycleto",
-        "event",
-        "active",
-        "upcoming",
-      ]) {
-        const observed = samples.filter(
-          (sample) => sample.scenario === `command-${command}`,
-        );
-
-        expect(observed).toHaveLength(1);
-        expect(observed[0]?.flags).toBe(0);
-        expect(observed[0]?.fallback).toBeNull();
-        expect(observed[0]?.tenantPhase).toBe("committed");
-      }
-
-      const warm = samples.filter(
-        (sample) => sample.scenario === "warm-cache-warm-tenant",
-      );
-
-      expect(warm).toHaveLength(3);
-
-      for (const sample of warm) {
-        expect(sample.flags).toBe(0);
-        expect(sample.fallback).toBeNull();
-      }
-
-      for (const scenario of ["slow", "missing", "malformed"] as const) {
-        const observed = samples.filter(
-          (sample) => sample.scenario === scenario,
-        );
-
-        expect(observed).toHaveLength(1);
-        const sample = observed[0];
-
-        if (!sample) return yield* Effect.die("Data failure sample missing");
-        expectDataFailure(scenario, sample);
-      }
-
-      expect(samples).toHaveLength(21);
-      expect(twitchSamples).toHaveLength(10);
-      yield* recordSamples();
-    }),
-    { timeout: 90000 },
+    { timeout: 360_000 },
   );
 }

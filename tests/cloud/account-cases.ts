@@ -13,8 +13,9 @@ import {
   SetupResult,
 } from "@arctools/twitch/server";
 import { providerTransport } from "@arctools/utils/http";
-import { Match, Effect, Fiber, Redacted, Schedule, Schema } from "effect";
+import { Match, Clock, Effect, Fiber, Redacted, Schema } from "effect";
 
+import { setupWhenAvailable } from "./account-setup.js";
 import {
   LiveAccountAttribution,
   NativeAlarmSnapshot,
@@ -25,12 +26,33 @@ import {
   verifyCompletedRecovery,
   verifyCompletedValidation,
 } from "./completed-recovery.js";
-import { get, json, post, reconstructedSnapshot } from "./fixture-http.js";
+import { retainJourney } from "./fixture-evidence.js";
+import {
+  auditedObservation,
+  observe,
+  get,
+  json,
+  post,
+  reconstructedSnapshot,
+} from "./fixture-http.js";
+import { withProviderControl } from "./fixture-journey.js";
+import { accountJourney } from "./fixture-routing.js";
 import type * as Foundation from "./foundation.test.js";
 import { ProviderSnapshot } from "./twitch-provider-fixture.js";
 
+const providerSnapshot = (
+  url: string,
+  until: (value: typeof ProviderSnapshot.Type) => boolean = () => true,
+) =>
+  observe(auditedObservation("provider", `${url}/snapshot`, ProviderSnapshot), {
+    until,
+    budgetMs: 5000,
+  });
+
 const Snapshot = Schema.Struct({
   instance: Schema.String,
+  journey: Schema.String,
+  nativeId: Schema.String,
   logs: Schema.Array(Schema.String),
   time: Schema.Number,
   status: Schema.Unknown,
@@ -116,24 +138,106 @@ export function registerAccountTests({
   stack: typeof Foundation.stack;
   test: typeof Foundation.test;
 }) {
-  const urls = Effect.gen(function* () {
+  const urls = Effect.fnUntraced(function* (name: string) {
     const deployed = yield* stack;
 
     if (!deployed.accountUrl || !deployed.providerUrl)
       return yield* Effect.die("Missing account fixture bindings");
 
+    yield* retainJourney(name, { phase: "start" });
+
     return {
-      account: deployed.accountUrl,
-      provider: deployed.providerUrl,
+      ...accountJourney(
+        { account: deployed.accountUrl, provider: deployed.providerUrl },
+        name,
+      ),
       bot: deployed.url,
     };
   });
 
   test(
+    "native account/provider pairs isolate held sends and retain routing through reconstruction",
+    Effect.gen(function* () {
+      const a = yield* urls("routing-alpha");
+      const b = yield* urls("routing-beta");
+
+      for (const pair of [a, b]) {
+        yield* post(`${pair.account}/configure`, {
+          revision: "routing",
+          channels: ["fixture_channel"],
+        });
+        expect((yield* authorize(pair.account)).status.setup).toBe("ready");
+      }
+
+      const original = yield* get(`${a.account}/snapshot`, Snapshot);
+      const other = yield* get(`${b.account}/snapshot`, Snapshot);
+      expect(original.journey).toBe("routing-alpha");
+      expect(other.journey).toBe("routing-beta");
+      expect(original.nativeId).not.toBe(other.nativeId);
+      yield* withProviderControl(
+        a.provider,
+        { holdSend: true },
+        Effect.fnUntraced(function* (control) {
+          const input = sendInput("identical-attempt", original.time + 10000);
+
+          const held = yield* rpc(
+            `${a.account}/dispatch`,
+            DispatchOutcome,
+            input,
+          ).pipe(Effect.exit, Effect.forkScoped);
+
+          const aMessages = yield* providerSnapshot(
+            a.provider,
+            (value) => value.messages.length === 1,
+          );
+
+          expect(aMessages.messages).toHaveLength(1);
+          expect(
+            yield* rpc(
+              `${b.account}/dispatch`,
+              DispatchOutcome,
+              sendInput("identical-attempt", other.time + 10000),
+            ),
+          ).toMatchObject({ kind: "sent" });
+          yield* post(`${a.account}/reconstruct`);
+          yield* control.release;
+          expect((yield* Fiber.join(held))._tag).toBe("Failure");
+
+          const rebuilt = yield* reconstructedSnapshot(
+            get(`${a.account}/snapshot`, Snapshot),
+            original.instance,
+          );
+
+          yield* retainJourney("routing-alpha", {
+            original: {
+              journey: original.journey,
+              nativeId: original.nativeId,
+              instance: original.instance,
+            },
+            rebuilt: {
+              journey: rebuilt.journey,
+              nativeId: rebuilt.nativeId,
+              instance: rebuilt.instance,
+            },
+          });
+          expect(rebuilt.journey).toBe(original.journey);
+          expect(rebuilt.nativeId).toBe(original.nativeId);
+          expect(
+            yield* rpc(`${a.account}/dispatch`, DispatchOutcome, input),
+          ).toMatchObject({ kind: "ambiguous" });
+        }),
+      );
+      expect((yield* providerSnapshot(a.provider)).messages).toHaveLength(1);
+      expect((yield* providerSnapshot(b.provider)).messages).toHaveLength(1);
+    }),
+    { timeout: 90000 },
+  );
+
+  test(
     "account native storage binds OAuth identity/client, expiry, replay and config revision",
     Effect.gen(function* () {
-      const u = yield* urls;
-      yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      const u = yield* urls("oauth");
+      yield* providerSnapshot(u.provider);
       yield* get(`${u.account}/snapshot`, Snapshot);
       const now = Date.now() + 86_400_000;
       yield* post(`${u.account}/time`, now);
@@ -271,10 +375,11 @@ export function registerAccountTests({
   test(
     "paginated setup preserves confirmed IDs and replaces an interrupted unconfirmed create after reconstruction",
     Effect.gen(function* () {
-      const u = yield* urls;
-      const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      const u = yield* urls("pagination");
+      expect((yield* authorize(u.account)).status.setup).toBe("ready");
+      const before = yield* providerSnapshot(u.provider);
       yield* rpc(`${u.account}/setup`, SetupResult);
-      const adopted = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      const adopted = yield* providerSnapshot(u.provider);
       expect(adopted.calls["POST /helix/eventsub/subscriptions"]).toBe(
         before.calls["POST /helix/eventsub/subscriptions"],
       );
@@ -292,58 +397,58 @@ export function registerAccountTests({
       yield* post(`${u.account}/time`, configured.time + 1);
       yield* post(`${u.account}/credential`);
       expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).remote.map(
+        (yield* providerSnapshot(u.provider)).remote.map(
           (sub) => sub.condition.broadcaster_user_id,
         ),
       ).toEqual(["200"]);
-      yield* post(`${u.provider}/control`, { remote: [], holdCreate: true });
-      const starting = yield* get(`${u.account}/snapshot`, Snapshot);
+      yield* post(`${u.provider}/control`, { remote: [] });
+      yield* withProviderControl(
+        u.provider,
+        { holdCreate: true },
+        Effect.fnUntraced(function* (control) {
+          const starting = yield* get(`${u.account}/snapshot`, Snapshot);
 
-      const interrupted = yield* rpc(`${u.account}/setup`, SetupResult).pipe(
-        Effect.exit,
-        Effect.forkChild,
-      );
+          const interrupted = yield* rpc(
+            `${u.account}/setup`,
+            SetupResult,
+          ).pipe(Effect.exit, Effect.forkScoped);
 
-      const created = yield* get(
-        `${u.provider}/snapshot`,
-        ProviderSnapshot,
-      ).pipe(
-        Effect.repeat({
-          until: (value) => value.remote.length === 1,
-          times: 12,
-          schedule: Schedule.spaced("100 millis"),
-        }),
-      );
+          const created = yield* providerSnapshot(
+            u.provider,
+            (value) => value.remote.length === 1,
+          );
 
-      expect(created.remote.length).toBe(1);
-      yield* post(`${u.account}/reconstruct`);
-      yield* post(`${u.provider}/control`, { holdCreate: false });
-      expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
+          expect(created.remote.length).toBe(1);
+          yield* post(`${u.account}/reconstruct`);
+          yield* control.release;
+          expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
 
-      const reconstructed = yield* reconstructedSnapshot(
-        get(`${u.account}/snapshot`, Snapshot),
-        starting.instance,
-      );
+          const reconstructed = yield* reconstructedSnapshot(
+            get(`${u.account}/snapshot`, Snapshot),
+            starting.instance,
+          );
 
-      expect(reconstructed.instance).not.toBe(starting.instance);
-      yield* post(`${u.account}/time`, starting.time + 121_000);
-      expect((yield* rpc(`${u.account}/setup`, SetupResult)).status.setup).toBe(
-        "ready",
-      );
-      const after = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
-      expect(after.remote.length).toBe(1);
-      expect(after.calls["POST /helix/eventsub/subscriptions"]).toBe(
-        (created.calls["POST /helix/eventsub/subscriptions"] ?? 0) + 1,
-      );
-      expect(after.calls["DELETE /helix/eventsub/subscriptions"]).toBe(
-        (created.calls["DELETE /helix/eventsub/subscriptions"] ?? 0) + 1,
-      );
-      expect(after.remote[0]?.id).not.toBe(created.remote[0]?.id);
-      expect(after.bindings[after.remote[0]?.id ?? ""]).toBe(
-        yield* subscriptionBinding({
-          callback: "https://fixture.invalid/webhooks/twitch",
-          clientId: "fixture-twitch",
-          signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+          expect(reconstructed.instance).not.toBe(starting.instance);
+          yield* post(`${u.account}/time`, starting.time + 121_000);
+          expect(
+            (yield* setupWhenAvailable(`${u.account}/setup`)).status.setup,
+          ).toBe("ready");
+          const after = yield* providerSnapshot(u.provider);
+          expect(after.remote.length).toBe(1);
+          expect(after.calls["POST /helix/eventsub/subscriptions"]).toBe(
+            (created.calls["POST /helix/eventsub/subscriptions"] ?? 0) + 1,
+          );
+          expect(after.calls["DELETE /helix/eventsub/subscriptions"]).toBe(
+            (created.calls["DELETE /helix/eventsub/subscriptions"] ?? 0) + 1,
+          );
+          expect(after.remote[0]?.id).not.toBe(created.remote[0]?.id);
+          expect(after.bindings[after.remote[0]?.id ?? ""]).toBe(
+            yield* subscriptionBinding({
+              callback: "https://fixture.invalid/webhooks/twitch",
+              clientId: "fixture-twitch",
+              signingSecret: Redacted.make("CANARY-SIGNING-SECRET"),
+            }),
+          );
         }),
       );
     }),
@@ -353,107 +458,124 @@ export function registerAccountTests({
   test(
     "real account dispatch separates rejection, ambiguity, deadline equality and interrupted POST",
     Effect.gen(function* () {
-      const u = yield* urls;
+      const u = yield* urls("dispatch");
+      yield* post(`${u.account}/configure`, {
+        revision: "one-channel",
+        channels: ["fixture_channel"],
+      });
+      expect((yield* authorize(u.account)).status.setup).toBe("ready");
       let snapshot = yield* get(`${u.account}/snapshot`, Snapshot);
       let time = snapshot.time + 10_000;
       yield* post(`${u.account}/time`, time);
-      yield* post(`${u.provider}/control`, {
-        sendBody: {
-          data: [
-            {
-              is_sent: false,
-              message_id: "",
-              drop_reason: { code: "automod", message: "CANARY-PRIVATE-DROP" },
-            },
-          ],
+      yield* withProviderControl(
+        u.provider,
+        {
+          sendBody: {
+            data: [
+              {
+                is_sent: false,
+                message_id: "",
+                drop_reason: {
+                  code: "automod",
+                  message: "CANARY-PRIVATE-DROP",
+                },
+              },
+            ],
+          },
         },
-      });
-      const rejected = sendInput("rejected", time + 10_000);
-      expect(
-        yield* rpc(`${u.account}/dispatch`, DispatchOutcome, rejected),
-      ).toEqual({ kind: "rejected" });
-      const captured = yield* get(`${u.account}/snapshot`, Snapshot);
-      expect(captured.logs.length).toBeGreaterThan(0);
-      expect(JSON.stringify(captured.logs)).not.toContain("CANARY");
-      const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
-      expect(
-        yield* rpc(`${u.account}/dispatch`, DispatchOutcome, rejected),
-      ).toEqual({ kind: "rejected" });
-      expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
-          "POST /helix/chat/messages"
-        ],
-      ).toBe(before.calls["POST /helix/chat/messages"]);
-      expect(
-        yield* rpc(
-          `${u.account}/dispatch`,
-          DispatchOutcome,
-          sendInput("equal", time),
-        ),
-      ).toEqual({ kind: "expired" });
-      yield* post(`${u.provider}/control`, { sendStatus: 503, sendBody: {} });
+        Effect.fnUntraced(function* () {
+          const rejected = sendInput("rejected", time + 10_000);
+          expect(
+            yield* rpc(`${u.account}/dispatch`, DispatchOutcome, rejected),
+          ).toEqual({ kind: "rejected" });
+          const captured = yield* get(`${u.account}/snapshot`, Snapshot);
+          expect(captured.logs.length).toBeGreaterThan(0);
+          expect(JSON.stringify(captured.logs)).not.toContain("CANARY");
+          const before = yield* providerSnapshot(u.provider);
+          expect(
+            yield* rpc(`${u.account}/dispatch`, DispatchOutcome, rejected),
+          ).toEqual({ kind: "rejected" });
+          expect(
+            (yield* providerSnapshot(u.provider)).calls[
+              "POST /helix/chat/messages"
+            ],
+          ).toBe(before.calls["POST /helix/chat/messages"]);
+          expect(
+            yield* rpc(
+              `${u.account}/dispatch`,
+              DispatchOutcome,
+              sendInput("equal", time),
+            ),
+          ).toEqual({ kind: "expired" });
+        }),
+      );
       time += 1000;
       yield* post(`${u.account}/time`, time);
       const ambiguous = sendInput("unknown-post", time + 10_000);
-      expect(
-        yield* rpc(`${u.account}/dispatch`, DispatchOutcome, ambiguous),
-      ).toEqual({ kind: "ambiguous" });
-      yield* post(`${u.provider}/control`, {
-        sendStatus: 200,
-        sendBody: { data: [{ is_sent: true, message_id: "delivered" }] },
-        holdSend: true,
-      });
-      time += 1000;
-      yield* post(`${u.account}/time`, time);
-      const input = sendInput("interrupted-send", time + 10_000);
-      const previous = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
-
-      const interrupted = yield* rpc(
-        `${u.account}/dispatch`,
-        DispatchOutcome,
-        input,
-      ).pipe(Effect.exit, Effect.forkChild);
-
-      const observed = yield* get(
-        `${u.provider}/snapshot`,
-        ProviderSnapshot,
-      ).pipe(
-        Effect.repeat({
-          until: (value) =>
-            (value.calls["POST /helix/chat/messages"] ?? 0) >
-            (previous.calls["POST /helix/chat/messages"] ?? 0),
-          times: 12,
-          schedule: Schedule.spaced("100 millis"),
+      yield* withProviderControl(
+        u.provider,
+        { sendStatus: 503, sendBody: {} },
+        Effect.fnUntraced(function* () {
+          expect(
+            yield* rpc(`${u.account}/dispatch`, DispatchOutcome, ambiguous),
+          ).toEqual({ kind: "ambiguous" });
         }),
       );
+      yield* withProviderControl(
+        u.provider,
+        {
+          sendStatus: 200,
+          sendBody: { data: [{ is_sent: true, message_id: "delivered" }] },
+          holdSend: true,
+        },
+        Effect.fnUntraced(function* (control) {
+          time += 1000;
+          yield* post(`${u.account}/time`, time);
+          const input = sendInput("interrupted-send", time + 10_000);
+          const previous = yield* providerSnapshot(u.provider);
 
-      expect(observed.calls["POST /helix/chat/messages"]).toBe(
-        (previous.calls["POST /helix/chat/messages"] ?? 0) + 1,
+          const interrupted = yield* rpc(
+            `${u.account}/dispatch`,
+            DispatchOutcome,
+            input,
+          ).pipe(Effect.exit, Effect.forkScoped);
+
+          const observed = yield* providerSnapshot(
+            u.provider,
+            (value) =>
+              (value.calls["POST /helix/chat/messages"] ?? 0) >
+              (previous.calls["POST /helix/chat/messages"] ?? 0),
+          );
+
+          expect(observed.calls["POST /helix/chat/messages"]).toBe(
+            (previous.calls["POST /helix/chat/messages"] ?? 0) + 1,
+          );
+          snapshot = yield* get(`${u.account}/snapshot`, Snapshot);
+          yield* post(`${u.account}/reconstruct`);
+          yield* control.release;
+          expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
+
+          const reconstructed = yield* reconstructedSnapshot(
+            get(`${u.account}/snapshot`, Snapshot),
+            snapshot.instance,
+          );
+
+          expect(reconstructed.instance).not.toBe(snapshot.instance);
+          expect(
+            yield* rpc(`${u.account}/dispatch`, DispatchOutcome, input),
+          ).toEqual({ kind: "ambiguous" });
+          expect(
+            yield* rpc(`${u.account}/dispatch`, DispatchOutcome, ambiguous),
+          ).toEqual({ kind: "ambiguous" });
+          expect(
+            (yield* providerSnapshot(u.provider)).calls[
+              "POST /helix/chat/messages"
+            ],
+          ).toBe(observed.calls["POST /helix/chat/messages"]);
+          expect(JSON.stringify(reconstructed.status)).not.toContain("CANARY");
+          expect(JSON.stringify(observed.logs)).not.toContain("CANARY");
+        }),
       );
-      snapshot = yield* get(`${u.account}/snapshot`, Snapshot);
-      yield* post(`${u.account}/reconstruct`);
-      yield* post(`${u.provider}/control`, { holdSend: false });
-      expect((yield* Fiber.join(interrupted))._tag).toBe("Failure");
-
-      const reconstructed = yield* reconstructedSnapshot(
-        get(`${u.account}/snapshot`, Snapshot),
-        snapshot.instance,
-      );
-
-      expect(reconstructed.instance).not.toBe(snapshot.instance);
-      expect(
-        yield* rpc(`${u.account}/dispatch`, DispatchOutcome, input),
-      ).toEqual({ kind: "ambiguous" });
-      expect(
-        yield* rpc(`${u.account}/dispatch`, DispatchOutcome, ambiguous),
-      ).toEqual({ kind: "ambiguous" });
-      expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
-          "POST /helix/chat/messages"
-        ],
-      ).toBe(observed.calls["POST /helix/chat/messages"]);
-      expect(JSON.stringify(reconstructed.status)).not.toContain("CANARY");
-      expect(JSON.stringify(observed.logs)).not.toContain("CANARY");
     }),
     { timeout: 90_000 },
   );
@@ -461,69 +583,76 @@ export function registerAccountTests({
   test(
     "token refresh contention and clock overrun preserve the absolute send cutoff",
     Effect.gen(function* () {
-      const u = yield* urls;
+      const u = yield* urls("refresh-contention");
+      yield* post(`${u.account}/configure`, {
+        revision: "one-channel",
+        channels: ["fixture_channel"],
+      });
+      expect((yield* authorize(u.account)).status.setup).toBe("ready");
       const snapshot = yield* get(`${u.account}/snapshot`, Snapshot);
       let time = snapshot.time + 3_600_000;
       yield* post(`${u.account}/time`, time);
-      yield* post(`${u.provider}/control`, { holdMint: true });
-      const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      const before = yield* providerSnapshot(u.provider);
+      yield* withProviderControl(
+        u.provider,
+        { holdMint: true },
+        Effect.fnUntraced(function* (control) {
+          const one = yield* rpc(
+            `${u.account}/dispatch`,
+            DispatchOutcome,
+            sendInput("late-refresh", time + 10_000),
+          ).pipe(Effect.forkScoped);
 
-      const one = yield* rpc(
-        `${u.account}/dispatch`,
-        DispatchOutcome,
-        sendInput("late-refresh", time + 10_000),
-      ).pipe(Effect.forkChild);
+          const two = yield* rpc(
+            `${u.account}/dispatch`,
+            DispatchOutcome,
+            sendInput("late-refresh-two", time + 9_000),
+          ).pipe(Effect.forkScoped);
 
-      const two = yield* rpc(
-        `${u.account}/dispatch`,
-        DispatchOutcome,
-        sendInput("late-refresh-two", time + 9_000),
-      ).pipe(Effect.forkChild);
+          const pending = yield* providerSnapshot(
+            u.provider,
+            (value) => (value.calls.mint ?? 0) > (before.calls.mint ?? 0),
+          );
 
-      const pending = yield* get(
-        `${u.provider}/snapshot`,
-        ProviderSnapshot,
-      ).pipe(
-        Effect.repeat({
-          until: (value) => (value.calls.mint ?? 0) > (before.calls.mint ?? 0),
-          times: 12,
-          schedule: Schedule.spaced("100 millis"),
+          expect(pending.calls.mint).toBe((before.calls.mint ?? 0) + 1);
+          expect(
+            (yield* get(`${u.account}/snapshot`, Snapshot)).alarm,
+          ).not.toBeNull();
+          time += 10_000;
+          yield* post(`${u.account}/time`, time);
+          yield* control.release;
+          expect(yield* Fiber.join(one)).toEqual({ kind: "expired" });
+          expect(yield* Fiber.join(two)).toEqual({ kind: "expired" });
+          const after = yield* providerSnapshot(u.provider);
+          expect(after.calls["POST /helix/chat/messages"]).toBe(
+            before.calls["POST /helix/chat/messages"],
+          );
+          expect(after.calls.mint).toBe((before.calls.mint ?? 0) + 1);
         }),
       );
-
-      expect(pending.calls.mint).toBe((before.calls.mint ?? 0) + 1);
-      expect(
-        (yield* get(`${u.account}/snapshot`, Snapshot)).alarm,
-      ).not.toBeNull();
-      time += 10_000;
-      yield* post(`${u.account}/time`, time);
-      yield* post(`${u.provider}/control`, { holdMint: false });
-      expect(yield* Fiber.join(one)).toEqual({ kind: "expired" });
-      expect(yield* Fiber.join(two)).toEqual({ kind: "expired" });
-      const after = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
-      expect(after.calls["POST /helix/chat/messages"]).toBe(
-        before.calls["POST /helix/chat/messages"],
-      );
-      expect(after.calls.mint).toBe((before.calls.mint ?? 0) + 1);
       yield* post(`${u.account}/credential`);
       const scheduled = yield* get(`${u.account}/snapshot`, Snapshot);
       expect(scheduled.alarm ?? 0).toBeGreaterThan(scheduled.time);
-      yield* post(`${u.provider}/control`, { appClient: "wrong-client" });
-      yield* post(`${u.account}/reconstruct`);
+      yield* withProviderControl(
+        u.provider,
+        { appClient: "wrong-client" },
+        Effect.fnUntraced(function* () {
+          yield* post(`${u.account}/reconstruct`);
 
-      const refused = yield* rpc(
-        `${u.account}/dispatch`,
-        DispatchOutcome,
-        sendInput("bad-app", time + 10_000),
+          const refused = yield* rpc(
+            `${u.account}/dispatch`,
+            DispatchOutcome,
+            sendInput("bad-app", time + 10_000),
+          );
+
+          expect(refused.kind).toBe("retryable");
+          expect(
+            (yield* providerSnapshot(u.provider)).calls[
+              "POST /helix/chat/messages"
+            ],
+          ).toBe(before.calls["POST /helix/chat/messages"]);
+        }),
       );
-
-      expect(refused.kind).toBe("retryable");
-      expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
-          "POST /helix/chat/messages"
-        ],
-      ).toBe(before.calls["POST /helix/chat/messages"]);
-      yield* post(`${u.provider}/control`, { appClient: "fixture-twitch" });
       yield* post(`${u.account}/time`, time + 6000);
     }),
     { timeout: 90_000 },
@@ -532,7 +661,7 @@ export function registerAccountTests({
   test(
     "shared global/channel budgets survive requests and revocation blocks further delivery",
     Effect.gen(function* () {
-      const u = yield* urls;
+      const u = yield* urls("budgets");
       yield* post(`${u.account}/configure`, {
         revision: "two-channels-final",
         channels: ["fixture_channel", "fixture_other"],
@@ -585,7 +714,7 @@ export function registerAccountTests({
           sendInput("global-limit", base + 28_000, "300"),
         ),
       ).toEqual({ kind: "expired" });
-      const remote = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      const remote = yield* providerSnapshot(u.provider);
 
       const subscription = remote.remote.find(
         (sub) => sub.condition.broadcaster_user_id === "300",
@@ -630,8 +759,30 @@ export function registerAccountTests({
   test(
     "native account alarm recovers a reconstructed credential lease without losing its schedule",
     Effect.gen(function* () {
-      const u = yield* urls;
+      const u = yield* urls("native-credentials");
       const snapshotSchema = NativeAlarmSnapshot;
+      const clock = yield* Clock.Clock;
+      const observationStart = clock.monotonicTimeNanosUnsafe();
+
+      const remaining = () =>
+        Math.max(
+          1,
+          45000 -
+            Number(clock.monotonicTimeNanosUnsafe() - observationStart) / 1e6,
+        );
+
+      const native = (
+        until: (value: typeof NativeAlarmSnapshot.Type) => boolean = () => true,
+        budgetMs = remaining(),
+      ) =>
+        observe(
+          auditedObservation(
+            "native-account",
+            `${u.account}/native-alarm/snapshot`,
+            snapshotSchema,
+          ),
+          { until, budgetMs },
+        );
 
       const retain = Effect.fnUntraced(function* (
         boundary: string,
@@ -665,37 +816,46 @@ export function registerAccountTests({
 
         const prepared = yield* json(
           preparedResponse,
-          Schema.Struct({ instance: Schema.String, until: Schema.Number }),
+          Schema.Struct({
+            instance: Schema.String,
+            until: Schema.Number,
+            journey: Schema.String,
+            nativeId: Schema.String,
+          }),
         );
 
-        const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+        expect(prepared.journey).toBe("native-credentials");
+        expect(prepared.nativeId).not.toBe("");
+
+        const before = yield* observe(
+          auditedObservation(
+            "provider",
+            `${u.provider}/snapshot`,
+            ProviderSnapshot,
+          ),
+          { until: () => true, budgetMs: 2000 },
+        );
+
         yield* retain("prepared", {
           prepared,
           provider: before,
-          target: yield* get(
-            `${u.account}/native-alarm/snapshot`,
-            snapshotSchema,
+          target: yield* native(),
+          other: yield* observe(
+            auditedObservation(
+              "attribution",
+              `${u.account}/attribution`,
+              LiveAccountAttribution,
+            ),
+            { until: () => true, budgetMs: 2000 },
           ),
-          other: yield* get(`${u.account}/attribution`, LiveAccountAttribution),
         });
         expect(
           (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
         ).toBe(204);
-        yield* reconstructedSnapshot(
-          get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
-          prepared.instance,
-        );
+        yield* reconstructedSnapshot(native(), prepared.instance);
 
-        const recovered = yield* get(
-          `${u.account}/native-alarm/snapshot`,
-          snapshotSchema,
-        ).pipe(
-          Effect.repeat({
-            until: (value) =>
-              value.attribution.completedRuns.some((run) => run.alarmRun === 1),
-            times: 30,
-            schedule: Schedule.spaced("100 millis"),
-          }),
+        const recovered = yield* native((value) =>
+          value.attribution.completedRuns.some((run) => run.alarmRun === 1),
         );
 
         yield* retain("early-account", recovered);
@@ -709,19 +869,18 @@ export function registerAccountTests({
         expect(early.lease?.until).toBe(prepared.until);
         yield* retain(
           "early-provider",
-          yield* get(`${u.provider}/snapshot`, ProviderSnapshot),
+          yield* observe(
+            auditedObservation(
+              "provider",
+              `${u.provider}/snapshot`,
+              ProviderSnapshot,
+            ),
+            { until: () => true, budgetMs: 2000 },
+          ),
         );
 
-        const validated = yield* get(
-          `${u.account}/native-alarm/snapshot`,
-          snapshotSchema,
-        ).pipe(
-          Effect.repeat({
-            until: (value) =>
-              value.attribution.completedRuns.some((run) => run.alarmRun === 2),
-            times: 120,
-            schedule: Schedule.spaced("100 millis"),
-          }),
+        const validated = yield* native((value) =>
+          value.attribution.completedRuns.some((run) => run.alarmRun === 2),
         );
 
         yield* retain("late-account", validated);
@@ -732,9 +891,13 @@ export function registerAccountTests({
         expect(recovery.intended ?? 0).toBeGreaterThan(prepared.until);
         expect(recovery.native).toBe(recovery.scheduled);
 
-        const lateProvider = yield* get(
-          `${u.provider}/snapshot`,
-          ProviderSnapshot,
+        const lateProvider = yield* observe(
+          auditedObservation(
+            "provider",
+            `${u.provider}/snapshot`,
+            ProviderSnapshot,
+          ),
+          { until: () => true, budgetMs: 2000 },
         );
 
         yield* retain("late-provider", lateProvider);
@@ -757,10 +920,7 @@ export function registerAccountTests({
         expect(verified.runKey).toBe(recoveryKey);
         yield* retain("verified-recovery", verified);
 
-        const beforePaired = yield* get(
-          `${u.account}/native-alarm/snapshot`,
-          snapshotSchema,
-        );
+        const beforePaired = yield* native();
 
         const priorInstances = new Set(
           beforePaired.attribution.events.map((event) => event.instance),
@@ -777,21 +937,9 @@ export function registerAccountTests({
         expect(
           (yield* post(`${u.account}/native-alarm/reconstruct`)).status,
         ).toBe(204);
-        yield* reconstructedSnapshot(
-          get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
-          beforePaired.instance,
-        );
+        yield* reconstructedSnapshot(native(), beforePaired.instance);
 
-        const paired = yield* get(
-          `${u.account}/native-alarm/snapshot`,
-          snapshotSchema,
-        ).pipe(
-          Effect.repeat({
-            until: (value) => pairedRuns(value).length > 0,
-            times: 120,
-            schedule: Schedule.spaced("100 millis"),
-          }),
-        );
+        const paired = yield* native((value) => pairedRuns(value).length > 0);
 
         const pairedOrdinal = Math.min(
           ...pairedRuns(paired).map((run) => run.alarmRun),
@@ -801,9 +949,13 @@ export function registerAccountTests({
         const pairedRun = selectCompletedRun(paired.attribution, pairedKey);
         expect(pairedRun.instance).not.toBe(beforePaired.instance);
 
-        const latestProvider = yield* get(
-          `${u.provider}/snapshot`,
-          ProviderSnapshot,
+        const latestProvider = yield* observe(
+          auditedObservation(
+            "provider",
+            `${u.provider}/snapshot`,
+            ProviderSnapshot,
+          ),
+          { until: () => true, budgetMs: 2000 },
         );
 
         const pairedVerified = yield* Effect.sync(() =>
@@ -838,7 +990,8 @@ export function registerAccountTests({
           reverified,
         });
       }).pipe(
-        Effect.ensuring(
+        Effect.timeout(45000),
+        Effect.onExit(() =>
           Effect.gen(function* () {
             const safe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
               effect.pipe(
@@ -846,14 +999,26 @@ export function registerAccountTests({
               );
 
             yield* retain("final", {
-              target: yield* safe(
-                get(`${u.account}/native-alarm/snapshot`, snapshotSchema),
-              ),
+              target: yield* safe(native(() => true, 2000)),
               other: yield* safe(
-                get(`${u.account}/attribution`, LiveAccountAttribution),
+                observe(
+                  auditedObservation(
+                    "attribution",
+                    `${u.account}/attribution`,
+                    LiveAccountAttribution,
+                  ),
+                  { until: () => true, budgetMs: 2000 },
+                ),
               ),
               provider: yield* safe(
-                get(`${u.provider}/snapshot`, ProviderSnapshot),
+                observe(
+                  auditedObservation(
+                    "provider",
+                    `${u.provider}/snapshot`,
+                    ProviderSnapshot,
+                  ),
+                  { until: () => true, budgetMs: 2000 },
+                ),
               ),
             });
           }),
@@ -865,7 +1030,7 @@ export function registerAccountTests({
   test(
     "Discord cloud fixture reconciles the full registry and detects partial or stale releases",
     Effect.gen(function* () {
-      const u = yield* urls;
+      const u = yield* urls("registry");
       const health = yield* get(`${u.provider}/health`, ReleaseHealth);
 
       const release = {
@@ -890,10 +1055,10 @@ export function registerAccountTests({
         ],
       });
       expect((yield* syncCommands(release, options)).changed).toBeTrue();
-      const written = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      const written = yield* providerSnapshot(u.provider);
       expect((yield* syncCommands(release, options)).changed).toBeFalse();
       expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
+        (yield* providerSnapshot(u.provider)).calls[
           "PUT /applications/fixture-discord/commands"
         ],
       ).toBe(written.calls["PUT /applications/fixture-discord/commands"]);
@@ -916,36 +1081,48 @@ export function registerAccountTests({
       ).toBeTrue();
       expect((yield* syncCommands(release, options)).changed).toBeTrue();
       expect((yield* syncCommands(release, options)).changed).toBeFalse();
-      const localized = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
+      const localized = yield* providerSnapshot(u.provider);
       expect(localized.calls["discord-full-read"]).toBe(
         localized.calls["GET /applications/fixture-discord/commands"],
       );
       expect(localized.calls["discord-partial-read"] ?? 0).toBe(0);
-      yield* post(`${u.provider}/control`, { badDiscordReadback: true });
-      const failed = yield* syncCommands(release, options).pipe(Effect.flip);
-      expect(failed.code).toBe("readback");
-      expect(failed.phase).toBe("after");
-      yield* post(`${u.provider}/control`, {
-        badDiscordReadback: false,
-        releaseRevision: "newer-release",
-      });
-      const before = yield* get(`${u.provider}/snapshot`, ProviderSnapshot);
-      expect(
-        (yield* syncCommands(release, options).pipe(Effect.flip)).code,
-      ).toBe("stale-release");
-      expect(
-        (yield* get(`${u.provider}/snapshot`, ProviderSnapshot)).calls[
-          "PUT /applications/fixture-discord/commands"
-        ],
-      ).toBe(before.calls["PUT /applications/fixture-discord/commands"]);
-      yield* post(`${u.provider}/control`, {
-        commands: [],
-        releaseRevision: "fixture-release",
-        changeReleaseAfterWrite: true,
-      });
-      const raced = yield* syncCommands(release, options).pipe(Effect.flip);
-      expect(raced.code).toBe("stale-release");
-      expect(raced.phase).toBe("after");
+      yield* withProviderControl(
+        u.provider,
+        { badDiscordReadback: true },
+        Effect.fnUntraced(function* () {
+          const failed = yield* syncCommands(release, options).pipe(
+            Effect.flip,
+          );
+
+          expect(failed.code).toBe("readback");
+          expect(failed.phase).toBe("after");
+        }),
+      );
+      yield* withProviderControl(
+        u.provider,
+        { releaseRevision: "newer-release" },
+        Effect.fnUntraced(function* () {
+          const before = yield* providerSnapshot(u.provider);
+          expect(
+            (yield* syncCommands(release, options).pipe(Effect.flip)).code,
+          ).toBe("stale-release");
+          expect(
+            (yield* providerSnapshot(u.provider)).calls[
+              "PUT /applications/fixture-discord/commands"
+            ],
+          ).toBe(before.calls["PUT /applications/fixture-discord/commands"]);
+        }),
+      );
+      yield* post(`${u.provider}/control`, { commands: [] });
+      yield* withProviderControl(
+        u.provider,
+        { releaseRevision: "fixture-release", changeReleaseAfterWrite: true },
+        Effect.fnUntraced(function* () {
+          const raced = yield* syncCommands(release, options).pipe(Effect.flip);
+          expect(raced.code).toBe("stale-release");
+          expect(raced.phase).toBe("after");
+        }),
+      );
     }).pipe(Effect.provide(providerTransport)),
     { timeout: 60_000 },
   );

@@ -39,6 +39,12 @@ import {
   acknowledgeReconstruction,
   identifyFixtureResponse,
 } from "./fixture-response.js";
+import {
+  CurrentJourney,
+  routeJourney,
+  journeyFromName,
+  journeyUrl,
+} from "./fixture-routing.js";
 import { TwitchProviderFixture } from "./twitch-provider-fixture.js";
 
 const FixtureDispatch = Dispatch.mapFields((fields) => ({
@@ -93,10 +99,20 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         if (logs.length > 128) logs.shift();
       });
 
-      const baseUrl = yield* sourceUrl;
+      const sourceBase = yield* sourceUrl;
 
-      if (!Schema.is(Schema.String)(baseUrl))
+      if (!Schema.is(Schema.String)(sourceBase))
         return yield* Effect.die("Provider fixture URL unavailable");
+
+      const journey = journeyFromName(
+        state.id.name,
+        state.id.name?.startsWith("native-alarm:")
+          ? "native-alarm:"
+          : "environment:",
+      );
+
+      const baseUrl = journeyUrl(sourceBase, journey);
+
       const realClock = yield* Clock.Clock;
 
       let time =
@@ -290,7 +306,7 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
             )
             .pipe(Effect.orDie);
 
-          return { instance, until };
+          return { instance, until, journey, nativeId: state.id.toString() };
         }),
         nativeAlarmSnapshot: Effect.fnUntraced(function* () {
           return yield* state.storage
@@ -346,6 +362,8 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
 
           return {
             instance,
+            journey,
+            nativeId: state.id.toString(),
             time,
             logs,
             status: yield* run(account.status()),
@@ -398,8 +416,28 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
   }),
   Effect.gen(function* () {
     const objects = yield* AccountFixtureObject;
-    const object = () => objects.getByName("environment");
-    const nativeObject = () => objects.getByName("native-alarm");
+
+    const object = <A, E, R>(
+      use: (
+        object: ReturnType<typeof objects.getByName>,
+      ) => Effect.Effect<A, E, R>,
+    ) =>
+      CurrentJourney.pipe(
+        Effect.flatMap((journey) =>
+          use(objects.getByName("environment:" + journey)),
+        ),
+      );
+
+    const nativeObject = <A, E, R>(
+      use: (
+        object: ReturnType<typeof objects.getByName>,
+      ) => Effect.Effect<A, E, R>,
+    ) =>
+      CurrentJourney.pipe(
+        Effect.flatMap((journey) =>
+          use(objects.getByName("native-alarm:" + journey)),
+        ),
+      );
 
     const json = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(Effect.map(HttpServerResponse.jsonUnsafe));
@@ -416,12 +454,16 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
 
     const handlers = HttpApiBuilder.group(AccountApi, "account", (handlers) =>
       handlers
-        .handleRaw("setup", () => json(object().setup()))
-        .handleRaw("status", () => json(object().status()))
-        .handleRaw("snapshot", () => json(object().snapshot()))
-        .handleRaw("attribution", () => json(object().attribution()))
+        .handleRaw("setup", () => json(object((object) => object.setup())))
+        .handleRaw("status", () => json(object((object) => object.status())))
+        .handleRaw("snapshot", () =>
+          json(object((object) => object.snapshot())),
+        )
+        .handleRaw("attribution", () =>
+          json(object((object) => object.attribution())),
+        )
         .handleRaw("nativePrepare", () =>
-          json(nativeObject().prepareNativeAlarm()).pipe(
+          json(nativeObject((object) => object.prepareNativeAlarm())).pipe(
             Effect.tapCause((cause) =>
               Effect.logError(
                 "Native account fixture preparation failed",
@@ -431,49 +473,57 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
           ),
         )
         .handleRaw("nativeSnapshot", () =>
-          json(nativeObject().nativeAlarmSnapshot()),
+          json(nativeObject((object) => object.nativeAlarmSnapshot())),
         )
         .handleRaw("nativeReconstruct", () =>
           acknowledgeReconstruction(
-            nativeObject().reconstruct(),
+            nativeObject((object) => object.reconstruct()),
             "account reconstruction fixture",
           ),
         )
         .handleRaw("complete", ({ request }) =>
           input(request, OAuthCompletion).pipe(
-            Effect.flatMap((value) => json(object().complete(value))),
+            Effect.flatMap((value) =>
+              json(object((object) => object.complete(value))),
+            ),
           ),
         )
         .handleRaw("dispatch", ({ request }) =>
           input(request, FixtureDispatch).pipe(
-            Effect.flatMap((value) => json(object().dispatch(value))),
+            Effect.flatMap((value) =>
+              json(object((object) => object.dispatch(value))),
+            ),
           ),
         )
         .handleRaw("observe", ({ request }) =>
           input(request, SubscriptionObservation).pipe(
-            Effect.flatMap((value) => json(object().observe(value))),
+            Effect.flatMap((value) =>
+              json(object((object) => object.observe(value))),
+            ),
           ),
         )
         .handleRaw("time", ({ request }) =>
           input(request, Schema.Int).pipe(
-            Effect.flatMap((value) => object().time(value)),
+            Effect.flatMap((value) => object((object) => object.time(value))),
             Effect.as(HttpServerResponse.empty({ status: 204 })),
           ),
         )
         .handleRaw("configure", ({ request }) =>
           input(request, Configure).pipe(
-            Effect.flatMap((value) => object().configure(value)),
+            Effect.flatMap((value) =>
+              object((object) => object.configure(value)),
+            ),
             Effect.as(HttpServerResponse.empty({ status: 204 })),
           ),
         )
         .handleRaw("credential", () =>
-          object()
-            .credential()
-            .pipe(Effect.as(HttpServerResponse.empty({ status: 204 }))),
+          object((object) => object.credential()).pipe(
+            Effect.as(HttpServerResponse.empty({ status: 204 })),
+          ),
         )
         .handleRaw("reconstruct", () =>
           acknowledgeReconstruction(
-            object().reconstruct(),
+            object((object) => object.reconstruct()),
             "account reconstruction fixture",
           ),
         ),
@@ -484,9 +534,9 @@ export class AccountFixtureWorker extends Cloudflare.Worker<AccountFixtureWorker
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
-        Effect.map((handler) =>
-          handler.pipe(Effect.map(identifyFixtureResponse)),
-        ),
+        Effect.flatten,
+        routeJourney,
+        Effect.map(identifyFixtureResponse),
       ),
     };
   }),

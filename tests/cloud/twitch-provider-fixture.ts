@@ -4,7 +4,15 @@ import { subscriptionBinding } from "@arctools/twitch/server";
 import { Subscription } from "@arctools/twitch/testing";
 import { Stack } from "alchemy";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
-import { Match, Deferred, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  Match,
+  Deferred,
+  Effect,
+  Result,
+  Layer,
+  Redacted,
+  Schema,
+} from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -25,7 +33,9 @@ import {
   readProviderAttribution,
   recordProviderValidation,
 } from "./alarm-attribution.js";
+import { ControlId, fixtureControl } from "./fixture-control.js";
 import { identifyFixtureResponse } from "./fixture-response.js";
+import { CurrentJourney, routeJourney } from "./fixture-routing.js";
 
 const Grant = Schema.Struct({
   userId: Schema.String,
@@ -34,24 +44,36 @@ const Grant = Schema.Struct({
   clientId: Schema.String,
 });
 
-export const ProviderControl = Schema.Struct({
+export const TemporaryProviderPatch = Schema.Struct({
   createStatus: Schema.optional(
     Schema.Literals(["enabled", "webhook_callback_verification_pending"]),
   ),
-  resetMessages: Schema.optional(Schema.Boolean),
   sendStatus: Schema.optional(Schema.Int),
-  sendBody: Schema.optional(Schema.Unknown),
+  sendBody: Schema.optional(Schema.Json),
   holdSend: Schema.optional(Schema.Boolean),
   holdCreate: Schema.optional(Schema.Boolean),
   holdMint: Schema.optional(Schema.Boolean),
   appClient: Schema.optional(Schema.String),
   expiresIn: Schema.optional(Schema.Int),
-  remote: Schema.optional(Schema.Array(Subscription)),
-  commands: Schema.optional(RemoteCommands),
   releaseRevision: Schema.optional(Schema.String),
   badDiscordReadback: Schema.optional(Schema.Boolean),
   changeReleaseAfterWrite: Schema.optional(Schema.Boolean),
 });
+
+export type TemporaryProviderPatch = typeof TemporaryProviderPatch.Type;
+
+export const ProviderControl = Schema.Struct({
+  resetMessages: Schema.optional(Schema.Boolean),
+  remote: Schema.optional(Schema.Array(Subscription)),
+  commands: Schema.optional(RemoteCommands),
+});
+
+const Activation = Schema.Struct({
+  id: ControlId,
+  patch: TemporaryProviderPatch,
+});
+
+const Retirement = Schema.Struct({ id: ControlId });
 
 export const ProviderSnapshot = Schema.Struct({
   messages: Schema.Array(
@@ -80,8 +102,14 @@ export const makeProviderFixture = (
   },
   identity: EnvironmentConfig,
 ) =>
-  Effect.sync(() => {
-    const gates = new Map<string, Deferred.Deferred<void>>();
+  Effect.gen(function* () {
+    const baseline: TemporaryProviderPatch = {};
+
+    const temporary = yield* fixtureControl(storage, baseline, (settings) => [
+      ...(settings.holdSend ? ["send"] : []),
+      ...(settings.holdCreate ? ["create"] : []),
+      ...(settings.holdMint ? ["mint"] : []),
+    ]);
 
     const observation = Effect.fnUntraced(function* (
       key: string,
@@ -108,36 +136,14 @@ export const makeProviderFixture = (
         .pipe(Effect.orDie);
     });
 
-    const wait = Effect.fnUntraced(function* (key: string) {
-      const gate = gates.get(key);
-
-      if (gate) yield* Deferred.await(gate);
-    });
-
     return {
+      activate: (input: typeof Activation.Type) =>
+        temporary.activate(input.id, input.patch),
+      retire: (id: string) => temporary.retire(id),
+      controlState: (id: string) => temporary.observe(id),
       control: Effect.fnUntraced(function* (
         input: typeof ProviderControl.Type,
       ) {
-        for (const [field, key] of [
-          [input.holdSend, "send"],
-          [input.holdCreate, "create"],
-          [input.holdMint, "mint"],
-        ] as const) {
-          if (field) gates.set(key, yield* Deferred.make<void>());
-
-          if (field === false) {
-            const gate = gates.get(key);
-
-            if (gate) yield* Deferred.succeed(gate, undefined);
-            gates.delete(key);
-          }
-        }
-
-        const previous =
-          (yield* storage.get<typeof ProviderControl.Type>("control")) ?? {};
-
-        yield* storage.put("control", { ...previous, ...input });
-
         if (input.resetMessages) yield* storage.put("messages", []);
 
         if (input.remote) yield* storage.put("remote", input.remote);
@@ -189,8 +195,14 @@ export const makeProviderFixture = (
           correlationError: parsed.correlationError,
         });
 
-        const control =
-          (yield* storage.get<typeof ProviderControl.Type>("control")) ?? {};
+        const captured = yield* temporary.capture;
+        const control = captured.settings;
+
+        const wait = (key: string) => {
+          const gate = captured.gates.get(key);
+
+          return gate ? Deferred.await(gate) : Effect.void;
+        };
 
         if (url.pathname === "/health")
           return {
@@ -212,10 +224,10 @@ export const makeProviderFixture = (
             yield* storage.put("discord", commands);
 
             if (control.changeReleaseAfterWrite)
-              yield* storage.put("control", {
-                ...control,
+              yield* temporary.update(captured.id, (current) => ({
+                ...current,
                 releaseRevision: "newer-release",
-              });
+              }));
 
             return { status: 200, body: commands };
           }
@@ -473,6 +485,9 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
 class ProviderApi extends HttpApi.make("provider-fixture").add(
   HttpApiGroup.make("fixture").add(
     HttpApiEndpoint.post("control", "/control"),
+    HttpApiEndpoint.post("activate", "/temporary/activate"),
+    HttpApiEndpoint.post("retire", "/temporary/retire"),
+    HttpApiEndpoint.get("controlState", "/temporary/state"),
     HttpApiEndpoint.get("snapshot", "/snapshot"),
     HttpApiEndpoint.post("token", "/oauth/token"),
     HttpApiEndpoint.get("validate", "/oauth/validate"),
@@ -511,16 +526,30 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
   }),
   Effect.gen(function* () {
     const objects = yield* ProviderFixtureState;
-    const object = () => objects.getByName("provider");
+
+    const object = <A, E, R>(
+      use: (
+        object: ReturnType<typeof objects.getByName>,
+      ) => Effect.Effect<A, E, R>,
+    ) =>
+      CurrentJourney.pipe(
+        Effect.flatMap((journey) =>
+          use(objects.getByName("provider:" + journey)),
+        ),
+      );
 
     const provider = Effect.fnUntraced(function* (
       request: import("effect/http/HttpServerRequest").HttpServerRequest,
     ) {
-      const result = yield* object().request(
-        request.method,
-        request.url,
-        yield* request.text.pipe(Effect.orDie),
-        request.headers.authorization ?? "",
+      const body = yield* request.text.pipe(Effect.orDie);
+
+      const result = yield* object((object) =>
+        object.request(
+          request.method,
+          request.url,
+          body,
+          request.headers.authorization ?? "",
+        ),
       );
 
       return result.status === 204
@@ -530,6 +559,47 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
 
     const handlers = HttpApiBuilder.group(ProviderApi, "fixture", (handlers) =>
       handlers
+        .handleRaw("activate", ({ request }) =>
+          Effect.gen(function* () {
+            const input = yield* request.json.pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Activation)),
+              Effect.orDie,
+            );
+
+            const result = yield* object((object) =>
+              object.activate(input),
+            ).pipe(Effect.result);
+
+            return HttpServerResponse.empty({
+              status: Result.isSuccess(result) ? 204 : 409,
+            });
+          }),
+        )
+        .handleRaw("retire", ({ request }) =>
+          Effect.gen(function* () {
+            const input = yield* request.json.pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Retirement)),
+              Effect.orDie,
+            );
+
+            yield* object((object) => object.retire(input.id));
+
+            return HttpServerResponse.empty({ status: 204 });
+          }),
+        )
+        .handleRaw("controlState", ({ request }) =>
+          Effect.gen(function* () {
+            const id = yield* Schema.decodeUnknownEffect(ControlId)(
+              new URL(request.url, "https://fixture.invalid").searchParams.get(
+                "id",
+              ),
+            ).pipe(Effect.orDie);
+
+            return yield* object((object) => object.controlState(id)).pipe(
+              Effect.map(HttpServerResponse.jsonUnsafe),
+            );
+          }),
+        )
         .handleRaw("control", ({ request }) =>
           Effect.gen(function* () {
             const control = yield* request.json.pipe(
@@ -537,21 +607,17 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
               Effect.orDie,
             );
 
-            yield* object().control(control);
+            yield* object((object) => object.control(control));
 
             return HttpServerResponse.empty({ status: 204 });
           }),
         )
         .handleRaw("snapshot", () =>
-          object().snapshot().pipe(Effect.map(HttpServerResponse.jsonUnsafe)),
-        )
-        .handleRaw("token", ({ request }) =>
-          provider(request).pipe(
-            Effect.tapCause((cause) =>
-              Effect.logError("Controlled token fixture failed", cause),
-            ),
+          object((object) => object.snapshot()).pipe(
+            Effect.map(HttpServerResponse.jsonUnsafe),
           ),
         )
+        .handleRaw("token", ({ request }) => provider(request))
         .handleRaw("validate", ({ request }) => provider(request))
         .handleRaw("correlatedValidate", ({ request }) => provider(request))
         .handleRaw("users", ({ request }) => provider(request))
@@ -569,9 +635,9 @@ export class TwitchProviderFixture extends Cloudflare.Worker<TwitchProviderFixtu
         Layer.provide(handlers),
         Layer.provide(HttpServer.layerServices),
         HttpRouter.toHttpEffect,
-        Effect.map((handler) =>
-          handler.pipe(Effect.map(identifyFixtureResponse)),
-        ),
+        Effect.flatten,
+        routeJourney,
+        Effect.map(identifyFixtureResponse),
       ),
     };
   }),

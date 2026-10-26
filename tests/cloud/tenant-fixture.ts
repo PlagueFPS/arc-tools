@@ -8,7 +8,7 @@ import {
 } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Effect, Layer, Schema, Struct } from "effect";
+import { Effect, Exit, Layer, Schema, Struct } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -41,13 +41,28 @@ import {
   acknowledgeReconstruction,
   identifyFixtureResponse,
 } from "./fixture-response.js";
+import { journeyUrl } from "./fixture-routing.js";
 import { MetaforgeWorker } from "./metaforge.js";
+
+const AlarmActivity = Schema.Struct({
+  instance: Schema.String,
+  run: Schema.Int,
+});
+
+const CompletedAlarmActivity = Schema.Struct({
+  ...AlarmActivity.fields,
+  workIds: Schema.Array(Schema.String),
+});
 
 export const TenantSnapshot = Schema.Struct({
   instance: Schema.String,
   state: Schema.NullOr(TenantState),
   alarm: Schema.NullOr(Schema.Number),
   alarmRuns: Schema.Int,
+  alarmActivity: Schema.Struct({
+    running: Schema.NullOr(AlarmActivity),
+    completed: Schema.NullOr(CompletedAlarmActivity),
+  }),
   lostAccountResponseAt: Schema.NullOr(Schema.Number),
 });
 
@@ -76,7 +91,7 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
           if (!Schema.is(Schema.String)(baseUrl))
             return yield* Effect.die("No fixture source URL");
 
-          return { baseUrl };
+          return { baseUrl: journeyUrl(baseUrl, "bot") };
         }),
       }),
     );
@@ -86,6 +101,11 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
 
     return Effect.gen(function* () {
       const instance = crypto.randomUUID();
+      let runningAlarm: typeof AlarmActivity.Type | null = null;
+
+      let liveAlarmRun =
+        (yield* state.storage.get<number>("fixtureAlarms")) ?? 0;
+
       const runtime = yield* RuntimeContext;
 
       const provide = <A, E>(effect: Effect.Effect<A, E, RuntimeContext>) =>
@@ -186,6 +206,13 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
         snapshot: Effect.fnUntraced(function* () {
           return {
             instance,
+            alarmActivity: {
+              running: runningAlarm,
+              completed:
+                (yield* state.storage.get<typeof CompletedAlarmActivity.Type>(
+                  "fixtureAlarmCompleted",
+                )) ?? null,
+            },
             lostAccountResponseAt:
               (yield* state.storage.get<number>("fixtureLostAt")) ?? null,
             state: (yield* state.storage.get("tenant:v1")) ?? null,
@@ -198,11 +225,27 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
           yield* state.abort("tenant reconstruction fixture");
         }),
         alarm: Effect.fnUntraced(function* () {
-          yield* state.storage.put(
-            "fixtureAlarms",
-            ((yield* state.storage.get<number>("fixtureAlarms")) ?? 0) + 1,
+          runningAlarm = { instance, run: ++liveAlarmRun };
+          yield* Effect.gen(function* () {
+            yield* state.storage.put("fixtureAlarms", liveAlarmRun);
+            yield* tenant.recover();
+          }).pipe(
+            Effect.onExit((exit) =>
+              Effect.gen(function* () {
+                if (Exit.isSuccess(exit)) {
+                  const persisted =
+                    yield* state.storage.get<TenantState>("tenant:v1");
+
+                  yield* state.storage.put("fixtureAlarmCompleted", {
+                    ...runningAlarm,
+                    workIds: Object.keys(persisted?.works ?? {}),
+                  });
+                }
+
+                runningAlarm = null;
+              }),
+            ),
           );
-          yield* tenant.recover();
         }),
       };
     });
