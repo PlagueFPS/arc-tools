@@ -373,17 +373,15 @@ test(
   }),
 );
 
-const invalidRetryBodies: ReadonlyArray<
-  readonly [string, "rate-limit" | "provider"]
-> = [
+const invalidRetryBodies: ReadonlyArray<readonly [string, "rate-limit"]> = [
   ['{"retry_after":0}', "rate-limit"],
   ['{"retry_after":-0.1}', "rate-limit"],
   ['{"retry_after":1e999}', "rate-limit"],
   ['{"retry_after":1e308}', "rate-limit"],
   ['{"retry_after":30}', "rate-limit"],
-  ['{"retry_after":"0.001"}', "provider"],
-  ['{"retry_after":null}', "provider"],
-  ["{}", "provider"],
+  ['{"retry_after":"0.001"}', "rate-limit"],
+  ['{"retry_after":null}', "rate-limit"],
+  ["{}", "rate-limit"],
 ];
 
 for (const [body, code] of invalidRetryBodies)
@@ -455,7 +453,7 @@ test(
     f.control.status = "starting";
     f.control.remote = [];
     const error = yield* syncCommands(f.release, f.options).pipe(Effect.flip);
-    expect(error.code).toBe("provider");
+    expect(error.code).toBe("body");
     expect(error.phase).toBe("before");
     expect(f.control.reads).toBe(0);
     expect(f.control.writes).toBe(0);
@@ -626,22 +624,13 @@ test(
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
-for (const failure of [
-  "status",
-  "network",
-  "malformed",
-  "stage",
-  "revision",
-  "manifest",
-])
+for (const failure of ["status", "malformed", "stage", "revision", "manifest"])
   test(
     `Discord ${failure} failures stop immediately without a retry`,
     Effect.gen(function* () {
       const f = yield* nativeFixture();
 
-      if (failure === "status") f.control.commandStatus = 503;
-
-      if (failure === "network") f.control.networkFailure = true;
+      if (failure === "status") f.control.commandStatus = 401;
 
       if (failure === "malformed") f.control.commandBody = "{";
 
@@ -654,7 +643,9 @@ for (const failure of [
       expect(result.code).toBe(
         ["stage", "revision", "manifest"].includes(failure)
           ? "stale-release"
-          : "provider",
+          : failure === "malformed"
+            ? "body"
+            : "provider",
       );
       expect(result.phase).toBe("before");
       expect(f.requests.filter(({ path }) => path === "/health")).toHaveLength(
@@ -700,12 +691,12 @@ for (const wait of [false, true])
       f.control.healthStatus = 503;
 
       const fiber = yield* f
-        .run(waitForRelease(f.release, wait))
+        .run(waitForRelease(f.release, wait).pipe(Effect.result))
         .pipe(Effect.forkChild);
 
       yield* f.started;
       yield* TestClock.adjust(wait ? 59000 : 0);
-      expect(yield* Fiber.join(fiber)).toBeFalse();
+      expect(Result.isFailure(yield* Fiber.join(fiber))).toBeTrue();
       expect(f.requests.map(({ time }) => time)).toEqual(
         Array.from({ length: wait ? 60 : 1 }, (_, i) => i * 1000),
       );
@@ -728,7 +719,7 @@ test(
     f.control.revision = "commit-one";
     yield* f.started;
     yield* TestClock.adjust(1000);
-    expect(yield* Fiber.join(fiber)).toBeTrue();
+    expect(yield* Fiber.join(fiber)).toBeUndefined();
     expect(f.requests).toHaveLength(3);
   }).pipe(Effect.provide(TestClock.layer())),
 );

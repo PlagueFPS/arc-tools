@@ -1,6 +1,11 @@
 import { parseArgs } from "node:util";
 
-import { syncCommands, waitForRelease } from "@arctools/discord/server";
+import {
+  preflightCommands,
+  syncCommands,
+  syncDiagnostic,
+  waitForRelease,
+} from "@arctools/discord/server";
 import { providerTransport } from "@arctools/utils/http";
 import { Effect, Redacted, Schema } from "effect";
 
@@ -14,6 +19,7 @@ try {
       endpoint: { type: "string" },
       revision: { type: "string" },
       wait: { type: "boolean" },
+      preflight: { type: "boolean" },
     },
   });
 
@@ -47,12 +53,23 @@ try {
 
   await Effect.runPromise(
     Effect.gen(function* () {
-      const ready = yield* waitForRelease(
+      if (values.preflight) {
+        yield* preflightCommands({ applicationId, token });
+        console.info(
+          JSON.stringify({
+            event: "discord-preflight-success",
+            stage,
+            revision,
+          }),
+        );
+
+        return;
+      }
+
+      yield* waitForRelease(
         { stage, revision, endpoint: endpoint.origin },
         values.wait,
       );
-
-      if (!ready) return yield* Effect.fail("deployed revision mismatch");
 
       const result = yield* syncCommands({
         stage,
@@ -63,11 +80,22 @@ try {
       });
 
       console.info(JSON.stringify({ stage, revision, ...result }));
-    }).pipe(Effect.provide(providerTransport)),
+    }).pipe(
+      Effect.catchTag("SyncError", (error) =>
+        Effect.sync(() => {
+          console.error(JSON.stringify(syncDiagnostic(error)));
+          process.exitCode = 1;
+        }),
+      ),
+      Effect.provide(providerTransport),
+    ),
   );
 } catch {
   console.error(
-    "Discord synchronization failed. Deployment may have succeeded while registration remains incomplete. Check the selected stage, exact revision/manifest health, application credentials and provider status. Request details are omitted.",
+    JSON.stringify({
+      event: "discord-sync-failure",
+      code: "configuration-or-runtime",
+    }),
   );
   process.exitCode = 1;
 }

@@ -11,6 +11,8 @@ export {
   RetryAfter,
   SyncError,
   syncCommands,
+  preflightCommands,
+  syncDiagnostic,
   waitForRelease,
   type Release,
 } from "./sync.js";
