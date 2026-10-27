@@ -3,9 +3,9 @@ import {
   Redacted,
   Schedule,
   Schema,
-  Option as EffectOption,
-  Array as EffectArray,
-  String as EffectString,
+  Option,
+  Array as Arr,
+  String as Str,
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
@@ -135,17 +135,17 @@ export const makePreviewHttp = Effect.fnUntraced(function* (options: {
         Comments,
       );
 
-      existing = EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      existing = Option.getOrUndefined(
+        Arr.findFirst(
           comments,
           (comment) =>
             !!(
               comment.user.login === "github-actions[bot]" &&
-              EffectOption.getOrUndefined(
-                EffectOption.map(
-                  EffectOption.fromNullishOr(comment.body),
+              Option.getOrUndefined(
+                Option.map(
+                  Option.fromNullishOr(comment.body),
                   (effectNativeValue0) =>
-                    EffectString.includes(marker)(effectNativeValue0),
+                    Str.includes(marker)(effectNativeValue0),
                 ),
               )
             ),

@@ -10,13 +10,7 @@ import {
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import {
-  Effect,
-  Exit,
-  Schema,
-  Semaphore,
-  String as EffectString,
-} from "effect";
+import { Effect, Exit, Schema, Semaphore, String as Str } from "effect";
 
 import { DiscordReceipt, TwitchReceipt } from "../src/tenant-contracts.js";
 import { emptyTenant, TenantState, TenantStore } from "../src/tenant-state.js";
@@ -29,7 +23,7 @@ import {
 export const twitchReceipt = (id = "work", receivedAt = 0) =>
   Schema.decodeSync(TwitchReceipt)({
     id,
-    fingerprint: EffectString.repeat(64)("a"),
+    fingerprint: Str.repeat(64)("a"),
     receivedAt,
     broadcasterId: "200",
     source: {
@@ -43,7 +37,7 @@ export const twitchReceipt = (id = "work", receivedAt = 0) =>
 export const discordReceipt = (id = "work", receivedAt = 0) =>
   Schema.decodeSync(DiscordReceipt)({
     id,
-    fingerprint: EffectString.repeat(64)("a"),
+    fingerprint: Str.repeat(64)("a"),
     receivedAt,
     guildId: "guild",
     invocation: { command: "sell", input: "sensors" },

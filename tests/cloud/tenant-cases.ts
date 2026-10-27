@@ -17,11 +17,11 @@ import {
   Schedule,
   Schema,
   Redacted,
-  Array as EffectArray,
-  Option as EffectOption,
-  Record as EffectRecord,
-  String as EffectString,
-  Console as EffectConsole,
+  Array as Arr,
+  Option,
+  Record as Rec,
+  String as Str,
+  Console,
 } from "effect";
 
 import { discordResponse } from "../../apps/bot/src/presentation.js";
@@ -100,7 +100,7 @@ const provider = (url: string) =>
 const waitMessages = (url: string, parent: string) =>
   observe(auditedObservation("provider", `${url}/snapshot`, ProviderSnapshot), {
     until: (value) =>
-      EffectArray.some(
+      Arr.some(
         value.messages,
         (message) => !!(message.body.reply_parent_message_id === parent),
       ),
@@ -118,7 +118,7 @@ const sourceControl = (
 const baseReceipt = (id: string, receivedAt = Date.now()) => ({
   id,
   receivedAt,
-  fingerprint: EffectString.repeat(64)("a"),
+  fingerprint: Str.repeat(64)("a"),
   broadcasterId: "200",
   replyParentId: id,
   invocation: { command: "sell", input: "sensors" },
@@ -244,7 +244,7 @@ export function registerTenantTests({
 
       const { reply: _reply, content: _content, ...timing } = sample;
       yield* retainJourney(`bot-${scenario}`, timing);
-      yield* EffectConsole.info(
+      yield* Console.info(
         yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
           discordTiming: scenario,
           workerMs,
@@ -372,7 +372,7 @@ export function registerTenantTests({
       yield* rejected(
         request(`${u.bot}/interactions/discord`, {
           method: "POST",
-          body: EffectString.repeat(65537)("x"),
+          body: Str.repeat(65537)("x"),
         }),
         413,
       );
@@ -584,11 +584,10 @@ export function registerTenantTests({
             )({
               userId: authorization.login === "fixture_sender" ? "100" : "200",
               login: authorization.login,
-              scopes: EffectOption.getOrUndefined(
-                EffectOption.map(
-                  EffectOption.fromNullishOr(params.get("scope")),
-                  (effectNativeValue0) =>
-                    EffectString.split(effectNativeValue0, " "),
+              scopes: Option.getOrUndefined(
+                Option.map(
+                  Option.fromNullishOr(params.get("scope")),
+                  (effectNativeValue0) => Str.split(effectNativeValue0, " "),
                 ),
               ),
               clientId: "fixture-twitch",
@@ -606,7 +605,7 @@ export function registerTenantTests({
         const pending = yield* status(u.bot).pipe(
           Effect.repeat({
             until: (value) =>
-              EffectArray.some(
+              Arr.some(
                 value.channels,
                 (channel) =>
                   !!(
@@ -621,7 +620,7 @@ export function registerTenantTests({
 
         expect(pending.setup).toBe("pending");
         expect(
-          EffectArray.some(
+          Arr.some(
             pending.channels,
             (channel) =>
               !!(
@@ -630,8 +629,8 @@ export function registerTenantTests({
           ),
         ).toBe(true);
 
-        const remote = EffectOption.getOrUndefined(
-          EffectArray.findFirst(
+        const remote = Option.getOrUndefined(
+          Arr.findFirst(
             (yield* provider(u.provider)).remote,
             (entry) =>
               !!(entry.transport.callback === `${u.publicBot}/webhooks/twitch`),
@@ -816,8 +815,8 @@ export function registerTenantTests({
       expect(admitted.headers.get("x-arc-tenant-lookups")).toBe("1");
       expect(admitted.headers.get("x-arc-tenant-rpcs")).toBe("1");
 
-      const sent = EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      const sent = Option.getOrUndefined(
+        Arr.findFirst(
           (yield* waitMessages(u.provider, `all-${command}`)).messages,
           (message) =>
             !!(message.body.reply_parent_message_id === `all-${command}`),
@@ -844,7 +843,7 @@ export function registerTenantTests({
         (yield* signedTwitch(u.bot, event, `retry-${command}`)).status,
       ).toBe(204);
       expect(
-        EffectArray.filter(
+        Arr.filter(
           (yield* provider(u.provider)).messages,
           (message) =>
             !!(message.body.reply_parent_message_id === `all-${command}`),
@@ -909,10 +908,7 @@ export function registerTenantTests({
 
       const observed = yield* provider(u.provider);
       expect(
-        EffectArray.some(
-          observed.logs,
-          (entry) => !!/interaction|webhook/.test(entry),
-        ),
+        Arr.some(observed.logs, (entry) => !!/interaction|webhook/.test(entry)),
       ).toBeFalse();
       expect(
         yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
@@ -1063,8 +1059,8 @@ export function registerTenantTests({
       outcome: "sent",
     });
     expect(
-      EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      Option.getOrUndefined(
+        Arr.findFirst(
           (yield* provider(u.provider)).messages,
           (message) =>
             !!(message.body.reply_parent_message_id === "native-alarm"),
@@ -1091,7 +1087,7 @@ export function registerTenantTests({
     expect(immutableWork(replayedWork)).toEqual(immutableWork(original));
 
     expect(
-      EffectArray.filter(
+      Arr.filter(
         (yield* provider(u.provider)).messages,
         (message) =>
           !!(message.body.reply_parent_message_id === "native-alarm"),
@@ -1136,14 +1132,14 @@ export function registerTenantTests({
     });
     expect(completed.lostAccountResponseAt).toBeNumber();
     expect(
-      EffectArray.filter(
+      Arr.filter(
         (yield* provider(u.provider)).messages,
         (message) => !!(message.body.reply_parent_message_id === "lost-rpc"),
       ),
     ).toHaveLength(1);
     expect(
-      EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      Option.getOrUndefined(
+        Arr.findFirst(
           (yield* provider(u.provider)).messages,
           (message) => !!(message.body.reply_parent_message_id === "lost-rpc"),
         ),
@@ -1162,9 +1158,7 @@ export function registerTenantTests({
     const u = yield* urls;
     const key = "slow-account-send";
     yield* sourceControl(u.source, "/items?id=slowparts&minimal=true", {
-      data: [
-        { id: "slowparts", name: EffectString.repeat(650)("x"), value: 10 },
-      ],
+      data: [{ id: "slowparts", name: Str.repeat(650)("x"), value: 10 }],
     });
     yield* withProviderControl(
       u.provider,
@@ -1185,7 +1179,7 @@ export function registerTenantTests({
         ).toBe(204);
         const first = yield* waitMessages(u.provider, key);
         expect(
-          EffectArray.filter(
+          Arr.filter(
             first.messages,
             (message) => !!(message.body.reply_parent_message_id === key),
           ),
@@ -1232,7 +1226,7 @@ export function registerTenantTests({
         });
         expect(terminal.alarm).toBe(input.receivedAt + 610000);
         expect(
-          EffectArray.filter(
+          Arr.filter(
             (yield* provider(u.provider)).messages,
             (message) => !!(message.body.reply_parent_message_id === key),
           ),
@@ -1257,7 +1251,7 @@ export function registerTenantTests({
           const input = {
             id: "interrupt",
             guildId: "native-guild",
-            fingerprint: EffectString.repeat(64)("a"),
+            fingerprint: Str.repeat(64)("a"),
             receivedAt: Date.now(),
             invocation: { command: "sell", input: "interrupt" },
             token: "CANARY-INTERACTION-TOKEN",
@@ -1272,10 +1266,7 @@ export function registerTenantTests({
               if (Exit.isFailure(exit))
                 return Effect.logInfo("discord-interruption-request", {
                   kind: "fiber-failure",
-                  reasons: EffectArray.map(
-                    exit.cause.reasons,
-                    (reason) => reason._tag,
-                  ),
+                  reasons: Arr.map(exit.cause.reasons, (reason) => reason._tag),
                 });
               const result = exit.value;
 
@@ -1326,8 +1317,8 @@ export function registerTenantTests({
                 ? null
                 : {
                     generation: admitted.state.generation,
-                    works: EffectArray.map(
-                      EffectRecord.values(admitted.state.works),
+                    works: Arr.map(
+                      Rec.values(admitted.state.works),
                       (work) => ({
                         id: work.id,
                         kind: work.kind,
@@ -1438,7 +1429,7 @@ export function registerTenantTests({
     });
     const u = yield* urls;
     yield* sourceControl(u.source, "/items?id=long&minimal=true", {
-      data: [{ id: "long", name: EffectString.repeat(1200)("x"), value: 10 }],
+      data: [{ id: "long", name: Str.repeat(1200)("x"), value: 10 }],
     });
     yield* withProviderControl(
       u.provider,
@@ -1462,18 +1453,18 @@ export function registerTenantTests({
         ).toBe(204);
         const sent = yield* waitMessages(u.provider, "ambiguous-parts");
         expect(
-          EffectArray.filter(
+          Arr.filter(
             sent.messages,
             (message) =>
               !!(message.body.reply_parent_message_id === "ambiguous-parts"),
           ),
         ).toHaveLength(1);
         expect(
-          EffectOption.getOrUndefined(
-            EffectOption.map(
-              EffectOption.fromNullishOr(
-                EffectOption.getOrUndefined(
-                  EffectArray.findFirst(
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(
+                Option.getOrUndefined(
+                  Arr.findFirst(
                     sent.messages,
                     (message) =>
                       !!(
@@ -1484,7 +1475,7 @@ export function registerTenantTests({
                 )?.body.message,
               ),
               (effectNativeValue1) =>
-                EffectString.startsWith("[1/3]: ")(effectNativeValue1),
+                Str.startsWith("[1/3]: ")(effectNativeValue1),
             ),
           ),
         ).toBeTrue();
@@ -1493,7 +1484,7 @@ export function registerTenantTests({
         ).toBe(204);
         yield* Effect.sleep(Math.max(0, started + 10500 - Date.now()));
         expect(
-          EffectArray.filter(
+          Arr.filter(
             (yield* provider(u.provider)).messages,
             (message) =>
               !!(message.body.reply_parent_message_id === "ambiguous-parts"),
@@ -1523,7 +1514,7 @@ export function registerTenantTests({
     ).toBe(204);
     const revoked = yield* status(u.bot);
     expect(
-      EffectArray.some(
+      Arr.some(
         revoked.channels,
         (entry) => !!(entry.id === remote.condition.broadcaster_user_id),
       ),

@@ -51,13 +51,20 @@ export default defineConfig({
   },
   overrides: [
     {
+      files: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+      rules: { "effecttsgo/async-function": "off" },
+    },
+    {
       files: [
         "apps/website/src/*.ts",
         "apps/website/src/view/**/*.ts",
         "apps/website/src/components/**/*.ts",
         "apps/website/src/domain/**/*.ts",
       ],
-      rules: foldkit.configs.recommended.rules,
+      rules: {
+        ...foldkit.configs.recommended.rules,
+        "foldkit/prefer-effect-module-names": "off",
+      },
     },
   ],
   ignorePatterns: [

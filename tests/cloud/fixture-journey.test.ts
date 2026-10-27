@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
 /* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
@@ -16,8 +15,8 @@ import {
   Fiber,
   Layer,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 
 import { EnvironmentConfig } from "../../apps/bot/src/config.js";
@@ -126,7 +125,7 @@ for (const mode of [
             }),
         ).pipe(Effect.exit);
 
-        expect(bodyStarted).toBe(!EffectString.startsWith("acquisition")(mode));
+        expect(bodyStarted).toBe(!Str.startsWith("acquisition")(mode));
         expect(Exit.isSuccess(exit)).toBe(mode === "success");
 
         if (Exit.isSuccess(exit)) expect(exit.value).toBe(42);
@@ -377,7 +376,7 @@ for (const mode of ["lost-release", "unavailable", "dirty"] as const) {
           async (url, init) => {
             const parsed = new URL(url);
 
-            if (EffectString.endsWith("activate")(parsed.pathname)) {
+            if (Str.endsWith("activate")(parsed.pathname)) {
               activations++;
 
               const input = Schema.decodeUnknownSync(
@@ -397,7 +396,7 @@ for (const mode of ["lost-release", "unavailable", "dirty"] as const) {
               return new Response(null, { status: 204 });
             }
 
-            if (EffectString.endsWith("retire")(parsed.pathname)) {
+            if (Str.endsWith("retire")(parsed.pathname)) {
               retirements++;
 
               const input = Schema.decodeUnknownSync(
@@ -456,8 +455,8 @@ for (const mode of ["lost-release", "unavailable", "dirty"] as const) {
 
         if (Exit.isFailure(result))
           expect(Cause.pretty(result.cause)).toContain("FixtureCleanupError");
-        expect(EffectArray.join(events, "\n")).toContain("ECONNRESET");
-        expect(EffectArray.join(events, "\n")).not.toContain("CANARY");
+        expect(Arr.join(events, "\n")).toContain("ECONNRESET");
+        expect(Arr.join(events, "\n")).not.toContain("CANARY");
       }),
     ),
   );
@@ -480,7 +479,7 @@ test(
         async (url, init) => {
           const parsed = new URL(url);
 
-          if (EffectString.endsWith("activate")(parsed.pathname)) {
+          if (Str.endsWith("activate")(parsed.pathname)) {
             const input = Schema.decodeUnknownSync(
               Schema.Struct({ id: Schema.String }),
             )(
@@ -503,7 +502,7 @@ test(
             );
           }
 
-          if (EffectString.endsWith("retire")(parsed.pathname)) {
+          if (Str.endsWith("retire")(parsed.pathname)) {
             retirementSignalWasAborted = init.signal?.aborted ?? true;
 
             const input = Schema.decodeUnknownSync(
@@ -572,7 +571,7 @@ test(
         async (url, init) => {
           const parsed = new URL(url);
 
-          if (EffectString.endsWith("activate")(parsed.pathname)) {
+          if (Str.endsWith("activate")(parsed.pathname)) {
             const input = Schema.decodeUnknownSync(
               Schema.Struct({ id: Schema.String }),
             )(
@@ -590,7 +589,7 @@ test(
             return new Response(null, { status: 204 });
           }
 
-          if (EffectString.endsWith("retire")(parsed.pathname)) {
+          if (Str.endsWith("retire")(parsed.pathname)) {
             retirements++;
 
             const input = Schema.decodeUnknownSync(
@@ -815,16 +814,14 @@ test(
     Effect.gen(function* () {
       const client = makeFixtureHttp(
         async (url) => {
-          if (EffectString.endsWith("activate")(url))
+          if (Str.endsWith("activate")(url))
             return new Response(null, { status: 204 });
           throw Object.assign(new TypeError(""), {
-            code: EffectString.endsWith("retire")(url)
-              ? "ECONNRESET"
-              : "EHOSTUNREACH",
+            code: Str.endsWith("retire")(url) ? "ECONNRESET" : "EHOSTUNREACH",
           });
         },
         (event) =>
-          EffectString.endsWith("/retire")(event.route)
+          Str.endsWith("/retire")(event.route)
             ? Effect.die("retirement-evidence-write-failed")
             : Effect.void,
       );
@@ -859,10 +856,10 @@ test(
         async (url) => {
           const parsed = new URL(url);
 
-          if (EffectString.endsWith("activate")(parsed.pathname))
+          if (Str.endsWith("activate")(parsed.pathname))
             return new Response(null, { status: 204 });
 
-          if (EffectString.endsWith("retire")(parsed.pathname))
+          if (Str.endsWith("retire")(parsed.pathname))
             throw Object.assign(new TypeError(""), { code: "ECONNRESET" });
 
           const id = parsed.searchParams.get("id");

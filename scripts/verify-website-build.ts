@@ -4,12 +4,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import {
-  Schema,
-  Array as EffectArray,
-  String as EffectString,
-  Option as EffectOption,
-} from "effect";
+import { Schema, Array as Arr, String as Str, Option } from "effect";
 
 const directory = new URL("../apps/website/dist/", import.meta.url);
 
@@ -44,25 +39,22 @@ for (const { path, copy } of [
     assert.match(html, /<a[^>]+href="\/install\/discord"[^>]*>Add to Discord/);
   }
 
-  assert.ok(EffectString.includes(copy)(html), `${path} has public content`);
+  assert.ok(Str.includes(copy)(html), `${path} has public content`);
   assert.ok(
-    EffectString.includes("data-foldkit-build=")(html),
+    Str.includes("data-foldkit-build=")(html),
     `${path} carries a hydration identity`,
   );
   assert.ok(
-    EffectOption.getOrElse(EffectString.indexOf(copy)(html), () => -1) <
-      EffectOption.getOrElse(
-        EffectString.indexOf('<script type="module"')(html),
-        () => -1,
-      ),
+    Option.getOrElse(Str.indexOf(copy)(html), () => -1) <
+      Option.getOrElse(Str.indexOf('<script type="module"')(html), () => -1),
     `${path} renders before JavaScript`,
   );
   assert.ok(
-    !EffectString.includes("/oauth/twitch/enroll/status")(html),
+    !Str.includes("/oauth/twitch/enroll/status")(html),
     `${path} contains no status request`,
   );
   assert.ok(
-    !EffectString.includes("__Host-arctools-enrollment")(html),
+    !Str.includes("__Host-arctools-enrollment")(html),
     `${path} contains no enrollment cookie`,
   );
   assert.match(html, /<link[^>]+href="\/assets\/[^" ]+\.css"/);
@@ -73,34 +65,31 @@ const assets = new URL("client/assets/", directory);
 const files = await readdir(assets);
 
 const styles = await Promise.all(
-  EffectArray.map(
-    EffectArray.filter(files, (file) => !!EffectString.endsWith(".css")(file)),
+  Arr.map(
+    Arr.filter(files, (file) => !!Str.endsWith(".css")(file)),
     (file) => readFile(new URL(file, assets), "utf8"),
   ),
 );
 
 const scripts = await Promise.all(
-  EffectArray.map(
-    EffectArray.filter(files, (file) => !!EffectString.endsWith(".js")(file)),
+  Arr.map(
+    Arr.filter(files, (file) => !!Str.endsWith(".js")(file)),
     (file) => readFile(new URL(file, assets), "utf8"),
   ),
 );
 
 assert.ok(
-  EffectArray.some(styles, (style) => !!EffectString.includes("Barlow")(style)),
+  Arr.some(styles, (style) => !!Str.includes("Barlow")(style)),
   "compiled CSS includes Barlow",
 );
 
 assert.ok(
-  EffectArray.some(
-    styles,
-    (style) => !!EffectString.includes(".bg-background")(style),
-  ),
+  Arr.some(styles, (style) => !!Str.includes(".bg-background")(style)),
   "compiled CSS contains Tailwind utilities",
 );
 
 assert.ok(
-  EffectArray.some(files, (file) => !!EffectString.endsWith(".woff2")(file)),
+  Arr.some(files, (file) => !!Str.endsWith(".woff2")(file)),
   "Barlow fonts are local assets",
 );
 

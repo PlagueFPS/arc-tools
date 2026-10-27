@@ -2,7 +2,7 @@
 /* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { createHash } from "node:crypto";
 
-import { Schema, String as EffectString } from "effect";
+import { Schema, String as Str } from "effect";
 
 export const Repository = Schema.Literal("PlagueFPS/arc-tools");
 
@@ -28,13 +28,13 @@ export function previewIdentity(input: {
   )(input);
 
   const hash = createHash("sha256")
-    .update(`${EffectString.toLowerCase(repository)}#${number}`)
+    .update(`${Str.toLowerCase(repository)}#${number}`)
     .digest("hex");
 
-  const run = EffectString.slice(8, 20)(hash);
+  const run = Str.slice(8, 20)(hash);
 
   const stage = Schema.decodeSync(PreviewStage)(
-    `test-tenant-${EffectString.slice(0, 8)(hash)}-${run}`,
+    `test-tenant-${Str.slice(0, 8)(hash)}-${run}`,
   );
 
   return { repository, number, stage, run };

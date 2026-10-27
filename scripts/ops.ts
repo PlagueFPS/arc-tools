@@ -12,13 +12,7 @@ import {
   readJson,
   request,
 } from "@arctools/utils/http";
-import {
-  Effect,
-  Redacted,
-  Schema,
-  String as EffectString,
-  Console as EffectConsole,
-} from "effect";
+import { Effect, Redacted, Schema, String as Str, Console } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { Stage } from "../apps/bot/src/config.js";
@@ -45,7 +39,7 @@ try {
   if (
     (endpoint.protocol !== "https:" &&
       !(
-        EffectString.startsWith("test-")(stage) &&
+        Str.startsWith("test-")(stage) &&
         endpoint.protocol === "http:" &&
         endpoint.hostname === "localhost"
       )) ||
@@ -83,7 +77,7 @@ try {
 
         if (setup.status.stage !== stage)
           return yield* Effect.fail("stage mismatch");
-        yield* EffectConsole.info(
+        yield* Console.info(
           yield* Schema.encodeEffect(
             Schema.fromJsonString(Schema.Unknown, { space: 2 }),
           )(setup).pipe(Effect.orDie),
@@ -92,7 +86,7 @@ try {
         const status = yield* decodeBody(AccountStatus)(result);
 
         if (status.stage !== stage) return yield* Effect.fail("stage mismatch");
-        yield* EffectConsole.info(
+        yield* Console.info(
           yield* Schema.encodeEffect(
             Schema.fromJsonString(Schema.Unknown, { space: 2 }),
           )(status).pipe(Effect.orDie),
@@ -119,7 +113,7 @@ try {
           { checkOnly: true },
         );
 
-        yield* EffectConsole.info(
+        yield* Console.info(
           yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
             discordDrift: drift.drift,
             manifestHash: drift.hash,

@@ -2,12 +2,7 @@
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import {
-  Effect,
-  Layer,
-  Option as EffectOption,
-  String as EffectString,
-} from "effect";
+import { Effect, Layer, Option, String as Str } from "effect";
 import { TestClock } from "effect/testing";
 
 import { upcomingHandler } from "../../src/handlers/upcoming.js";
@@ -64,15 +59,12 @@ describe("upcomingHandler", () => {
         ],
       })("");
 
-      const idxEarlier = EffectOption.getOrElse(
-        EffectString.indexOf("Earlier")(result),
+      const idxEarlier = Option.getOrElse(
+        Str.indexOf("Earlier")(result),
         () => -1,
       );
 
-      const idxLater = EffectOption.getOrElse(
-        EffectString.indexOf("Later")(result),
-        () => -1,
-      );
+      const idxLater = Option.getOrElse(Str.indexOf("Later")(result), () => -1);
 
       expect(idxEarlier >= 0).toBeTrue();
       expect(idxLater >= 0).toBeTrue();

@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect } from "bun:test";
 
 import { ArcData } from "@arctools/arc-data";
@@ -17,9 +16,9 @@ import {
   Layer,
   Redacted,
   Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
@@ -195,9 +194,9 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
     dispatch: trustedAccount.dispatch,
     recover: () =>
       tenant.recover().pipe(Effect.provideService(Clock.Clock, tenantClock)),
-    work: () => EffectRecord.values(f.snapshot().works)[0],
+    work: () => Rec.values(f.snapshot().works)[0],
     posts: () =>
-      EffectArray.filter(
+      Arr.filter(
         a.control.requests,
         (r) => !!(r.method === "POST" && r.path === "/chat/messages"),
       ).length,
@@ -229,7 +228,7 @@ for (const [worker, tenant, account] of [
       const observed = {
         work: h.work(),
         posts: h.posts(),
-        ledger: EffectRecord.values(h.a.snapshot().attempts),
+        ledger: Rec.values(h.a.snapshot().attempts),
       };
 
       h.clocks.tenant += 100;
@@ -344,7 +343,7 @@ test(
     const frozen = h.dispatches[0];
 
     if (!frozen) return yield* Effect.die("Missing signed Twitch dispatch");
-    expect(EffectRecord.values(h.a.snapshot().attempts)).toMatchObject([
+    expect(Rec.values(h.a.snapshot().attempts)).toMatchObject([
       { kind: "waiting", deadline: 10020, retryAt: 1000 },
     ]);
     expect((yield* h.request(120)).status).toBe(204);
@@ -362,7 +361,7 @@ test(
     expect(h.posts()).toBe(2);
     expect(h.dispatches).toEqual([frozen, frozen]);
     expect(h.bodies[1]).toEqual(h.bodies[0]);
-    expect(EffectRecord.values(h.a.snapshot().attempts)).toMatchObject([
+    expect(Rec.values(h.a.snapshot().attempts)).toMatchObject([
       { kind: "terminal", deadline: 10020, outcome: { kind: "sent" } },
     ]);
     expect((yield* h.request(220)).status).toBe(204);
@@ -416,8 +415,8 @@ test(
 
     for (const invalid of [
       { ...input, text: "" },
-      { ...input, text: EffectString.repeat(501)("x") },
-      { ...input, attemptId: AttemptId.make(EffectString.repeat(161)("x")) },
+      { ...input, text: Str.repeat(501)("x") },
+      { ...input, attemptId: AttemptId.make(Str.repeat(161)("x")) },
     ])
       expect((yield* h.dispatch(invalid).pipe(Effect.flip)).code).toBe("input");
     expect(h.posts()).toBe(1);
@@ -427,7 +426,7 @@ test(
       receivedAt: 0,
       deadline: 10000,
     });
-    expect(EffectRecord.values(h.a.snapshot().attempts)).toHaveLength(1);
+    expect(Rec.values(h.a.snapshot().attempts)).toHaveLength(1);
   }).pipe(Effect.scoped),
 );
 

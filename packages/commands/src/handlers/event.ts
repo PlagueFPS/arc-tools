@@ -1,6 +1,6 @@
 import { getEvents, selectEvent } from "@arctools/arc-data";
 import { formatMinutes, normalize } from "@arctools/utils";
-import { Clock, Effect, Option, String as EffectString } from "effect";
+import { Clock, Effect, Option, String as Str } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 
@@ -14,7 +14,7 @@ export const eventHandler = Effect.fn("Command.eventHandler")(
 
     let normalizedSearch = normalize(search);
 
-    if (EffectString.includes("queen")(normalizedSearch)) {
+    if (Str.includes("queen")(normalizedSearch)) {
       normalizedSearch = "harvester";
     }
 

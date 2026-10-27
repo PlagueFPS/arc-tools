@@ -12,7 +12,7 @@ import {
   waitForRelease,
 } from "@arctools/discord/server";
 import { providerTransport } from "@arctools/utils/http";
-import { Effect, Redacted, Schema, Console as EffectConsole } from "effect";
+import { Effect, Redacted, Schema, Console } from "effect";
 
 import { Stage } from "../apps/bot/src/config.js";
 
@@ -60,7 +60,7 @@ try {
     Effect.gen(function* () {
       if (values.preflight) {
         yield* preflightCommands({ applicationId, token });
-        yield* EffectConsole.info(
+        yield* Console.info(
           yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
             event: "discord-preflight-success",
             stage,
@@ -84,7 +84,7 @@ try {
         token,
       });
 
-      yield* EffectConsole.info(
+      yield* Console.info(
         yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
           stage,
           revision,

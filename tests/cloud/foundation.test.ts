@@ -13,9 +13,9 @@ import {
   Effect,
   Schedule,
   Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 
 import { makeStack } from "../../alchemy.run.js";
@@ -83,10 +83,10 @@ export const fixturesReady = beforeAll(
 
     const resources = yield* Schema.decodeEffect(LocalTestResources)({
       stage: settings.stage,
-      origins: EffectArray.map(
-        EffectArray.filter(
-          EffectRecord.toEntries<string, string | undefined>(deployed),
-          ([key]) => !!(EffectString.endsWith("Url")(key) || key === "url"),
+      origins: Arr.map(
+        Arr.filter(
+          Rec.toEntries<string, string | undefined>(deployed),
+          ([key]) => !!(Str.endsWith("Url")(key) || key === "url"),
         ),
         ([, value]) => value ?? "",
       ),
@@ -142,11 +142,10 @@ export const fixturesReady = beforeAll(
       ).toBe("local");
     }
 
-    for (const [key, value] of EffectRecord.toEntries<
-      string,
-      string | undefined
-    >(deployed)) {
-      if (EffectString.endsWith("Url")(key) || key === "url") {
+    for (const [key, value] of Rec.toEntries<string, string | undefined>(
+      deployed,
+    )) {
+      if (Str.endsWith("Url")(key) || key === "url") {
         expect(new URL(value ?? "").hostname).toBe("localhost");
       }
     }
@@ -304,7 +303,7 @@ test(
     expect(completed.attempts).toBe(2);
     expect(completed.retryCount).toBe(1);
     expect(
-      EffectArray.map(completed.invocations, ({ attempt, retryCount }) => ({
+      Arr.map(completed.invocations, ({ attempt, retryCount }) => ({
         attempt,
         retryCount,
       })),
@@ -318,23 +317,23 @@ test(
 );
 
 if (
-  EffectString.startsWith("test-cache-")(settings.stage) ||
-  EffectString.startsWith("test-account-")(settings.stage) ||
-  EffectString.startsWith("test-tenant-")(settings.stage)
+  Str.startsWith("test-cache-")(settings.stage) ||
+  Str.startsWith("test-account-")(settings.stage) ||
+  Str.startsWith("test-tenant-")(settings.stage)
 ) {
   const { registerCacheTests } = await import("./cache-cases.js");
   registerCacheTests({ stack, test });
 }
 
 if (
-  EffectString.startsWith("test-account-")(settings.stage) ||
-  EffectString.startsWith("test-tenant-")(settings.stage)
+  Str.startsWith("test-account-")(settings.stage) ||
+  Str.startsWith("test-tenant-")(settings.stage)
 ) {
   const { registerAccountTests } = await import("./account-cases.js");
   registerAccountTests({ stack, test });
 }
 
-if (EffectString.startsWith("test-tenant-")(settings.stage)) {
+if (Str.startsWith("test-tenant-")(settings.stage)) {
   const { registerTenantTests } = await import("./tenant-cases.js");
   registerTenantTests({ stack, test });
 }

@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
@@ -19,8 +18,8 @@ import {
   Match,
   Redacted,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { TestClock } from "effect/testing";
@@ -188,10 +187,7 @@ test(
   Effect.gen(function* () {
     const f = yield* fixture();
     expect(
-      EffectArray.map(
-        yield* f.provider.list("canary-app-token"),
-        (sub) => sub.id,
-      ),
+      Arr.map(yield* f.provider.list("canary-app-token"), (sub) => sub.id),
     ).toEqual(["first", "second"]);
     expect(f.control.pages).toBe(2);
 
@@ -338,28 +334,25 @@ test(
     }
 
     expect(
-      EffectArray.map(
-        f.requests,
-        ({ request }) => request.headers.authorization,
-      ),
+      Arr.map(f.requests, ({ request }) => request.headers.authorization),
     ).toEqual(
-      EffectArray.flatMap(["first-token", "rotated-token"], (token) => [
+      Arr.flatMap(["first-token", "rotated-token"], (token) => [
         `OAuth ${token}`,
         ...Array<string>(5).fill(`Bearer ${token}`),
       ]),
     );
     expect(
-      EffectArray.every(
-        EffectArray.filter(
+      Arr.every(
+        Arr.filter(
           f.requests,
-          ({ url }) => !!EffectString.startsWith("/helix/")(url.pathname),
+          ({ url }) => !!Str.startsWith("/helix/")(url.pathname),
         ),
         ({ request }) => !!(request.headers["client-id"] === "native-client"),
       ),
     ).toBeTrue();
     expect(
-      EffectArray.map(
-        EffectArray.filter(
+      Arr.map(
+        Arr.filter(
           f.requests,
           ({ url }) => !!(url.pathname === "/helix/users"),
         ),

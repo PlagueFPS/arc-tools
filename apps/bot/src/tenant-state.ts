@@ -10,8 +10,8 @@ import {
   Effect,
   Match,
   Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
+  Array as Arr,
+  Record as Rec,
 } from "effect";
 
 import { WorkId } from "./contracts.js";
@@ -150,22 +150,22 @@ export const sameClaim = (a: Claim, b: Claim) =>
   a.until === b.until;
 
 export function reclaim(state: TenantState, now: number) {
-  for (const [id, work] of EffectRecord.toEntries(state.works))
+  for (const [id, work] of Rec.toEntries(state.works))
     if (work.retainUntil <= now) delete state.works[id];
 }
 
 export function fits(state: TenantState) {
-  const works = EffectRecord.values(state.works);
+  const works = Rec.values(state.works);
 
   const reserved =
-    EffectArray.filter(
+    Arr.filter(
       works,
       (work) => !!(work.kind === "computing" || work.kind === "accepted"),
     ).length * tenantPolicy.reservation;
 
   return (
     works.length <= tenantPolicy.retained &&
-    EffectArray.filter(works, (work) => !!(work.kind !== "terminal")).length <=
+    Arr.filter(works, (work) => !!(work.kind !== "terminal")).length <=
       tenantPolicy.active &&
     encodedBytes(state) + reserved <= tenantPolicy.bytes
   );
@@ -174,7 +174,7 @@ export function fits(state: TenantState) {
 export function nextAlarm(state: TenantState): number | null {
   let next = Infinity;
 
-  for (const work of EffectRecord.values(state.works)) {
+  for (const work of Rec.values(state.works)) {
     next = Math.min(next, work.retainUntil);
 
     if (work.transport !== "twitch" || work.kind === "terminal") continue;

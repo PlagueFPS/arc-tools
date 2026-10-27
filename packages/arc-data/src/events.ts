@@ -1,11 +1,5 @@
 import { normalize } from "@arctools/utils";
-import {
-  Array as Arr,
-  Clock,
-  Effect,
-  Option,
-  String as EffectString,
-} from "effect";
+import { Array as Arr, Clock, Effect, Option, String as Str } from "effect";
 
 import { ArcData } from "./data-service.js";
 import type { Event } from "./schema.js";
@@ -29,7 +23,7 @@ export const selectEvent = Effect.fn("ArcData.selectEvent")(function* (
   const normalizedSearch = normalize(search);
 
   const eventsByName = Arr.filter(events, (e) =>
-    EffectString.includes(normalizedSearch)(normalize(e.name)),
+    Str.includes(normalizedSearch)(normalize(e.name)),
   );
 
   if (eventsByName.length === 0) return Option.none();

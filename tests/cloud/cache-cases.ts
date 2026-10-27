@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 
-import { Effect, Fiber, Option, Schema, Record as EffectRecord } from "effect";
+import { Effect, Fiber, Option, Schema, Record as Rec } from "effect";
 
 import { EncodedRead } from "../../packages/arc-data/src/cache.js";
 import {
@@ -91,7 +91,7 @@ export function registerCacheTests({
       const input = query("persist");
       const first = yield* successful(url, input);
       const before = yield* snapshot(url);
-      expect(EffectRecord.keys(before.rows)).toEqual([
+      expect(Rec.keys(before.rows)).toEqual([
         "entry:v1:json:/items?id=persist",
       ]);
       expect(first.provenance).toEqual({ freshness: "fresh", fetchedAt: 0 });

@@ -6,7 +6,7 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { Effect, Redacted, Schema, Record as EffectRecord } from "effect";
+import { Effect, Redacted, Schema, Record as Rec } from "effect";
 import { FetchHttpClient } from "effect/http";
 
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
@@ -119,7 +119,7 @@ async function main() {
           }),
         };
 
-  for (const [key, label] of EffectRecord.toEntries({
+  for (const [key, label] of Rec.toEntries({
     CLOUDFLARE_ACCOUNT_ID: "repository variable CLOUDFLARE_TEST_ACCOUNT_ID",
     CLOUDFLARE_API_TOKEN: "repository secret CLOUDFLARE_TEST_API_TOKEN",
     GITHUB_TOKEN: "GITHUB_TOKEN with pull-requests: write",

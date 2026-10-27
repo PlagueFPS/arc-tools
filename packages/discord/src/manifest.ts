@@ -1,11 +1,6 @@
 import { commandCatalog } from "@arctools/commands/catalog";
 import { digest } from "@arctools/utils/http";
-import {
-  Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
-} from "effect";
+import { Schema, Array as Arr, Record as Rec, String as Str } from "effect";
 
 const locales = Schema.NullOr(Schema.Record(Schema.String, Schema.String));
 
@@ -50,22 +45,20 @@ export type RemoteCommands = typeof RemoteCommands.Type;
 const localizations = (
   value: Readonly<Record<string, string>> | null | undefined,
 ) =>
-  value && EffectRecord.keys(value).length
-    ? EffectRecord.fromEntries(
-        EffectRecord.toEntries(value).sort(([a], [b]) =>
-          EffectString.localeCompare(b)(a),
-        ),
+  value && Rec.keys(value).length
+    ? Rec.fromEntries(
+        Rec.toEntries(value).sort(([a], [b]) => Str.localeCompare(b)(a)),
       )
     : null;
 
 export function normalizeManifest(input: RemoteCommands) {
-  return EffectArray.map(input, (command) => ({
+  return Arr.map(input, (command) => ({
     type: command.type ?? 1,
     name: command.name,
     description: command.description ?? "",
     name_localizations: localizations(command.name_localizations),
     description_localizations: localizations(command.description_localizations),
-    options: EffectArray.map(command.options ?? [], (option) => ({
+    options: Arr.map(command.options ?? [], (option) => ({
       type: option.type,
       name: option.name,
       description: option.description ?? "",
@@ -75,7 +68,7 @@ export function normalizeManifest(input: RemoteCommands) {
       description_localizations: localizations(
         option.description_localizations,
       ),
-      choices: EffectArray.map(option.choices ?? [], (choice) => ({
+      choices: Arr.map(option.choices ?? [], (choice) => ({
         ...choice,
         name_localizations: localizations(choice.name_localizations),
       })),
@@ -88,12 +81,10 @@ export function normalizeManifest(input: RemoteCommands) {
     contexts: [...(command.contexts ?? [0, 1, 2])].sort((a, b) => a - b),
     default_member_permissions: command.default_member_permissions ?? null,
     nsfw: command.nsfw ?? false,
-  })).sort(
-    (a, b) => a.type - b.type || EffectString.localeCompare(b.name)(a.name),
-  );
+  })).sort((a, b) => a.type - b.type || Str.localeCompare(b.name)(a.name));
 }
 
-export const commandManifest = EffectArray.map(commandCatalog, (command) => ({
+export const commandManifest = Arr.map(commandCatalog, (command) => ({
   type: 1,
   name: command.name,
   description: command.description,
@@ -103,7 +94,7 @@ export const commandManifest = EffectArray.map(commandCatalog, (command) => ({
   nsfw: false,
   name_localizations: null,
   description_localizations: null,
-  options: EffectArray.map(command.slashOptions, (option) => ({
+  options: Arr.map(command.slashOptions, (option) => ({
     type: 3,
     name: option.name,
     description: option.description,

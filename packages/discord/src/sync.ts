@@ -10,7 +10,7 @@ import {
   SchemaTransformation,
   Schedule,
   Stream,
-  String as EffectString,
+  String as Str,
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
@@ -311,9 +311,7 @@ const readHealth = Effect.fnUntraced(function* (
 
   const health = yield* call(
     client,
-    HttpClientRequest.get(
-      `${EffectString.replace(/\/$/, "")(release.endpoint)}/health`,
-    ),
+    HttpClientRequest.get(`${Str.replace(/\/$/, "")(release.endpoint)}/health`),
     ReleaseHealth,
     context,
   );

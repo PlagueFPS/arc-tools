@@ -34,10 +34,10 @@ import {
   Exit,
   Schema,
   Semaphore,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
-  Option as EffectOption,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Option,
 } from "effect";
 
 export const initial = 1_000_000_000_000;
@@ -80,10 +80,10 @@ export const keyedStorage = Effect.fnUntraced(function* (
 
         return structuredClone(
           new Map(
-            EffectArray.filter(
+            Arr.filter(
               [...values],
-              ([key]) => !!EffectString.startsWith(prefix)(key),
-            ).sort(([a], [b]) => EffectString.localeCompare(b)(a)),
+              ([key]) => !!Str.startsWith(prefix)(key),
+            ).sort(([a], [b]) => Str.localeCompare(b)(a)),
           ),
         );
       }),
@@ -166,7 +166,7 @@ export const keyedStorage = Effect.fnUntraced(function* (
           Schema.encodeSync(ChannelRecord)(record),
         );
 
-      for (const [id, tombstone] of EffectRecord.toEntries(directory.revoked))
+      for (const [id, tombstone] of Rec.toEntries(directory.revoked))
         values.set(
           "account:tombstone:v1/" + encodeURIComponent(id),
           Schema.encodeSync(AccountState.fields.revoked.value)(tombstone),
@@ -354,7 +354,7 @@ export const harness = Effect.fnUntraced(function* (
 
       if (failure) return yield* new AccountError({ code: failure });
 
-      return EffectArray.map(logins, (login) => ({
+      return Arr.map(logins, (login) => ({
         login,
         id:
           control.userIds.get(login) ??
@@ -435,7 +435,7 @@ export const harness = Effect.fnUntraced(function* (
         yield* Effect.sync(() => {
           control.removes++;
 
-          control.remote = EffectArray.filter(
+          control.remote = Arr.filter(
             control.remote,
             (sub) => !!(sub.id !== id),
           );
@@ -545,11 +545,10 @@ export const harness = Effect.fnUntraced(function* (
         control.grantUser = user;
         control.grantLogin = authorization.login;
         control.grantScopes =
-          EffectOption.getOrUndefined(
-            EffectOption.map(
-              EffectOption.fromNullishOr(url.searchParams.get("scope")),
-              (effectNativeValue0) =>
-                EffectString.split(effectNativeValue0, " "),
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(url.searchParams.get("scope")),
+              (effectNativeValue0) => Str.split(effectNativeValue0, " "),
             ),
           ) ?? [];
         yield* target.completeOAuth({

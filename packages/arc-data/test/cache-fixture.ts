@@ -4,8 +4,8 @@ import {
   Effect,
   Layer,
   Semaphore,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 
@@ -40,8 +40,8 @@ export function memoryStorage() {
     entries: Effect.sync(
       () =>
         new Map(
-          EffectArray.flatMap([...rows], ([key, value]) =>
-            EffectString.startsWith("entry:")(key)
+          Arr.flatMap([...rows], ([key, value]) =>
+            Str.startsWith("entry:")(key)
               ? [[key, structuredClone(value)] as const]
               : [],
           ),

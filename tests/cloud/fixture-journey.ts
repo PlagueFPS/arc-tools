@@ -1,12 +1,5 @@
 /* oxlint-disable effecttsgo/crypto-random-uuid-in-effect -- The synchronous suspension allocates its operation ID before installing the cleanup journal. */
-import {
-  Cause,
-  Effect,
-  Exit,
-  Schema,
-  type Scope,
-  Array as EffectArray,
-} from "effect";
+import { Cause, Effect, Exit, Schema, type Scope, Array as Arr } from "effect";
 
 import { ControlObservation } from "./fixture-control.js";
 import { auditedObservation, fixtureHttp } from "./fixture-http.js";
@@ -152,7 +145,7 @@ export const makeJourneyControls = (
           Effect.onExit(() => {
             if (Exit.isSuccess(response)) return Effect.void;
 
-            const defects = EffectArray.filter(
+            const defects = Arr.filter(
               response.cause.reasons,
               Cause.isDieReason,
             );

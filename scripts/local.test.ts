@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
 /* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
 /* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
@@ -17,11 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
-} from "effect";
+import { Array as Arr, Record as Rec, String as Str } from "effect";
 
 import { localAction, localSettings, plan, runPlan } from "./local.js";
 
@@ -45,13 +40,13 @@ const fixtureEnv = {
   TWITCH_SIGNING_SECRET: "fixture-signing",
   DISCORD_APPLICATION_ID: "fixture-discord",
   DISCORD_BOT_TOKEN: "fixture-token",
-  DISCORD_PUBLIC_KEY: EffectString.repeat(64)("a"),
+  DISCORD_PUBLIC_KEY: Str.repeat(64)("a"),
   OPERATOR_SECRET: "fixture-operator",
 };
 
 afterEach(async () => {
   await Promise.all(
-    EffectArray.map(directories.splice(0), (path) =>
+    Arr.map(directories.splice(0), (path) =>
       rm(path, { recursive: true, force: true }),
     ),
   );
@@ -175,7 +170,7 @@ describe("local package aliases", () => {
     }
 
     const calls = await fixture.calls();
-    expect(EffectArray.map(calls, (call) => call.kind)).toEqual([
+    expect(Arr.map(calls, (call) => call.kind)).toEqual([
       "dev",
       "sync",
       "ops",
@@ -227,15 +222,13 @@ describe("local package aliases", () => {
 
         if (alias === "setup:local")
           expect(
-            EffectString.endsWith("fixture-private-oauth-link")(
-              EffectString.trim(result.output),
-            ),
+            Str.endsWith("fixture-private-oauth-link")(Str.trim(result.output)),
           ).toBeTrue();
       }
 
       const calls = await fixture.calls();
       const latest = calls.slice(-5);
-      expect(EffectArray.map(latest, (call) => call.kind)).toEqual([
+      expect(Arr.map(latest, (call) => call.kind)).toEqual([
         "dev",
         "sync",
         "ops",
@@ -293,9 +286,9 @@ describe("local package aliases", () => {
     const fixture = await launcherFixture();
     const result = await fixture.run("setup:local", { FAIL_SYNC: "23" });
     expect(result.code).toBe(23);
-    expect(EffectArray.map(await fixture.calls(), (call) => call.kind)).toEqual(
-      ["sync"],
-    );
+    expect(Arr.map(await fixture.calls(), (call) => call.kind)).toEqual([
+      "sync",
+    ]);
     expect(result.output).not.toContain("fixture-private-oauth-link");
   });
 
@@ -319,7 +312,7 @@ describe("local package aliases", () => {
       { TWITCH_SENDER_KIND: "bot" },
       { TWITCH_CHANNEL_LOGINS: "other" },
       { TWITCH_CHANNEL_LOGINS: "fixture_sender,other" },
-      ...EffectArray.map(
+      ...Arr.map(
         [
           "http://fixture.invalid",
           "https://fixture.invalid/path",
@@ -432,12 +425,10 @@ describe("sequential local runner", () => {
         if (group && child.pid) process.kill(-child.pid, signal);
         else child.kill(signal);
         expect(await exited).toBe(signal === "SIGINT" ? 130 : 143);
-        await until(async () =>
-          EffectArray.every(pids, (pid: number) => !alive(pid)),
-        );
-        expect(
-          EffectArray.map(await fixture.calls(), (call) => call.kind),
-        ).toEqual(["sync"]);
+        await until(async () => Arr.every(pids, (pid: number) => !alive(pid)));
+        expect(Arr.map(await fixture.calls(), (call) => call.kind)).toEqual([
+          "sync",
+        ]);
       } finally {
         for (const pid of pids.reverse()) {
           try {
@@ -460,9 +451,9 @@ async function temporary() {
 }
 
 function dotenv(env: Record<string, string>) {
-  return EffectArray.join(
-    EffectArray.map(
-      EffectRecord.toEntries(env),
+  return Arr.join(
+    Arr.map(
+      Rec.toEntries(env),
       ([key, value]) => `${key}=${JSON.stringify(value)}`,
     ),
     "\n",
@@ -502,7 +493,7 @@ async function launcherFixture() {
   const child = `
 import { appendFile } from 'node:fs/promises';
 const kind = import.meta.path.includes('sync-discord') ? 'sync' : import.meta.path.includes('ops.ts') ? 'ops' : 'dev';
-await appendFile(process.env.CAPTURE, JSON.stringify({ kind, args: process.argv.slice(2), cwd: process.cwd(), execPath: process.execPath, env: Object.fromEntries(${JSON.stringify(EffectRecord.keys(fixtureEnv))}.map(key => [key, process.env[key]])) }) + '\\n');
+await appendFile(process.env.CAPTURE, JSON.stringify({ kind, args: process.argv.slice(2), cwd: process.cwd(), execPath: process.execPath, env: Object.fromEntries(${JSON.stringify(Rec.keys(fixtureEnv))}.map(key => [key, process.env[key]])) }) + '\\n');
 if (kind === 'sync' && process.env.FAIL_SYNC) process.exit(Number(process.env.FAIL_SYNC));
 if (kind === 'sync' && process.env.HOLD_SYNC) {
   const grandchild = Bun.spawn([process.execPath, '--no-env-file', '-e', "console.log('ready'); setInterval(() => {}, 1000);"], { stdout: 'pipe', stderr: 'ignore' });
@@ -524,7 +515,7 @@ if (kind === 'sync' && process.env.HOLD_SYNC) {
     directory,
     capture,
     async run(action: string | string[], env: NodeJS.ProcessEnv = {}) {
-      const args = !EffectArray.isArray(action)
+      const args = !Arr.isArray(action)
         ? ["run", action]
         : ["run", "scripts/local.ts", ...action];
 
@@ -543,7 +534,7 @@ if (kind === 'sync' && process.env.HOLD_SYNC) {
 
       return {
         code,
-        output: stdout + EffectString.replace(/^\$ .*\n/gm, "")(stderr),
+        output: stdout + Str.replace(/^\$ .*\n/gm, "")(stderr),
       };
     },
     async calls(): Promise<
@@ -557,11 +548,8 @@ if (kind === 'sync' && process.env.HOLD_SYNC) {
     > {
       if (!(await Bun.file(capture).exists())) return [];
 
-      return EffectArray.map(
-        EffectString.split(
-          EffectString.trim(await readFile(capture, "utf8")),
-          "\n",
-        ),
+      return Arr.map(
+        Str.split(Str.trim(await readFile(capture, "utf8")), "\n"),
         (line) => JSON.parse(line),
       );
     },

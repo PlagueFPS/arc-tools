@@ -6,7 +6,7 @@ import { writeFile } from "node:fs/promises";
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
 import * as Core from "alchemy/Test/Core";
-import { Effect, Schema, Stream, Array as EffectArray } from "effect";
+import { Effect, Schema, Stream, Array as Arr } from "effect";
 
 import Stack from "../alchemy.run.js";
 import { CloudResourceEvidence, cloudSettings } from "./cloud-settings.js";
@@ -83,8 +83,8 @@ await Core.run(
     const evidence = yield* Schema.decodeUnknownEffect(CloudResourceEvidence)({
       stage: settings.stage,
       workers,
-      namespaces: EffectArray.map(
-        EffectArray.filter(
+      namespaces: Arr.map(
+        Arr.filter(
           namespaces,
           (namespace) => !!workers.includes(namespace.script ?? ""),
         ),

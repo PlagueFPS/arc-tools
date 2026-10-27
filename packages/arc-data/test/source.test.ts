@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/global-timers -- Process and HTTP harness deadlines must use real host timers, independently of the test clock. */
 /* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
 /* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
@@ -12,7 +11,7 @@ import {
   Result,
   Schema,
   SchemaGetter,
-  String as EffectString,
+  String as Str,
 } from "effect";
 import { FetchHttpClient } from "effect/http";
 
@@ -91,7 +90,7 @@ for (const scenario of [
   test(`source closes the HTTP response after ${scenario.name}`, async () => {
     const server = await sourceServer(scenario.status, {
       kind: "streaming",
-      chunk: new TextEncoder().encode(EffectString.repeat(33)("x")),
+      chunk: new TextEncoder().encode(Str.repeat(33)("x")),
     });
 
     try {

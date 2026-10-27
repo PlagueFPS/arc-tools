@@ -16,9 +16,9 @@ import {
   Fiber,
   Layer,
   Schema,
-  Array as EffectArray,
-  Option as EffectOption,
-  String as EffectString,
+  Array as Arr,
+  Option,
+  String as Str,
 } from "effect";
 
 import { fixtureConfig, harness, initial } from "./account-fixture.js";
@@ -128,7 +128,7 @@ test(
           "pending",
         );
         expect(
-          EffectArray.some(
+          Arr.some(
             h.control.remote,
             (sub) => !!(h.control.remoteBindings[sub.id] === binding),
           ),
@@ -140,10 +140,7 @@ test(
       const final = yield* h.construct("binding-d", "binding-d");
       expect((yield* h.authorize(final.service)).status.setup).toBe("ready");
       expect(
-        EffectArray.map(
-          h.control.remote,
-          (sub) => h.control.remoteBindings[sub.id],
-        ),
+        Arr.map(h.control.remote, (sub) => h.control.remoteBindings[sub.id]),
       ).toEqual(["binding-d", "binding-d"]);
       const creates = h.control.creates;
       const reconstructed = yield* h.construct("binding-d", "binding-d");
@@ -170,15 +167,12 @@ test(
         (yield* recovered.service.setup("operator-digest")).status.setup,
       ).toBe("ready");
       expect(
-        EffectArray.some(h.control.remote, (sub) => !!(sub.id === existing)),
+        Arr.some(h.control.remote, (sub) => !!(sub.id === existing)),
       ).toBeFalse();
       expect(h.control.creates).toBe(4);
       expect(h.control.removes).toBe(2);
       expect(
-        EffectArray.map(
-          h.control.remote,
-          (sub) => h.control.remoteBindings[sub.id],
-        ),
+        Arr.map(h.control.remote, (sub) => h.control.remoteBindings[sub.id]),
       ).toEqual(["fixture-binding", "fixture-binding"]);
       const persisted = yield* h.construct();
       yield* persisted.service.setup("operator-digest");
@@ -301,8 +295,7 @@ test(
         const setup = yield* h.account.setup("operator-digest");
         expect(setup.authorizations.length).toBe(33);
         expect(
-          new Set(EffectArray.map(setup.authorizations, (auth) => auth.login))
-            .size,
+          new Set(Arr.map(setup.authorizations, (auth) => auth.login)).size,
         ).toBe(33);
 
         const persisted = yield* Schema.decodeEffect(AccountState)(
@@ -311,10 +304,10 @@ test(
 
         expect(persisted.oauth.length).toBe(33);
         expect(
-          EffectArray.every(
+          Arr.every(
             persisted.oauth,
             (state) =>
-              !!EffectArray.some(
+              !!Arr.some(
                 setup.authorizations,
                 (auth) => !!(auth.login === state.login),
               ),
@@ -354,11 +347,10 @@ test(
         h.control.grantUser = auth.login === "fixture_sender" ? "100" : "200";
         h.control.grantLogin = auth.login;
         h.control.grantScopes =
-          EffectOption.getOrUndefined(
-            EffectOption.map(
-              EffectOption.fromNullishOr(params.get("scope")),
-              (effectNativeValue0) =>
-                EffectString.split(effectNativeValue0, " "),
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(params.get("scope")),
+              (effectNativeValue0) => Str.split(effectNativeValue0, " "),
             ),
           ) ?? [];
         yield* h.account.completeOAuth({
@@ -391,8 +383,8 @@ test(
         "ready",
       );
 
-      const subscription = EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      const subscription = Option.getOrUndefined(
+        Arr.findFirst(
           h.control.remote,
           (sub) => !!(sub.condition.broadcaster_user_id === "200"),
         ),
@@ -409,7 +401,7 @@ test(
         status: "authorization_revoked",
       });
       expect(
-        EffectArray.map(
+        Arr.map(
           (yield* h.account.setup("operator-digest")).authorizations,
           (auth) => auth.login,
         ),
@@ -576,7 +568,7 @@ test(
       expect(yield* h.account.dispatch(h.send("revoked"))).toEqual({
         kind: "rejected",
       });
-      h.control.remote = EffectArray.map(h.control.remote, (sub) =>
+      h.control.remote = Arr.map(h.control.remote, (sub) =>
         sub.id === original.id
           ? { ...sub, status: "authorization_revoked" }
           : sub,
@@ -825,7 +817,7 @@ test(
       yield* Deferred.succeed(h.control.exchangeGate, undefined);
       expect((yield* Fiber.join(completing))._tag).toBe("Success");
       expect(
-        EffectArray.some(
+        Arr.some(
           (yield* h.account.status).channels,
           (entry) => !!(entry.id === "200"),
         ),
@@ -867,7 +859,7 @@ test(
 
       if (!subscription)
         return yield* Effect.die("missing fixture subscription");
-      h.control.remote = EffectArray.map(h.control.remote, (sub) => ({
+      h.control.remote = Arr.map(h.control.remote, (sub) => ({
         ...sub,
         status: "webhook_callback_verification_pending",
       }));

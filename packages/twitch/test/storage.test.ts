@@ -21,8 +21,8 @@ import {
   Fiber,
   Layer,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 
 import { harness, initial, keyedStorage } from "./account-fixture.js";
@@ -86,7 +86,7 @@ const populated = (): AccountState =>
     ],
     enrollments: [
       {
-        session: EffectString.repeat(64)("a"),
+        session: Str.repeat(64)("a"),
         nonce: "nonce-digest",
         revision: "revision-one",
         generation: 17,
@@ -212,10 +212,7 @@ test(
     ).toBe(true);
     expect(memory.alarm()).toBeNull();
     expect(
-      EffectArray.some(
-        memory.traces,
-        (entry) => !!(entry.key === "account:v1"),
-      ),
+      Arr.some(memory.traces, (entry) => !!(entry.key === "account:v1")),
     ).toBe(false);
   }),
 );
@@ -242,13 +239,10 @@ test(
       );
       expect(memory.values).toEqual(before);
       expect(
-        EffectArray.some(
-          memory.traces,
-          (entry) => !!(entry.key === "account:v1"),
-        ),
+        Arr.some(memory.traces, (entry) => !!(entry.key === "account:v1")),
       ).toBe(false);
       expect(
-        EffectArray.some(
+        Arr.some(
           [...memory.values.values()],
           (value) =>
             !!Schema.is(Schema.Struct({ layout: Schema.String }))(value),
@@ -288,10 +282,7 @@ test(
     expect(memory.values).toEqual(before);
     expect(memory.control.mutations).toBe(0);
     expect(
-      EffectArray.some(
-        memory.traces,
-        (entry) => !!(entry.key === "account:v1"),
-      ),
+      Arr.some(memory.traces, (entry) => !!(entry.key === "account:v1")),
     ).toBe(false);
   }),
 );
@@ -304,11 +295,11 @@ test(
     >) {
       const positions = splitAccount(populated());
       positions.channels = new Map(
-        EffectArray.map([...positions.channels], ([key, record]) => [
+        Arr.map([...positions.channels], ([key, record]) => [
           key,
           {
             ...record,
-            [collection]: EffectArray.map(record[collection], (entry) => ({
+            [collection]: Arr.map(record[collection], (entry) => ({
               ...entry,
               position: entry.position + 1,
             })),
@@ -321,11 +312,11 @@ test(
 
       const keys = splitAccount(populated());
       keys.channels = new Map(
-        EffectArray.map([...keys.channels], ([key, record]) => [
+        Arr.map([...keys.channels], ([key, record]) => [
           key,
           {
             ...record,
-            [collection]: EffectArray.map(record[collection], (entry) => ({
+            [collection]: Arr.map(record[collection], (entry) => ({
               ...entry,
               member: { ...entry.member, id: "conflicting-id" },
             })),
@@ -497,22 +488,16 @@ for (const path of [
           path === "failure" || path === "unauthorized" ? "retryable" : "sent",
         );
 
-        const reads = EffectArray.map(
-          EffectArray.filter(
-            h.memory.traces,
-            (entry) => !!(entry.operation === "get"),
-          ),
+        const reads = Arr.map(
+          Arr.filter(h.memory.traces, (entry) => !!(entry.operation === "get")),
           (entry) => entry.key,
         );
 
         expect(
-          EffectArray.some(
-            h.memory.traces,
-            (entry) => !!(entry.operation === "list"),
-          ),
+          Arr.some(h.memory.traces, (entry) => !!(entry.operation === "list")),
         ).toBe(false);
         expect(
-          EffectArray.every(
+          Arr.every(
             reads,
             (key) =>
               !![
@@ -553,19 +538,13 @@ test(
       h.consumeAlarm();
       yield* reconstructed.credentialAlarm;
       expect(
-        EffectArray.every(
-          EffectArray.filter(
-            h.memory.traces,
-            (entry) => !!(entry.operation === "get"),
-          ),
+        Arr.every(
+          Arr.filter(h.memory.traces, (entry) => !!(entry.operation === "get")),
           (entry) => !!["account:shared:v1"].includes(entry.key),
         ),
       ).toBe(true);
       expect(
-        EffectArray.some(
-          h.memory.traces,
-          (entry) => !!(entry.operation === "list"),
-        ),
+        Arr.some(h.memory.traces, (entry) => !!(entry.operation === "list")),
       ).toBe(false);
       expect(h.nativeAlarmAt()).toBeGreaterThan(initial + 1);
       expect(
@@ -587,10 +566,7 @@ test(
       h.memory.traces.length = 0;
       yield* h.store.update(() => undefined);
       expect(
-        EffectArray.filter(
-          h.memory.traces,
-          (entry) => !!(entry.operation === "put"),
-        ),
+        Arr.filter(h.memory.traces, (entry) => !!(entry.operation === "put")),
       ).toEqual([]);
       h.memory.traces.length = 0;
       yield* h.store.update((state) => {
@@ -603,11 +579,8 @@ test(
           };
       });
       expect(
-        EffectArray.map(
-          EffectArray.filter(
-            h.memory.traces,
-            (entry) => !!(entry.operation === "put"),
-          ),
+        Arr.map(
+          Arr.filter(h.memory.traces, (entry) => !!(entry.operation === "put")),
           (entry) => entry.key,
         ),
       ).toEqual(["account:channel:v1/200"]);
@@ -667,20 +640,14 @@ test(
         kind: "ambiguous",
       });
       expect(
-        EffectArray.every(
-          EffectArray.filter(
-            h.memory.traces,
-            (entry) => !!(entry.operation === "get"),
-          ),
+        Arr.every(
+          Arr.filter(h.memory.traces, (entry) => !!(entry.operation === "get")),
           (entry) =>
             !!["account:shared:v1", "account:attempts:v1"].includes(entry.key),
         ),
       ).toBe(true);
       expect(
-        EffectArray.some(
-          h.memory.traces,
-          (entry) => !!(entry.operation === "list"),
-        ),
+        Arr.some(h.memory.traces, (entry) => !!(entry.operation === "list")),
       ).toBe(false);
       yield* Deferred.succeed(h.control.sendGate, undefined);
       expect(yield* Fiber.join(sending)).toEqual({ kind: "ambiguous" });
@@ -701,7 +668,7 @@ test(
       state.subscriptions[`receipt-${index}`] = {
         ...proof,
         id: `proof-${index}`,
-        binding: EffectString.repeat(8 * 1024)("b"),
+        binding: Str.repeat(8 * 1024)("b"),
       };
     expect(
       new TextEncoder().encode(
@@ -723,16 +690,16 @@ test(
       {
         ...state,
         subscriptions: {
-          "200": { ...proof, binding: EffectString.repeat(121 * 1024)("b") },
+          "200": { ...proof, binding: Str.repeat(121 * 1024)("b") },
         },
       },
-      { ...state, grants: { "100": [EffectString.repeat(121 * 1024)("s")] } },
+      { ...state, grants: { "100": [Str.repeat(121 * 1024)("s")] } },
       {
         ...state,
         attempts: {
           waiting: {
             kind: "waiting",
-            fingerprint: EffectString.repeat(121 * 1024)("f"),
+            fingerprint: Str.repeat(121 * 1024)("f"),
             deadline: initial + 10,
             retainUntil: initial + 100,
             retryAt: initial + 1,
@@ -813,7 +780,7 @@ test(
         )).kind,
       ).toBe("sent");
       expect(
-        EffectArray.some(
+        Arr.some(
           h.memory.traces,
           (entry) => !!(entry.key === "account:channel:v1/300"),
         ),
@@ -827,16 +794,13 @@ test(
         }),
       );
       expect(
-        EffectArray.some(
+        Arr.some(
           h.memory.traces,
           (entry) => !!(entry.key === "account:channel:v1/200"),
         ),
       ).toBe(false);
       expect(
-        EffectArray.some(
-          h.memory.traces,
-          (entry) => !!(entry.operation === "list"),
-        ),
+        Arr.some(h.memory.traces, (entry) => !!(entry.operation === "list")),
       ).toBe(false);
 
       const original = yield* h.store.sendAttempt(

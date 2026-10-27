@@ -8,8 +8,8 @@ import {
   Predicate,
   Schedule,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 
 /* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
@@ -211,7 +211,7 @@ export const isRouteNotReady = (
   Option.getOrUndefined(
     Option.map(
       Option.fromNullishOr(diagnostic.contentType),
-      (effectNativeValue0) => EffectString.split(effectNativeValue0, ";"),
+      (effectNativeValue0) => Str.split(effectNativeValue0, ";"),
     ),
   )?.[0] === "text/html" &&
   diagnostic.server === "cloudflare" &&
@@ -271,9 +271,9 @@ const paths = new Set([
 ]);
 
 export const safeRoute = (url: URL) => {
-  const segments = EffectString.split(url.pathname, "/");
+  const segments = Str.split(url.pathname, "/");
 
-  const mapped = EffectArray.map(segments, (part, index) => {
+  const mapped = Arr.map(segments, (part, index) => {
     if (!part) return "";
 
     if (segments[index - 1] === "journeys") return ":journey";
@@ -283,7 +283,7 @@ export const safeRoute = (url: URL) => {
     return paths.has(part) ? part : ":value";
   });
 
-  return `${disposableHost.test(url.hostname) ? `${EffectString.split(url.hostname, ".")[0]}.*.workers.dev` : "external"}${EffectArray.join(mapped, "/")}`;
+  return `${disposableHost.test(url.hostname) ? `${Str.split(url.hostname, ".")[0]}.*.workers.dev` : "external"}${Arr.join(mapped, "/")}`;
 };
 
 const safeHeader = (headers: Headers, key: string, pattern: RegExp) => {
@@ -346,7 +346,7 @@ export const auditedObservation = <A, I>(
 ): SafeObservation<A, I> => {
   const parsed = new URL(url);
 
-  const path = EffectString.replace(
+  const path = Str.replace(
     /^\/journeys\/[a-z][a-z0-9-]{0,63}/,
     "",
   )(parsed.pathname);
@@ -535,7 +535,7 @@ export const makeFixtureHttp = (
     const probeError =
       ctx.method === "GET" &&
       probe.pathname === "/snapshot" &&
-      EffectString.startsWith("arc-tools-probe-test-")(probe.hostname) &&
+      Str.startsWith("arc-tools-probe-test-")(probe.hostname) &&
       disposableHost.test(probe.hostname) &&
       response.status === 500 &&
       response.headers.get(fixtureHeader) === "v1" &&
@@ -568,9 +568,9 @@ export const makeFixtureHttp = (
       ray: safeHeader(response.headers, "cf-ray", /^[a-f0-9]{16}-[A-Z]{3}$/),
       fixture: safeHeader(response.headers, fixtureHeader, /^v1$/),
       bodyBytes: body.byteLength,
-      bodySha256: EffectArray.join(
+      bodySha256: Arr.join(
         Array.from(new Uint8Array(digest), (b) =>
-          EffectString.padStart(2, "0")(b.toString(16)),
+          Str.padStart(2, "0")(b.toString(16)),
         ),
         "",
       ),
@@ -689,7 +689,7 @@ export const makeFixtureHttp = (
       Option.getOrUndefined(
         Option.map(
           Option.fromNullishOr(response.headers.get("content-type")),
-          (effectNativeValue1) => EffectString.split(effectNativeValue1, ";"),
+          (effectNativeValue1) => Str.split(effectNativeValue1, ";"),
         ),
       )?.[0] !== "application/json"
     )
@@ -776,7 +776,7 @@ export const makeFixtureHttp = (
           Predicate.isTagged(failure, "FixtureRouteNotReady") ||
           ((failure.diagnostic.kind === "transport" ||
             failure.diagnostic.kind === "body-read") &&
-            EffectArray.some(
+            Arr.some(
               failure.diagnostic.causes,
               (link) => !!transientCodes.has(link.code),
             ));

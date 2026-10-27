@@ -1,5 +1,5 @@
 import { sortByDesc } from "@arctools/utils";
-import { Effect, Option, Array as EffectArray } from "effect";
+import { Effect, Option, Array as Arr } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 import { resolveItem } from "./utils.js";
@@ -30,8 +30,8 @@ export const recycleHandler = Effect.fn("Command.recycleHandler")(
       );
     }
 
-    const items = EffectArray.join(
-      EffectArray.map(
+    const items = Arr.join(
+      Arr.map(
         sortByDesc(item.value.recycle_components.value, (i) => i.quantity),
         (entry) => `${entry.component.name} (x${entry.quantity})`,
       ),

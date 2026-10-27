@@ -16,10 +16,10 @@ import {
   Fiber,
   Layer,
   Schema,
-  Option as EffectOption,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Option,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 
 import { fixtureConfig, harness } from "./account-fixture.js";
@@ -117,8 +117,8 @@ run(
     yield* ready(h);
     const old = h.send("old-work", "400");
 
-    const expiry = EffectOption.getOrUndefined(
-      EffectArray.findFirst(
+    const expiry = Option.getOrUndefined(
+      Arr.findFirst(
         h.snapshot().enrollments,
         (entry) => !!(entry.session === input.session),
       ),
@@ -132,8 +132,8 @@ run(
     expect(yield* restored.enrollment.status(input.session)).toEqual(expected);
     expect(h.snapshot().publicRevocationGeneration).toBe(sequence);
     expect(
-      EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      Option.getOrUndefined(
+        Arr.findFirst(
           h.snapshot().enrollments,
           (entry) => !!(entry.session === input.session),
         ),
@@ -253,7 +253,7 @@ run(
     yield* h.enrollment.leave(input.session);
     yield* h.account.setup("operator");
     expect(
-      EffectArray.map((yield* h.account.status).channels, (entry) => entry.id),
+      Arr.map((yield* h.account.status).channels, (entry) => entry.id),
     ).not.toContain(BroadcasterId.make("200"));
     expect(h.snapshot().lifecycle["200"]?.kind).toBe("removed");
     const fresh = yield* enroll(h, "200", "fixture_channel");
@@ -263,7 +263,7 @@ run(
       login: "fixture_channel",
     });
     expect(
-      EffectArray.map((yield* h.account.status).channels, (entry) => entry.id),
+      Arr.map((yield* h.account.status).channels, (entry) => entry.id),
     ).toContain(BroadcasterId.make("300"));
   }),
 );
@@ -277,11 +277,11 @@ run(
     yield* h.enrollment.leave(input.session);
     const after = h.snapshot();
     expect(after.grants["100"]).toEqual(
-      EffectOption.getOrUndefined(
-        EffectOption.map(
-          EffectOption.fromNullishOr(before.grants["100"]),
+      Option.getOrUndefined(
+        Option.map(
+          Option.fromNullishOr(before.grants["100"]),
           (effectNativeValue0) =>
-            EffectArray.filter(
+            Arr.filter(
               effectNativeValue0,
               (scope) => !!(scope !== "channel:bot"),
             ),
@@ -314,18 +314,12 @@ run(
     h.time(h.now() + 60_001);
     const restored = yield* h.construct();
     yield* restored.credentialAlarm;
-    expect(EffectArray.map(h.control.remote, (entry) => entry.id)).toContain(
-      old,
-    );
+    expect(Arr.map(h.control.remote, (entry) => entry.id)).toContain(old);
     h.control.failRemove = false;
     h.time(h.now() + 60_001);
     yield* restored.credentialAlarm;
-    expect(
-      EffectArray.map(h.control.remote, (entry) => entry.id),
-    ).not.toContain(old);
-    expect(
-      EffectArray.map(h.control.remote, (entry) => entry.id),
-    ).not.toContain(newer);
+    expect(Arr.map(h.control.remote, (entry) => entry.id)).not.toContain(old);
+    expect(Arr.map(h.control.remote, (entry) => entry.id)).not.toContain(newer);
     expect(h.snapshot().revoked[old]?.deleteDue).toBeNull();
     expect(h.snapshot().revoked[newer]?.deleteDue).toBeNull();
   }),
@@ -338,15 +332,15 @@ run(
     h.control.failCreate = true;
     yield* ready(h);
 
-    const unknown = EffectOption.getOrUndefined(
-      EffectArray.findFirst(
+    const unknown = Option.getOrUndefined(
+      Arr.findFirst(
         h.control.remote,
         (entry) => !!(entry.condition.broadcaster_user_id === "400"),
       ),
     );
 
     if (!unknown) return yield* Effect.die("Missing uncertain remote success");
-    h.control.remote = EffectArray.filter(
+    h.control.remote = Arr.filter(
       h.control.remote,
       (entry) => !!(entry !== unknown),
     );
@@ -363,10 +357,7 @@ run(
     h.time(h.now() + 1);
     yield* restored.credentialAlarm;
     expect(
-      EffectArray.some(
-        h.control.remote,
-        (entry) => !!(entry.id === unknown.id),
-      ),
+      Arr.some(h.control.remote, (entry) => !!(entry.id === unknown.id)),
     ).toBeFalse();
     expect(h.snapshot().lifecycle["400"]?.kind).toBe("removed");
   }),
@@ -402,7 +393,7 @@ run(
       login: "public_channel",
     });
     expect(h.now() - before).toBeLessThanOrEqual(16_001);
-    expect(EffectRecord.keys(h.snapshot().revoked)).toHaveLength(32);
+    expect(Rec.keys(h.snapshot().revoked)).toHaveLength(32);
   }),
 );
 
@@ -552,8 +543,8 @@ run(
     yield* ready(h);
 
     const expiry =
-      EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      Option.getOrUndefined(
+        Arr.findFirst(
           h.snapshot().enrollments,
           (entry) => !!(entry.session === input.session),
         ),
@@ -678,7 +669,7 @@ run(
         };
       state.enrollments = Array.from({ length: 45 }, (_, index) => ({
         session: EnrollmentSession.make(
-          EffectString.padStart(64, "0")(index.toString(16)),
+          Str.padStart(64, "0")(index.toString(16)),
         ),
         nonce: seed.state,
         revision: "revision-one",
@@ -693,9 +684,9 @@ run(
       }));
     });
     expect(
-      EffectArray.filter(
+      Arr.filter(
         [...h.memory.values.keys()],
-        (key) => !!EffectString.startsWith("account:left:v1/")(key),
+        (key) => !!Str.startsWith("account:left:v1/")(key),
       ),
     ).toHaveLength(45);
     const fresh = yield* enroll(h);
@@ -705,9 +696,7 @@ run(
       login: "public_channel",
     });
     expect(
-      yield* h.enrollment.leave(
-        EnrollmentSession.make(EffectString.repeat(64)("0")),
-      ),
+      yield* h.enrollment.leave(EnrollmentSession.make(Str.repeat(64)("0"))),
     ).toEqual({ kind: "left", login: "retired" });
   }),
 );
@@ -719,8 +708,8 @@ run(
     yield* ready(h);
 
     const expiry =
-      EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      Option.getOrUndefined(
+        Arr.findFirst(
           h.snapshot().enrollments,
           (entry) => !!(entry.session === input.session),
         ),
@@ -737,8 +726,8 @@ run(
       login: "public_channel",
     });
     expect(
-      EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      Option.getOrUndefined(
+        Arr.findFirst(
           h.snapshot().enrollments,
           (entry) => !!(entry.session === input.session),
         ),

@@ -20,8 +20,8 @@ import {
   Layer,
   Redacted,
   Schema,
-  Record as EffectRecord,
-  String as EffectString,
+  Record as Rec,
+  String as Str,
 } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
@@ -293,7 +293,7 @@ describe("signed HttpApi ingress", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const f = yield* fixture();
-        const huge = encode(EffectString.repeat(65537)("x"));
+        const huge = encode(Str.repeat(65537)("x"));
         expect(
           (yield* f.request("/interactions/discord", huge, {})).status,
         ).toBe(413);
@@ -391,12 +391,12 @@ describe("signed HttpApi ingress", () => {
         { ...twitch, "twitch-eventsub-message-id": "" },
         {
           ...twitch,
-          "twitch-eventsub-message-id": EffectString.repeat(129)("x"),
+          "twitch-eventsub-message-id": Str.repeat(129)("x"),
         },
         { ...twitch, "twitch-eventsub-message-timestamp": "123" },
         {
           ...twitch,
-          "twitch-eventsub-message-signature": `sha256=${EffectString.repeat(64)("g")}`,
+          "twitch-eventsub-message-signature": `sha256=${Str.repeat(64)("g")}`,
         },
       ])
         expect(
@@ -409,7 +409,7 @@ describe("signed HttpApi ingress", () => {
         {},
         { ...discord, "x-signature-timestamp": "" },
         { ...discord, "x-signature-timestamp": "1.5" },
-        { ...discord, "x-signature-ed25519": EffectString.repeat(128)("g") },
+        { ...discord, "x-signature-ed25519": Str.repeat(128)("g") },
       ])
         expect(
           (yield* f.request("/interactions/discord", discordBody, headers))
@@ -895,7 +895,7 @@ test(
     )({ stage: identity.stage }).pipe(Effect.orDie);
 
     const body = encode(
-      input + EffectString.repeat(4096 - encode(input).byteLength)(" "),
+      input + Str.repeat(4096 - encode(input).byteLength)(" "),
     );
 
     const authorization = { authorization: "Bearer operator" };
@@ -1025,7 +1025,7 @@ for (const delta of [-1, -20, 3000])
         expect(tenant.source.calls).toHaveLength(1);
       } else {
         expect(reply).toMatchObject({ data: { flags: 64 } });
-        expect(EffectRecord.values(tenant.snapshot().works)).toHaveLength(0);
+        expect(Rec.values(tenant.snapshot().works)).toHaveLength(0);
         expect(tenant.source.calls).toHaveLength(0);
       }
     }).pipe(Effect.provide(TestClock.layer())),

@@ -8,13 +8,7 @@ import {
 } from "@arctools/twitch/cloudflare";
 import { TwitchAccount } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
-import {
-  Effect,
-  Layer,
-  Option,
-  Redacted,
-  Schema as EffectSchema,
-} from "effect";
+import { Effect, Layer, Option, Redacted, Schema } from "effect";
 
 import { bindBotOrigin, oauthOrigin, runtimeConfig } from "./config.js";
 
@@ -81,9 +75,7 @@ export const accountRevision = Effect.fnUntraced(function* (
   config: Omit<AccountRuntimeConfig, "revision">,
 ) {
   return yield* digest(
-    yield* EffectSchema.encodeEffect(
-      EffectSchema.fromJsonString(EffectSchema.Unknown),
-    )([
+    yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([
       config.identity,
       config.webhookOrigin,
       config.oauthOrigin,

@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect, test } from "bun:test";
 
@@ -10,7 +9,7 @@ import {
   Layer,
   Redacted,
   Schema,
-  String as EffectString,
+  String as Str,
 } from "effect";
 
 import { cloudSettings } from "../../../scripts/cloud-settings.js";
@@ -207,7 +206,7 @@ for (const stage of ["local-enrollment", "staging"]) {
             TWITCH_CLIENT_SECRET: "controlled-client-secret",
             TWITCH_SIGNING_SECRET: "controlled-signing-secret",
             DISCORD_BOT_TOKEN: "controlled-discord-token",
-            DISCORD_PUBLIC_KEY: EffectString.repeat(64)("a"),
+            DISCORD_PUBLIC_KEY: Str.repeat(64)("a"),
             OPERATOR_SECRET: "controlled-operator-secret",
           }),
         ),

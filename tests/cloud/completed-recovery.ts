@@ -1,5 +1,5 @@
 import { policy } from "@arctools/twitch/testing";
-import { Array as EffectArray } from "effect";
+import { Array as Arr } from "effect";
 
 import type {
   AccountAttribution,
@@ -41,7 +41,7 @@ export function selectCompletedRun(
   account: AccountJournal,
   key: string,
 ): CompletedRun {
-  const selected = EffectArray.filter(
+  const selected = Arr.filter(
     account.completedRuns,
     (run) => !!(run.key === key),
   );
@@ -59,7 +59,7 @@ export function completedRunKey(
   account: AccountJournal,
   alarmRun: number,
 ): string {
-  const selected = EffectArray.filter(
+  const selected = Arr.filter(
     account.completedRuns,
     (run) => !!(run.alarmRun === alarmRun),
   );
@@ -87,16 +87,16 @@ function checkIntegrity(account: AccountJournal, provider: ProviderJournal) {
     "diagnostic storage failure",
   );
   requireEvidence(
-    EffectArray.every(provider.events, (event) => !event.correlationError),
+    Arr.every(provider.events, (event) => !event.correlationError),
     "invalid HTTP correlation",
   );
   requireEvidence(
-    new Set(EffectArray.map(account.invocations, (record) => record.id))
-      .size === account.invocations.length,
+    new Set(Arr.map(account.invocations, (record) => record.id)).size ===
+      account.invocations.length,
     "duplicate invocation UUID",
   );
   requireEvidence(
-    new Set(EffectArray.map(provider.events, (event) => event.id)).size ===
+    new Set(Arr.map(provider.events, (event) => event.id)).size ===
       provider.events.length,
     "duplicate HTTP event UUID",
   );
@@ -115,7 +115,7 @@ function runTraffic(
 
   for (const kind of ["alarm-entry", "alarm-complete"] as const)
     requireEvidence(
-      EffectArray.filter(
+      Arr.filter(
         account.events,
         (event) =>
           !!(
@@ -127,7 +127,7 @@ function runTraffic(
       "missing or ambiguous alarm lifecycle",
     );
 
-  const invocations = EffectArray.filter(
+  const invocations = Arr.filter(
     account.invocations,
     (record) =>
       !!(
@@ -143,14 +143,14 @@ function runTraffic(
     "wrong invocation count",
   );
   requireEvidence(
-    EffectArray.every(
+    Arr.every(
       invocations,
       (record) => !!run.validationInvocationIds.includes(record.id),
     ),
     "inconsistent completion invocation IDs",
   );
   requireEvidence(
-    !EffectArray.some(
+    !Arr.some(
       provider.events,
       (event) =>
         !!(
@@ -161,7 +161,7 @@ function runTraffic(
     "uncorrelated HTTP for completed credential",
   );
 
-  const events = EffectArray.filter(provider.events, (event) => {
+  const events = Arr.filter(provider.events, (event) => {
     const correlation = event.correlation;
 
     return (

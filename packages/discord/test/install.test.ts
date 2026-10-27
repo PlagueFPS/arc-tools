@@ -1,8 +1,7 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect, test } from "bun:test";
 
 import { guildInstallUrl } from "@arctools/discord/install";
-import { Effect, Array as EffectArray, Record as EffectRecord } from "effect";
+import { Effect, Array as Arr, Record as Rec } from "effect";
 
 test("guild installation uses Discord authorization with only slash reply permissions", () => {
   const applicationId = "123456789012345678";
@@ -10,7 +9,7 @@ test("guild installation uses Discord authorization with only slash reply permis
 
   expect(url.origin).toBe("https://discord.com");
   expect(url.pathname).toBe("/oauth2/authorize");
-  expect(EffectRecord.fromEntries(url.searchParams)).toEqual({
+  expect(Rec.fromEntries(url.searchParams)).toEqual({
     client_id: applicationId,
     scope: "bot applications.commands",
     integration_type: "0",
@@ -78,11 +77,11 @@ test("the public install entry builds for browsers with Effect and without serve
   expect(inputs).toContain(
     new URL("../src/install.ts", import.meta.url).pathname,
   );
+  expect(Arr.some(inputs, (path) => !!/node_modules.*effect/.test(path))).toBe(
+    true,
+  );
   expect(
-    EffectArray.some(inputs, (path) => !!/node_modules.*effect/.test(path)),
-  ).toBe(true);
-  expect(
-    EffectArray.some(
+    Arr.some(
       inputs,
       (path) =>
         !!/alchemy|distilled|packages\/(commands|twitch|arc-data)\/|src\/(manifest|sync|server|http)\.ts$/.test(

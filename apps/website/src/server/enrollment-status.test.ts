@@ -1,6 +1,5 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { AccountError } from "@arctools/twitch/server";
-import { Effect, String as EffectString } from "effect";
+import { Effect, String as Str } from "effect";
 import { expect, test } from "vitest";
 
 import { enrollmentCookie, websiteHttp } from "./enrollment.js";
@@ -15,22 +14,17 @@ for (const [label, cookie, error, expected] of [
   ["malformed session", `${enrollmentCookie}=invalid`, "provider", 401],
   [
     "duplicate session",
-    `${enrollmentCookie}=${EffectString.repeat(64)("a")}; ${enrollmentCookie}=${EffectString.repeat(64)("a")}`,
+    `${enrollmentCookie}=${Str.repeat(64)("a")}; ${enrollmentCookie}=${Str.repeat(64)("a")}`,
     "provider",
     401,
   ],
   [
     "unavailable account",
-    `${enrollmentCookie}=${EffectString.repeat(64)("a")}`,
+    `${enrollmentCookie}=${Str.repeat(64)("a")}`,
     "provider",
     503,
   ],
-  [
-    "busy account",
-    `${enrollmentCookie}=${EffectString.repeat(64)("a")}`,
-    "busy",
-    503,
-  ],
+  ["busy account", `${enrollmentCookie}=${Str.repeat(64)("a")}`, "busy", 503],
 ] as const) {
   test(`status maps ${label} to ${expected}`, async () => {
     const http = websiteHttp(

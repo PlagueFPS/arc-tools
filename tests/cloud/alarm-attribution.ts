@@ -10,9 +10,9 @@ import {
   Effect,
   Exit,
   Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 
 export interface AttributionStorage {
@@ -168,7 +168,7 @@ export const validationEndpoints = (
   baseUrl: string,
   correlation: typeof ValidationCorrelation.Type | null,
 ) => {
-  const base = EffectString.replace(/\/$/, "")(baseUrl);
+  const base = Str.replace(/\/$/, "")(baseUrl);
 
   const prefix =
     correlation === null
@@ -181,11 +181,13 @@ export const validationEndpoints = (
 export function parseValidationPath(path: string) {
   const url = new URL(path, "https://fixture.invalid");
 
-  if (!EffectString.startsWith("/fixture-validation/")(url.pathname))
+  if (!Str.startsWith("/fixture-validation/")(url.pathname))
     return { path: url.pathname, correlation: null, correlationError: false };
 
-  const [, , instance, operation, alarmRun, invocationId, ...rest] =
-    EffectString.split(url.pathname, "/");
+  const [, , instance, operation, alarmRun, invocationId, ...rest] = Str.split(
+    url.pathname,
+    "/",
+  );
 
   const decoded = Schema.decodeUnknownExit(ValidationCorrelation)({
     instance,
@@ -197,7 +199,7 @@ export function parseValidationPath(path: string) {
   });
 
   return {
-    path: `/${EffectArray.join(rest, "/")}`,
+    path: `/${Arr.join(rest, "/")}`,
     correlation: Exit.isSuccess(decoded) ? decoded.value : null,
     correlationError: Exit.isFailure(decoded),
   };
@@ -210,9 +212,9 @@ export const credentialFingerprint = Effect.fnUntraced(function* (
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
   );
 
-  return EffectArray.join(
-    EffectArray.map([...new Uint8Array(digest)], (byte) =>
-      EffectString.padStart(2, "0")(byte.toString(16)),
+  return Arr.join(
+    Arr.map([...new Uint8Array(digest)], (byte) =>
+      Str.padStart(2, "0")(byte.toString(16)),
     ),
     "",
   );
@@ -290,7 +292,7 @@ export const recordCompletedAlarm = Effect.fnUntraced(function* (
         const key = stableRunKey(run);
 
         if (
-          EffectArray.some(
+          Arr.some(
             previous.completedRuns,
             (completed) => !!(completed.key === key),
           )
@@ -315,8 +317,8 @@ export const recordCompletedAlarm = Effect.fnUntraced(function* (
                   validatedAt: record.session.validatedAt,
                   expiresAt: record.session.expiresAt,
                 },
-          validationInvocationIds: EffectArray.map(
-            EffectArray.filter(
+          validationInvocationIds: Arr.map(
+            Arr.filter(
               previous.invocations,
               (invocation) =>
                 !!(
@@ -432,7 +434,7 @@ export const observeValidations = Effect.fnUntraced(function* (
                     const previous = yield* readAccountAttribution(storage);
 
                     if (
-                      !EffectArray.some(
+                      !Arr.some(
                         previous.invocations,
                         (record) => !!(record.id === invocation.id),
                       )
@@ -454,12 +456,10 @@ export const observeValidations = Effect.fnUntraced(function* (
 
                     yield* storage.put("fixtureAttribution", {
                       ...previous,
-                      invocations: EffectArray.map(
-                        previous.invocations,
-                        (record) =>
-                          record.id === invocation.id
-                            ? { ...record, completion }
-                            : record,
+                      invocations: Arr.map(previous.invocations, (record) =>
+                        record.id === invocation.id
+                          ? { ...record, completion }
+                          : record,
                       ),
                     });
                   }),
@@ -501,13 +501,13 @@ export const recordProviderValidation = Effect.fnUntraced(function* (
   const previous = yield* readProviderAttribution(storage);
   const count = (previous.counts[fingerprint] ?? 0) + 1;
 
-  const counts = EffectRecord.toEntries({
+  const counts = Rec.toEntries({
     ...previous.counts,
     [fingerprint]: count,
   });
 
   yield* storage.put("fixtureValidations", {
-    counts: EffectRecord.fromEntries(counts.slice(-attributionLimit)),
+    counts: Rec.fromEntries(counts.slice(-attributionLimit)),
     events: [
       ...previous.events.slice(-(attributionLimit - 1)),
       {

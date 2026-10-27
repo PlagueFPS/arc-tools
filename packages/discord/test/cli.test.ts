@@ -1,7 +1,6 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect, test } from "bun:test";
 
-import { Option as EffectOption, String as EffectString } from "effect";
+import { Option, String as Str } from "effect";
 
 const run = async (scenario: string, preflight = false) => {
   const process = Bun.spawn(
@@ -55,9 +54,7 @@ test("the preflight CLI reports rejected authentication without health checks, r
     retryCount: 0,
   });
   expect(
-    EffectOption.getOrNull(
-      EffectString.match(/fixture-request/g)(result.stdout),
-    ),
+    Option.getOrNull(Str.match(/fixture-request/g)(result.stdout)),
   ).toHaveLength(1);
   expect(result.stdout).not.toContain('"operation":"health"');
   expect(result.stdout).not.toContain('"method":"PUT"');
@@ -86,9 +83,7 @@ test("the actual sync CLI recovers a lost overwrite response without writing twi
   const result = await run("lost-write");
   expect(result.exitCode).toBe(0);
   expect(
-    EffectOption.getOrNull(
-      EffectString.match(/"method":"PUT"/g)(result.stdout),
-    ),
+    Option.getOrNull(Str.match(/"method":"PUT"/g)(result.stdout)),
   ).toHaveLength(1);
   expect(result.stdout).toContain('"changed":true');
   expect(result.stdout).toContain("discord-sync-retry");

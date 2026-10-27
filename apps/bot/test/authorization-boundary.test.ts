@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
@@ -7,9 +6,9 @@ import {
   Effect,
   Fiber,
   Layer,
-  Array as EffectArray,
-  Option as EffectOption,
-  String as EffectString,
+  Array as Arr,
+  Option,
+  String as Str,
 } from "effect";
 
 import { fixture, observation, responseGate } from "./subscription-fixture.js";
@@ -40,10 +39,7 @@ test(
       first: Predicate.isTagged(first, "Failure")
         ? first.failure.code
         : first.success.status.setup,
-      links: EffectArray.map(
-        second.authorizations,
-        (entry) => entry.login,
-      ).sort(),
+      links: Arr.map(second.authorizations, (entry) => entry.login).sort(),
       sender: second.status.sender?.authorized,
       channel: second.status.channels[0]?.authorized,
       calls: f.control.calls,
@@ -106,7 +102,7 @@ test(
       codes,
       credentials,
       sameGeneration: generations[0] === generations[1],
-      tokenPosts: EffectArray.filter(
+      tokenPosts: Arr.filter(
         f.control.requests,
         (entry) => !!(entry.path === "/token" && entry.method === "POST"),
       ).length,
@@ -137,7 +133,7 @@ test(
     );
     const repair = yield* a.service.setup("operator");
     expect(
-      EffectArray.map(repair.authorizations, (entry) => entry.login).sort(),
+      Arr.map(repair.authorizations, (entry) => entry.login).sort(),
     ).toEqual(["fixture_channel"]);
     expect(repair.status.channels).toEqual([]);
     yield* f.authorize(a.service, repair.authorizations);
@@ -336,8 +332,8 @@ test(
     const initial = yield* a.service.setup("operator");
     yield* f.grants(a.service);
 
-    const authorization = EffectOption.getOrUndefined(
-      EffectArray.findFirst(
+    const authorization = Option.getOrUndefined(
+      Arr.findFirst(
         initial.authorizations,
         (entry) => !!(entry.login === "fixture_channel"),
       ),
@@ -353,10 +349,10 @@ test(
       return Response.json({
         client_id: a.config.identity.twitchClientId,
         expires_in: 3600,
-        scopes: EffectOption.getOrUndefined(
-          EffectOption.map(
-            EffectOption.fromNullishOr(params.get("scope")),
-            (effectNativeValue0) => EffectString.split(effectNativeValue0, " "),
+        scopes: Option.getOrUndefined(
+          Option.map(
+            Option.fromNullishOr(params.get("scope")),
+            (effectNativeValue0) => Str.split(effectNativeValue0, " "),
           ),
         ),
         user_id: "200",
@@ -450,7 +446,7 @@ test(
       credential: ready.status.credential,
       links: ready.authorizations.length,
       sameGeneration: f.snapshot().session?.generation === generation,
-      posts: EffectArray.filter(
+      posts: Arr.filter(
         f.control.requests,
         (entry) => !!(entry.method === "POST" && entry.path === "/token"),
       ).length,
@@ -482,10 +478,8 @@ test(
     expect((yield* a.service.status).credential).toBe("valid");
     expect(f.snapshot().session?.generation).toBe(generation);
     expect(
-      EffectArray.filter(
-        f.control.requests,
-        (entry) => !!(entry.method === "POST"),
-      ).length,
+      Arr.filter(f.control.requests, (entry) => !!(entry.method === "POST"))
+        .length,
     ).toBe(3);
     expect(f.control.calls.send).toBe(0);
   }),
@@ -538,11 +532,11 @@ test(
       setup: ready.status.setup,
       credential: ready.status.credential,
       links: ready.authorizations.length,
-      posts: EffectArray.filter(
+      posts: Arr.filter(
         f.control.requests,
         (entry) => !!(entry.method === "POST" && entry.path === "/token"),
       ).length,
-      sends: EffectArray.filter(
+      sends: Arr.filter(
         f.control.requests,
         (entry) => !!(entry.path === "/chat/messages"),
       ).length,

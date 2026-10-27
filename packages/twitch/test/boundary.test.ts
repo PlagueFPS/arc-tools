@@ -1,7 +1,6 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect, test } from "bun:test";
 
-import { Array as EffectArray } from "effect";
+import { Array as Arr } from "effect";
 
 test("the account contract bundle excludes provider mutation and deployment runtime", async () => {
   const inputs: string[] = [];
@@ -27,7 +26,7 @@ test("the account contract bundle excludes provider mutation and deployment runt
     new URL("../src/contracts.ts", import.meta.url).pathname,
   );
   expect(
-    EffectArray.some(
+    Arr.some(
       inputs,
       (path) =>
         !!/apps\/bot|alchemy|packages\/twitch\/src\/(account|provider|state|cloudflare|testing)\.ts/.test(

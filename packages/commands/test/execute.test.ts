@@ -12,7 +12,7 @@ import {
   Effect,
   Fiber,
   Layer,
-  String as EffectString,
+  String as Str,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -275,7 +275,7 @@ describe("cached command execution", () => {
       fixture.respond((url) =>
         Effect.succeed(
           Response.json({
-            data: EffectString.endsWith("/traders")(url.pathname)
+            data: Str.endsWith("/traders")(url.pathname)
               ? {
                   Apollo: [],
                   Celeste: [],
@@ -285,7 +285,7 @@ describe("cached command execution", () => {
                   ],
                   TianWen: [],
                 }
-              : EffectString.endsWith("/arcs")(url.pathname)
+              : Str.endsWith("/arcs")(url.pathname)
                 ? [
                     {
                       id: "bastion",
@@ -293,7 +293,7 @@ describe("cached command execution", () => {
                       loot: [{ item: { id: "sensors", name: "Sensors" } }],
                     },
                   ]
-                : EffectString.endsWith("/events-schedule")(url.pathname)
+                : Str.endsWith("/events-schedule")(url.pathname)
                   ? [
                       {
                         name: "Harvester",

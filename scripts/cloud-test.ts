@@ -6,7 +6,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 
-import { Match, Schema, String as EffectString } from "effect";
+import { Match, Schema, String as Str } from "effect";
 
 import { cleanupLocalTest } from "./local-test-cleanup.js";
 import {
@@ -50,7 +50,7 @@ if (cleanupOnly) {
 } else {
   const run = randomBytes(6).toString("hex");
 
-  const worktree = EffectString.slice(
+  const worktree = Str.slice(
     0,
     8,
   )(createHash("sha256").update(process.cwd()).digest("hex"));

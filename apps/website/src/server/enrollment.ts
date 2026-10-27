@@ -12,9 +12,9 @@ import {
   Effect,
   Schema,
   Struct,
-  Array as EffectArray,
-  String as EffectString,
-  Option as EffectOption,
+  Array as Arr,
+  String as Str,
+  Option,
 } from "effect";
 
 import type { WebsiteUnavailable } from "./errors.js";
@@ -46,9 +46,9 @@ const BrowserSession = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 const CallbackCode = Schema.NonEmptyString.check(Schema.isMaxLength(2048));
 
 const randomCredential = () =>
-  EffectArray.join(
+  Arr.join(
     Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
-      EffectString.padStart(2, "0")(byte.toString(16)),
+      Str.padStart(2, "0")(byte.toString(16)),
     ),
     "",
   );
@@ -61,10 +61,8 @@ const readSession = Effect.fnUntraced(function* (request: Request) {
 
   if (cookie.length > 4096) return yield* new AccountError({ code: "input" });
 
-  const values = EffectArray.filter(
-    EffectArray.map(EffectString.split(cookie, ";"), (entry) =>
-      EffectString.trim(entry),
-    ),
+  const values = Arr.filter(
+    Arr.map(Str.split(cookie, ";"), (entry) => Str.trim(entry)),
     // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Native split preserves the limit argument.
     (entry) => !!(entry.split("=", 1)[0] === policy.name),
   );
@@ -73,11 +71,9 @@ const readSession = Effect.fnUntraced(function* (request: Request) {
 
   if (values.length !== 1) return yield* new AccountError({ code: "input" });
 
-  const value = EffectOption.getOrUndefined(
-    EffectOption.map(
-      EffectOption.fromNullishOr(values[0]),
-      (effectNativeValue0) =>
-        EffectString.slice(policy.name.length + 1)(effectNativeValue0),
+  const value = Option.getOrUndefined(
+    Option.map(Option.fromNullishOr(values[0]), (effectNativeValue0) =>
+      Str.slice(policy.name.length + 1)(effectNativeValue0),
     ),
   );
 
@@ -289,11 +285,11 @@ export const websiteHttp = <R>(
           );
 
         if (
-          EffectOption.getOrUndefined(
-            EffectOption.map(
-              EffectOption.fromNullishOr(url.searchParams.get("state")),
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(url.searchParams.get("state")),
               (effectNativeValue1) =>
-                EffectString.startsWith("enroll.")(effectNativeValue1),
+                Str.startsWith("enroll.")(effectNativeValue1),
             ),
           )
         )

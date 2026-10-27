@@ -7,10 +7,10 @@ import {
   Layer,
   Redacted,
   Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
-  Option as EffectOption,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Option,
 } from "effect";
 
 import {
@@ -172,15 +172,12 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
         yield* read(enrollmentsKey, AccountState.fields.enrollments),
       ).pipe(Effect.orDie),
-      EffectArray.filter(
-        after.enrollments,
-        (entry) => !!(entry.phase.kind !== "left"),
-      ),
+      Arr.filter(after.enrollments, (entry) => !!(entry.phase.kind !== "left")),
     );
 
     const beforeLeft = new Map(
-      EffectArray.map(
-        EffectArray.filter(
+      Arr.map(
+        Arr.filter(
           before.enrollments,
           (entry) => !!(entry.phase.kind === "left"),
         ),
@@ -189,8 +186,8 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     );
 
     const afterLeft = new Map(
-      EffectArray.map(
-        EffectArray.filter(
+      Arr.map(
+        Arr.filter(
           after.enrollments,
           (entry) => !!(entry.phase.kind === "left"),
         ),
@@ -225,7 +222,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       if (!after.channels.has(id))
         yield* storage.delete(channelPrefix + encodeURIComponent(id));
 
-    for (const [id, tombstone] of EffectRecord.toEntries(after.revoked))
+    for (const [id, tombstone] of Rec.toEntries(after.revoked))
       yield* changed(
         tombstonePrefix + encodeURIComponent(id),
         AccountState.fields.revoked.value,
@@ -235,8 +232,8 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
         tombstone,
       );
 
-    for (const id of EffectRecord.keys(before.revoked))
-      if (!EffectRecord.has(after.revoked, id))
+    for (const id of Rec.keys(before.revoked))
+      if (!Rec.has(after.revoked, id))
         yield* storage.delete(tombstonePrefix + encodeURIComponent(id));
   });
 
@@ -294,7 +291,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     const tombstones: [string, AccountState["revoked"][string]][] = [];
 
     const suffix = (key: string, prefix: string) => {
-      const id = decodeURIComponent(EffectString.slice(prefix.length)(key));
+      const id = decodeURIComponent(Str.slice(prefix.length)(key));
 
       if (key !== prefix + encodeURIComponent(id))
         throw new Error("Noncanonical account record key");
@@ -321,7 +318,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     return {
       shared,
       channels,
-      revoked: EffectRecord.fromEntries(tombstones),
+      revoked: Rec.fromEntries(tombstones),
       oauth: yield* read(oauthKey, AccountState.fields.oauth),
       attempts: yield* read(attemptsKey, AccountState.fields.attempts),
       enrollments: [
@@ -362,11 +359,8 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       const result = yield* f(state);
       state.nextCleanupAt = Math.min(
         state.nextCleanupAt ?? Infinity,
-        ...EffectArray.map(
-          EffectRecord.values(state.attempts),
-          (entry) => entry.retainUntil,
-        ),
-        ...EffectArray.map(
+        ...Arr.map(Rec.values(state.attempts), (entry) => entry.retainUntil),
+        ...Arr.map(
           state.reservations,
           (entry) => entry.at + policy.globalWindowMs,
         ),
@@ -404,7 +398,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
 
             if (
               record &&
-              EffectArray.some(
+              Arr.some(
                 [...record.configured, ...record.public],
                 (entry) => !!(entry.member.id !== id),
               )
@@ -432,25 +426,19 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
             const slice: ChannelDispatchState = {
               ...state,
               channels:
-                EffectOption.getOrUndefined(
-                  EffectOption.map(
-                    EffectOption.fromNullishOr(record?.configured),
+                Option.getOrUndefined(
+                  Option.map(
+                    Option.fromNullishOr(record?.configured),
                     (effectNativeValue0) =>
-                      EffectArray.map(
-                        effectNativeValue0,
-                        (entry) => entry.member,
-                      ),
+                      Arr.map(effectNativeValue0, (entry) => entry.member),
                   ),
                 ) ?? [],
               publicMembers:
-                EffectOption.getOrUndefined(
-                  EffectOption.map(
-                    EffectOption.fromNullishOr(record?.public),
+                Option.getOrUndefined(
+                  Option.map(
+                    Option.fromNullishOr(record?.public),
                     (effectNativeValue1) =>
-                      EffectArray.map(
-                        effectNativeValue1,
-                        (entry) => entry.member,
-                      ),
+                      Arr.map(effectNativeValue1, (entry) => entry.member),
                   ),
                 ) ?? [],
               lifecycle: record?.lifecycle ? { [id]: record.lifecycle } : {},
@@ -499,7 +487,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
           state.nextCleanupAt = nextCleanup(state);
 
           const recoveryDue = Math.min(
-            ...EffectArray.map(EffectRecord.values(state.lifecycle), (value) =>
+            ...Arr.map(Rec.values(state.lifecycle), (value) =>
               value.kind === "installed"
                 ? (value.recovery?.due ?? Infinity)
                 : Infinity,

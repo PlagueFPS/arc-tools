@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
@@ -25,8 +24,8 @@ import {
   Result,
   Schema,
   Stream,
-  Array as EffectArray,
-  Option as EffectOption,
+  Array as Arr,
+  Option,
 } from "effect";
 import {
   HttpClient,
@@ -93,7 +92,7 @@ const fixture = Effect.fnUntraced(function* () {
         control.remote = Schema.decodeUnknownSync(RemoteCommands)(raw);
 
         if (control.localizedReadback)
-          control.remote = EffectArray.map(control.remote, (command) => ({
+          control.remote = Arr.map(control.remote, (command) => ({
             ...command,
             name_localizations: { de: "falsch" },
           }));
@@ -111,7 +110,7 @@ const fixture = Effect.fnUntraced(function* () {
       return Response.json(
         control.badReadback
           ? []
-          : EffectArray.map(control.remote, (command) => {
+          : Arr.map(control.remote, (command) => {
               const result = {
                 ...command,
                 id: "server-id",
@@ -122,19 +121,19 @@ const fixture = Effect.fnUntraced(function* () {
               if (!full) {
                 result.name_localizations = undefined;
                 result.description_localizations = undefined;
-                result.options = EffectOption.getOrUndefined(
-                  EffectOption.map(
-                    EffectOption.fromNullishOr(command.options),
+                result.options = Option.getOrUndefined(
+                  Option.map(
+                    Option.fromNullishOr(command.options),
                     (effectNativeValue0) =>
-                      EffectArray.map(effectNativeValue0, (option) => ({
+                      Arr.map(effectNativeValue0, (option) => ({
                         ...option,
                         name_localizations: undefined,
                         description_localizations: undefined,
-                        choices: EffectOption.getOrUndefined(
-                          EffectOption.map(
-                            EffectOption.fromNullishOr(option.choices),
+                        choices: Option.getOrUndefined(
+                          Option.map(
+                            Option.fromNullishOr(option.choices),
                             (effectNativeValue1) =>
-                              EffectArray.map(effectNativeValue1, (choice) => ({
+                              Arr.map(effectNativeValue1, (choice) => ({
                                 ...choice,
                                 name_localizations: undefined,
                               })),
@@ -197,21 +196,21 @@ test(
       "option-description",
       "choice",
     ]) {
-      f.control.remote = EffectArray.map(desired, (command) => {
+      f.control.remote = Arr.map(desired, (command) => {
         const result = {
           ...command,
-          options: EffectOption.getOrUndefined(
-            EffectOption.map(
-              EffectOption.fromNullishOr(command.options),
+          options: Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(command.options),
               (effectNativeValue2) =>
-                EffectArray.map(effectNativeValue2, (option) => {
+                Arr.map(effectNativeValue2, (option) => {
                   const localized = {
                     ...option,
-                    choices: EffectOption.getOrUndefined(
-                      EffectOption.map(
-                        EffectOption.fromNullishOr(option.choices),
+                    choices: Option.getOrUndefined(
+                      Option.map(
+                        Option.fromNullishOr(option.choices),
                         (effectNativeValue3) =>
-                          EffectArray.map(effectNativeValue3, (choice) => {
+                          Arr.map(effectNativeValue3, (choice) => {
                             const localizedChoice = { ...choice };
 
                             if (location === "choice")
@@ -265,31 +264,25 @@ test(
   "manifest owns all ten guild-only slash definitions and string options",
   Effect.sync(() => {
     expect(commandManifest.length).toBe(10);
-    expect(EffectArray.map(commandManifest, (command) => command.name)).toEqual(
-      [
-        "buy",
-        "loot",
-        "craft",
-        "find",
-        "sell",
-        "recycle",
-        "recycleto",
-        "event",
-        "upcoming",
-        "active",
-      ],
-    );
+    expect(Arr.map(commandManifest, (command) => command.name)).toEqual([
+      "buy",
+      "loot",
+      "craft",
+      "find",
+      "sell",
+      "recycle",
+      "recycleto",
+      "event",
+      "upcoming",
+      "active",
+    ]);
     expect(
-      EffectArray.every(
+      Arr.every(
         commandManifest,
         (command) =>
           !!(
-            EffectArray.join(EffectArray.map(command.contexts, String), ",") ===
-              "0" &&
-            EffectArray.join(
-              EffectArray.map(command.integration_types, String),
-              ",",
-            ) === "0"
+            Arr.join(Arr.map(command.contexts, String), ",") === "0" &&
+            Arr.join(Arr.map(command.integration_types, String), ",") === "0"
           ),
       ),
     ).toBeTrue();
@@ -355,7 +348,7 @@ test(
         description_localizations: null,
       },
     ];
-    f.control.remote = EffectArray.map(f.control.remote, (command, index) =>
+    f.control.remote = Arr.map(f.control.remote, (command, index) =>
       index === 0 ? { ...command, description: "changed remotely" } : command,
     );
     expect((yield* syncCommands(f.release, f.options)).changed).toBeTrue();
@@ -637,14 +630,11 @@ test(
       phase: "before",
     });
 
-    const calls = EffectArray.filter(
-      f.requests,
-      ({ path }) => !!(path !== "/health"),
-    );
+    const calls = Arr.filter(f.requests, ({ path }) => !!(path !== "/health"));
 
-    expect(EffectArray.map(calls, ({ time }) => time)).toEqual([0, 2, 4, 6]);
+    expect(Arr.map(calls, ({ time }) => time)).toEqual([0, 2, 4, 6]);
     expect(
-      EffectArray.filter(f.requests, ({ path }) => !!(path === "/health")),
+      Arr.filter(f.requests, ({ path }) => !!(path === "/health")),
     ).toHaveLength(4);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -667,9 +657,7 @@ test(
       code: "stale-release",
       phase: "before",
     });
-    expect(
-      EffectArray.map(f.requests, ({ path, time }) => [path, time]),
-    ).toEqual([
+    expect(Arr.map(f.requests, ({ path, time }) => [path, time])).toEqual([
       ["/health", 0],
       ["/api/v10/applications/fixture-discord/commands", 0],
       ["/health", 2],
@@ -702,10 +690,10 @@ for (const failure of ["status", "malformed", "stage", "revision", "manifest"])
       );
       expect(result.phase).toBe("before");
       expect(
-        EffectArray.filter(f.requests, ({ path }) => !!(path === "/health")),
+        Arr.filter(f.requests, ({ path }) => !!(path === "/health")),
       ).toHaveLength(1);
       expect(
-        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+        Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
       ).toHaveLength(
         ["stage", "revision", "manifest"].includes(failure) ? 0 : 1,
       );
@@ -731,8 +719,8 @@ test(
       phase: "before",
     });
     expect(
-      EffectArray.map(
-        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+      Arr.map(
+        Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
         ({ time }) => time,
       ),
     ).toEqual([0, 15000]);
@@ -753,7 +741,7 @@ for (const wait of [false, true])
       yield* f.started;
       yield* TestClock.adjust(wait ? 59000 : 0);
       expect(Result.isFailure(yield* Fiber.join(fiber))).toBeTrue();
-      expect(EffectArray.map(f.requests, ({ time }) => time)).toEqual(
+      expect(Arr.map(f.requests, ({ time }) => time)).toEqual(
         Array.from({ length: wait ? 60 : 1 }, (_, i) => i * 1000),
       );
     }).pipe(Effect.provide(TestClock.layer())),

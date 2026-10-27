@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
@@ -25,9 +24,9 @@ import {
   Match,
   Schema,
   Redacted,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 import { FetchHttpClient, HttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
@@ -50,8 +49,8 @@ const preview = previewIdentity({
 });
 
 const checked = Schema.decodeSync(CheckedPreview)({
-  revision: EffectString.repeat(40)("a"),
-  head: EffectString.repeat(40)("b"),
+  revision: Str.repeat(40)("a"),
+  head: Str.repeat(40)("b"),
 });
 
 const pr = (
@@ -70,7 +69,7 @@ const directories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    EffectArray.map(directories.splice(0), (directory) =>
+    Arr.map(directories.splice(0), (directory) =>
       rm(directory, { recursive: true, force: true }),
     ),
   );
@@ -114,7 +113,7 @@ describe("preview identity and boundaries", () => {
       previewIdentity({ repository: preview.repository, number: 10 }),
     ).toEqual(preview);
     expect(preview.stage).toMatch(/^test-tenant-[a-f0-9]{8}-[a-f0-9]{12}$/);
-    expect(EffectString.endsWith(`-${preview.run}`)(preview.stage)).toBeTrue();
+    expect(Str.endsWith(`-${preview.run}`)(preview.stage)).toBeTrue();
     expect(
       new Set(
         Array.from(
@@ -161,8 +160,8 @@ describe("preview identity and boundaries", () => {
   });
   test("unknown or abbreviated revisions and untrusted PR origins fail", () => {
     for (const revision of [
-      EffectString.repeat(7)("a"),
-      EffectString.repeat(40)("A"),
+      Str.repeat(7)("a"),
+      Str.repeat(40)("A"),
       "refs/heads/main",
       "",
     ])
@@ -206,7 +205,7 @@ describe("preview identity and boundaries", () => {
       settings,
     );
 
-    expect(EffectRecord.values(env)).not.toContain("PROD");
+    expect(Rec.values(env)).not.toContain("PROD");
     expect(env.ARC_BOT_URL).toBeUndefined();
     expect(env.ARC_BUILD_REVISION).toBeUndefined();
     expect(env.ARC_STAGE).toBe(preview.stage);
@@ -256,19 +255,16 @@ describe("resident preview reconciliation", () => {
       ).toBe("destroyed");
       expect(f.calls.at(-1)).toBe("cleanup");
       expect(
-        EffectArray.some(
-          f.publications,
-          (body) => !!EffectString.includes("https://")(body),
-        ),
+        Arr.some(f.publications, (body) => !!Str.includes("https://")(body)),
       ).toBeFalse();
     });
   }
 
   for (const states of [
-    [pr("open", EffectString.repeat(40)("c"))],
-    [pr(), pr("open", EffectString.repeat(40)("c"))],
-    [pr(), pr(), pr("open", checked.head, EffectString.repeat(40)("d"))],
-    [pr(), pr(), pr(), pr("open", EffectString.repeat(40)("c"))],
+    [pr("open", Str.repeat(40)("c"))],
+    [pr(), pr("open", Str.repeat(40)("c"))],
+    [pr(), pr(), pr("open", checked.head, Str.repeat(40)("d"))],
+    [pr(), pr(), pr(), pr("open", Str.repeat(40)("c"))],
   ]) {
     test(`a stale head or merge at observation ${states.length} never publishes its URL`, async () => {
       const f = fixture([...states]);
@@ -279,10 +275,7 @@ describe("resident preview reconciliation", () => {
         ),
       ).toBe("stale");
       expect(
-        EffectArray.some(
-          f.publications,
-          (body) => !!EffectString.includes("https://")(body),
-        ),
+        Arr.some(f.publications, (body) => !!Str.includes("https://")(body)),
       ).toBeFalse();
     });
   }
@@ -294,9 +287,9 @@ describe("resident preview reconciliation", () => {
       expect(
         await reconcilePreview({ action: "cleanup", preview }, f.operations),
       ).toBe("destroyed");
-    expect(
-      EffectArray.filter(f.calls, (call) => !!(call === "cleanup")),
-    ).toHaveLength(2);
+    expect(Arr.filter(f.calls, (call) => !!(call === "cleanup"))).toHaveLength(
+      2,
+    );
     const open = fixture([pr()]);
     expect(
       reconcilePreview({ action: "cleanup", preview }, open.operations),
@@ -330,10 +323,7 @@ describe("resident preview reconciliation", () => {
       reconcilePreview({ action: "deploy", preview, checked }, f.operations),
     ).rejects.toThrow("wrong revision");
     expect(
-      EffectArray.some(
-        f.publications,
-        (body) => !!EffectString.includes("https://")(body),
-      ),
+      Arr.some(f.publications, (body) => !!Str.includes("https://")(body)),
     ).toBeFalse();
     const changing = fixture([pr(), pr()]);
     changing.operations.deploy = async (origin) => ({
@@ -467,9 +457,9 @@ globalThis.fetch = async (input, init) => {
       return { code, output: stdout + stderr };
     },
     async calls() {
-      return EffectArray.map(
-        EffectString.split(
-          EffectString.trim(await readFile(join(directory, "calls"), "utf8")),
+      return Arr.map(
+        Str.split(
+          Str.trim(await readFile(join(directory, "calls"), "utf8")),
           "\n",
         ),
         (line) => JSON.parse(line),
@@ -490,13 +480,10 @@ test("real controller CLI writes recovery before children, strips secrets, redep
 
   const calls = await f.calls();
 
-  const deployments = EffectArray.filter(
-    calls,
-    (call) => !!(call.type === "deploy"),
-  );
+  const deployments = Arr.filter(calls, (call) => !!(call.type === "deploy"));
 
   expect(deployments).toHaveLength(2);
-  expect(EffectArray.map(deployments, (call) => call.env.ARC_BOT_URL)).toEqual([
+  expect(Arr.map(deployments, (call) => call.env.ARC_BOT_URL)).toEqual([
     "",
     "https://fixture.invalid",
   ]);
@@ -510,8 +497,8 @@ test("real controller CLI writes recovery before children, strips secrets, redep
   }
 
   expect(
-    EffectArray.every(
-      EffectArray.filter(calls, (call) => !!(call.type === "comment")),
+    Arr.every(
+      Arr.filter(calls, (call) => !!(call.type === "comment")),
       (call) =>
         !!(
           call.method === "PATCH" && call.url.endsWith("/issues/comments/123")
@@ -542,7 +529,7 @@ test("closed cleanup works in a fresh checkout with no prior artifact, repeats, 
   }
 
   expect(
-    EffectArray.filter(await f.calls(), (call) => !!(call.type === "cleanup")),
+    Arr.filter(await f.calls(), (call) => !!(call.type === "cleanup")),
   ).toHaveLength(2);
   expect(
     (await f.run("cleanup", { PR_STATE: "closed", FAIL_CLEANUP: "1" })).code,
@@ -556,14 +543,14 @@ test("closed cleanup works in a fresh checkout with no prior artifact, repeats, 
     run: preview.run,
   });
 
-  const before = EffectArray.filter(
+  const before = Arr.filter(
     await f.calls(),
     (call) => !!(call.type === "comment"),
   ).length;
 
   expect((await f.run("deploy", { FAIL_DEPLOY: "1" })).code).toBe(1);
   expect(
-    EffectArray.filter(await f.calls(), (call) => !!(call.type === "comment")),
+    Arr.filter(await f.calls(), (call) => !!(call.type === "comment")),
   ).toHaveLength(before + 1);
   expect(await f.journal("preview-result.json")).toMatchObject({
     result: "failed",
@@ -638,12 +625,11 @@ describe("native preview HTTP boundary", () => {
             body: await request.text(),
           });
 
-          if (EffectString.endsWith("/pulls/10")(path))
-            return Response.json(pr());
+          if (Str.endsWith("/pulls/10")(path)) return Response.json(pr());
 
           if (request.method !== "GET") return Response.json({ id: 123 });
 
-          if (existing && EffectString.endsWith("page=1")(path))
+          if (existing && Str.endsWith("page=1")(path))
             return Response.json(
               Array.from({ length: 100 }, (_, id) => ({
                 id: id + 1,
@@ -671,7 +657,7 @@ describe("native preview HTTP boundary", () => {
         expect(await Effect.runPromise(http.readPr())).toEqual(pr());
         await Effect.runPromise(http.publish("deployment result"));
         expect(
-          EffectArray.map(requests, ({ method, path }) => `${method} ${path}`),
+          Arr.map(requests, ({ method, path }) => `${method} ${path}`),
         ).toEqual([
           "GET /repos/PlagueFPS/arc-tools/pulls/10",
           "GET /repos/PlagueFPS/arc-tools/issues/10/comments?per_page=100&page=1",
@@ -843,14 +829,14 @@ describe("native preview HTTP boundary", () => {
           .pipe(Effect.provideService(Clock.Clock, clock)),
       );
       expect(requests).toHaveLength(6);
+      expect(Arr.filter(sleeps, (millis) => !!(millis < 10_000))).toEqual(
+        Array(5).fill(1000),
+      );
+      expect(Arr.filter(sleeps, (millis) => !!(millis >= 10_000))).toEqual(
+        Array(6).fill(10_000),
+      );
       expect(
-        EffectArray.filter(sleeps, (millis) => !!(millis < 10_000)),
-      ).toEqual(Array(5).fill(1000));
-      expect(
-        EffectArray.filter(sleeps, (millis) => !!(millis >= 10_000)),
-      ).toEqual(Array(6).fill(10_000));
-      expect(
-        EffectArray.every(
+        Arr.every(
           requests,
           (request) => !!(request.path === "/health" && !request.authorized),
         ),
@@ -876,7 +862,7 @@ describe("native preview HTTP boundary", () => {
               status: "ready",
               stage: preview.stage,
               revision: checked.revision,
-              padding: EffectString.repeat(2 * 1024 * 1024)("x"),
+              padding: Str.repeat(2 * 1024 * 1024)("x"),
             });
       },
     });
@@ -928,12 +914,12 @@ describe("native preview HTTP boundary", () => {
           "Preview health did not match the exact stage and checked merge revision",
         );
         expect(calls).toBe(60);
-        expect(
-          EffectArray.filter(sleeps, (millis) => !!(millis < 10_000)),
-        ).toEqual(Array(59).fill(1000));
-        expect(
-          EffectArray.filter(sleeps, (millis) => !!(millis >= 10_000)),
-        ).toEqual(Array(60).fill(10_000));
+        expect(Arr.filter(sleeps, (millis) => !!(millis < 10_000))).toEqual(
+          Array(59).fill(1000),
+        );
+        expect(Arr.filter(sleeps, (millis) => !!(millis >= 10_000))).toEqual(
+          Array(60).fill(10_000),
+        );
       } finally {
         await server.stop(true);
       }

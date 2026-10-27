@@ -17,9 +17,9 @@ import {
   Result,
   Schema,
   Stream,
-  Option as EffectOption,
-  Array as EffectArray,
-  String as EffectString,
+  Option,
+  Array as Arr,
+  String as Str,
 } from "effect";
 import { Hex } from "effect/encoding";
 import {
@@ -137,7 +137,7 @@ export const verifyTwitch = Effect.fnUntraced(function* (
   const timestamp = authentication["twitch-eventsub-message-timestamp"];
 
   const signature = yield* Hex.decode(
-    EffectString.slice(7)(authentication["twitch-eventsub-message-signature"]),
+    Str.slice(7)(authentication["twitch-eventsub-message-signature"]),
   ).pipe(
     Effect.fromResult,
     Effect.mapError(() => new IngressError({ status: 401 })),
@@ -244,24 +244,19 @@ const decode = Effect.fnUntraced(function* <A, I>(
 export function parseTwitchCommand(
   text: string,
 ): typeof Invocation.Type | null {
-  if (!EffectString.startsWith("!")(text)) return null;
+  if (!Str.startsWith("!")(text)) return null;
 
-  const [name, ...args] = EffectString.split(
-    EffectString.trim(EffectString.slice(1)(text)),
-    /\s+/,
-  );
+  const [name, ...args] = Str.split(Str.trim(Str.slice(1)(text)), /\s+/);
 
-  const command = EffectOption.getOrUndefined(
-    EffectArray.findFirst(
+  const command = Option.getOrUndefined(
+    Arr.findFirst(
       commandCatalog,
       (entry) =>
         !!(
           entry.name ===
-          EffectOption.getOrUndefined(
-            EffectOption.map(
-              EffectOption.fromNullishOr(name),
-              (effectNativeValue0) =>
-                EffectString.toLowerCase(effectNativeValue0),
+          Option.getOrUndefined(
+            Option.map(Option.fromNullishOr(name), (effectNativeValue0) =>
+              Str.toLowerCase(effectNativeValue0),
             ),
           )
         ),
@@ -269,7 +264,7 @@ export function parseTwitchCommand(
   );
 
   if (!command) return null;
-  const input = EffectArray.join(args, " ");
+  const input = Arr.join(args, " ");
 
   return input.length <= 256 ? { command: command.name, input } : null;
 }
@@ -378,8 +373,8 @@ export const ingressHandlers = (config: IngressConfig) =>
         const status = yield* account.status;
         const sender = status.sender;
 
-        const channel = EffectOption.getOrUndefined(
-          EffectArray.findFirst(
+        const channel = Option.getOrUndefined(
+          Arr.findFirst(
             status.channels,
             (channel) =>
               !!(channel.id === subscription.condition.broadcaster_user_id),
@@ -529,8 +524,8 @@ export const ingressHandlers = (config: IngressConfig) =>
         if (value.guild_id !== value.authorizing_integration_owners["0"])
           return privateReply("Use a slash command from an installed server.");
 
-        const definition = EffectOption.getOrUndefined(
-          EffectArray.findFirst(
+        const definition = Option.getOrUndefined(
+          Arr.findFirst(
             commandCatalog,
             (entry) => !!(entry.name === value.data.name),
           ),
@@ -541,38 +536,37 @@ export const ingressHandlers = (config: IngressConfig) =>
 
         if (
           options.length !== definition.slashOptions.length ||
-          EffectArray.some(
+          Arr.some(
             options,
             (option) =>
-              !EffectArray.some(
+              !Arr.some(
                 definition.slashOptions,
                 (expected: (typeof definition.slashOptions)[number]) =>
                   !!(expected.name === option.name),
               ),
           ) ||
-          new Set(EffectArray.map(options, (option) => option.name)).size !==
+          new Set(Arr.map(options, (option) => option.name)).size !==
             options.length
         )
           return privateReply("Invalid command options.");
 
         const invocation = yield* Schema.decodeEffect(Invocation)({
           command: definition.name,
-          input: EffectArray.join(
-            EffectArray.flatMap(
+          input: Arr.join(
+            Arr.flatMap(
               definition.slashOptions,
               (option: (typeof definition.slashOptions)[number]) => {
-                const input = EffectOption.getOrUndefined(
-                  EffectOption.map(
-                    EffectOption.fromNullishOr(
-                      EffectOption.getOrUndefined(
-                        EffectArray.findFirst(
+                const input = Option.getOrUndefined(
+                  Option.map(
+                    Option.fromNullishOr(
+                      Option.getOrUndefined(
+                        Arr.findFirst(
                           options,
                           (entry) => !!(entry.name === option.name),
                         ),
                       )?.value,
                     ),
-                    (effectNativeValue1) =>
-                      EffectString.trim(effectNativeValue1),
+                    (effectNativeValue1) => Str.trim(effectNativeValue1),
                   ),
                 );
 
@@ -619,8 +613,8 @@ export const ingressHandlers = (config: IngressConfig) =>
           Effect.catchCause((cause) => {
             if (Cause.hasInterrupts(cause)) return Effect.interrupt;
 
-            const error = EffectOption.getOrUndefined(
-              EffectArray.findFirst(
+            const error = Option.getOrUndefined(
+              Arr.findFirst(
                 cause.reasons,
                 (reason) => !!Predicate.isTagged(reason, "Fail"),
               ),
@@ -653,7 +647,7 @@ export const ingressHandlers = (config: IngressConfig) =>
           Effect.catchCause((cause) => {
             if (Cause.hasInterrupts(cause)) return Effect.interrupt;
 
-            const errors = EffectArray.flatMap([...cause.reasons], (reason) =>
+            const errors = Arr.flatMap([...cause.reasons], (reason) =>
               Predicate.isTagged(reason, "Fail") &&
               Schema.is(IngressError)(reason.error)
                 ? [reason.error]

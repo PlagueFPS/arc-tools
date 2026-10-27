@@ -27,9 +27,9 @@ import {
   Layer,
   Redacted,
   Schema,
-  Array as EffectArray,
-  Option as EffectOption,
-  String as EffectString,
+  Array as Arr,
+  Option,
+  String as Str,
 } from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
@@ -149,10 +149,10 @@ export const fixture = Effect.fnUntraced(function* () {
       }
 
       if (url.pathname === "/validate") {
-        const token = EffectOption.getOrUndefined(
-          EffectOption.map(
-            EffectOption.fromNullishOr(request.headers.get("Authorization")),
-            (effectNativeValue0) => EffectString.slice(6)(effectNativeValue0),
+        const token = Option.getOrUndefined(
+          Option.map(
+            Option.fromNullishOr(request.headers.get("Authorization")),
+            (effectNativeValue0) => Str.slice(6)(effectNativeValue0),
           ),
         );
 
@@ -178,7 +178,7 @@ export const fixture = Effect.fnUntraced(function* () {
 
       if (url.pathname === "/users")
         return Response.json({
-          data: EffectArray.map(url.searchParams.getAll("login"), (login) => ({
+          data: Arr.map(url.searchParams.getAll("login"), (login) => ({
             login,
             id: Match.value(login).pipe(
               Match.when("fixture_channel", () => "200"),
@@ -252,7 +252,7 @@ export const fixture = Effect.fnUntraced(function* () {
       }
 
       if (
-        EffectArray.some(
+        Arr.some(
           [...control.remote.values()],
           (sub) =>
             !!(
@@ -357,11 +357,10 @@ export const fixture = Effect.fnUntraced(function* () {
             ),
             login: grant.login,
             scopes:
-              EffectOption.getOrUndefined(
-                EffectOption.map(
-                  EffectOption.fromNullishOr(params.get("scope")),
-                  (effectNativeValue1) =>
-                    EffectString.split(effectNativeValue1, " "),
+              Option.getOrUndefined(
+                Option.map(
+                  Option.fromNullishOr(params.get("scope")),
+                  (effectNativeValue1) => Str.split(effectNativeValue1, " "),
                 ),
               ) ?? [],
           },

@@ -8,13 +8,7 @@ import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import { State } from "alchemy/State";
 import * as Core from "alchemy/Test/Core";
-import {
-  Effect,
-  Schema,
-  Stream,
-  Array as EffectArray,
-  Console as EffectConsole,
-} from "effect";
+import { Effect, Schema, Stream, Array as Arr, Console } from "effect";
 
 import Stack from "../alchemy.run.js";
 import { CloudResourceEvidence, cloudSettings } from "./cloud-settings.js";
@@ -93,12 +87,12 @@ await Core.run(
           .items({ accountId })
           .pipe(Stream.runCollect);
 
-        const remainingWorkers = EffectArray.filter(
+        const remainingWorkers = Arr.filter(
           workers,
           (worker) => !!names.includes(worker.id ?? ""),
         );
 
-        const remainingObjects = EffectArray.filter(
+        const remainingObjects = Arr.filter(
           namespaces,
           (namespace) =>
             !!(
@@ -113,7 +107,7 @@ await Core.run(
           });
         }
 
-        yield* EffectConsole.info(
+        yield* Console.info(
           `CLEANUP VERIFIED ${settings.stage}: Cloudflare lists 0 Workers and 0 DO namespaces; state entries and output absent; control backend retained`,
         );
       }),

@@ -7,9 +7,9 @@ import {
   Result,
   Layer,
   Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
@@ -79,10 +79,10 @@ export const makeSourceFixture = Effect.fnUntraced(function* (
     retire: (id: string) => temporary.retire(id),
     controlState: (id: string) => temporary.observe(id),
     observations: Effect.fnUntraced(function* () {
-      return EffectRecord.fromEntries(
-        EffectArray.map(
+      return Rec.fromEntries(
+        Arr.map(
           [...(yield* storage.list<number>({ prefix: "calls:" }))],
-          ([key, value]) => [EffectString.slice(6)(key), value],
+          ([key, value]) => [Str.slice(6)(key), value],
         ),
       );
     }),

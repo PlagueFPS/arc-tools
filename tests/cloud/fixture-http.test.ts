@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
 /* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
 /* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
@@ -21,8 +20,8 @@ import {
   Layer,
   Predicate,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -277,7 +276,7 @@ test(
 test(
   "probe snapshot failures retain their explanation without retrying or exposing other response bodies",
   Effect.gen(function* () {
-    const snapshot = EffectString.replace("/arm", "/snapshot")(url);
+    const snapshot = Str.replace("/arm", "/snapshot")(url);
 
     for (const [target, method, marker, expected] of [
       [snapshot, "GET", "v1", "fixture-failure"],
@@ -392,7 +391,7 @@ test(
       const transient = code === "ECONNRESET" || code === "EAI_AGAIN";
       expect(Exit.isSuccess(result)).toBe(transient);
       expect(calls).toBe(transient ? 3 : 1);
-      expect(EffectArray.join(events, "\n")).not.toContain("CANARY");
+      expect(Arr.join(events, "\n")).not.toContain("CANARY");
     }
   }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 );
@@ -540,7 +539,7 @@ test(
     if (!Exit.isFailure(exit))
       return yield* Effect.die("Expected sanitized failure");
 
-    const rendered = EffectArray.join(
+    const rendered = Arr.join(
       [
         Cause.pretty(exit.cause),
         yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
@@ -613,7 +612,7 @@ test(
           (yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
             responseExit,
           ).pipe(Effect.orDie)) +
-          EffectArray.join(events, "\n"),
+          Arr.join(events, "\n"),
       ).not.toContain(canary);
     }
   }),
@@ -698,7 +697,7 @@ test(
           ).pipe(Effect.orDie)) +
           journal +
           cleanup +
-          EffectArray.join(lines, "\n"),
+          Arr.join(lines, "\n"),
       ).not.toContain("CANARY-SECRET");
       expect(journal).toContain("ECONNRESET");
       expect(cleanup).toContain('"state":"confirmed"');

@@ -25,8 +25,8 @@ import {
   Layer,
   Result,
   Schema,
-  Array as EffectArray,
-  Option as EffectOption,
+  Array as Arr,
+  Option,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -93,7 +93,7 @@ const recovery = (
 const restoreLegacyCleanupRecords = (
   h: Effect.Success<ReturnType<typeof harness>>,
 ) => {
-  const sessions = EffectArray.map(snapshot(h).enrollments, (entry) =>
+  const sessions = Arr.map(snapshot(h).enrollments, (entry) =>
     entry.phase.kind === "member"
       ? { ...entry, expiresAt: initial + policy.enrollmentSessionMs }
       : entry,
@@ -105,7 +105,7 @@ const restoreLegacyCleanupRecords = (
 
   h.memory.values.set("account:channel:v1/400", {
     ...record,
-    public: EffectArray.map(record.public, (entry) => {
+    public: Arr.map(record.public, (entry) => {
       const { cleanupAfter: _cleanupAfter, ...member } = entry.member;
 
       return { ...entry, member };
@@ -159,10 +159,7 @@ for (const senderKind of ["personal", "synthetic"] as const) {
         const restored = yield* h.construct(`${senderKind}-revision`);
         yield* h.authorize(restored.service);
         expect(
-          EffectArray.map(
-            (yield* restored.service.status).channels,
-            (c) => c.login,
-          ),
+          Arr.map((yield* restored.service.status).channels, (c) => c.login),
         ).toEqual([fixtureConfig.senderLogin]);
         expect(snapshot(h).publicMembers).toEqual(
           snapshot(source).publicMembers,
@@ -196,10 +193,7 @@ for (const senderKind of ["personal", "synthetic"] as const) {
         const restored = yield* returned.construct("returned-bot");
         yield* returned.authorize(restored.service);
         expect(
-          EffectArray.map(
-            (yield* restored.service.status).channels,
-            (c) => c.login,
-          ),
+          Arr.map((yield* restored.service.status).channels, (c) => c.login),
         ).toEqual(["public_channel", ...bot.channelLogins]);
         expect(snapshot(returned).publicMembers).toEqual(
           snapshot(source).publicMembers,
@@ -287,7 +281,7 @@ for (const stage of ["local-enrollment", "staging", "prod"]) {
           (yield* h.account.dispatch(h.send("public-send", "400"))).kind,
         ).toBe("sent");
         expect(
-          EffectArray.map(
+          Arr.map(
             (yield* h.account.setup("operator-digest")).status.channels,
             (channel) => String(channel.id),
           ),
@@ -521,9 +515,9 @@ test(
       expect(h.control.usersTokens.length).toBe(users + 2);
       yield* Deferred.succeed(h.control.usersGate, undefined);
       const outcomes = [yield* Fiber.join(a), yield* Fiber.join(b)];
-      expect(EffectArray.filter(outcomes, Result.isSuccess).length).toBe(1);
+      expect(Arr.filter(outcomes, Result.isSuccess).length).toBe(1);
       expect(
-        EffectArray.flatMap(outcomes, (result) =>
+        Arr.flatMap(outcomes, (result) =>
           Result.isFailure(result) ? [result.failure.code] : [],
         ),
       ).toEqual(["capacity"]);
@@ -544,7 +538,7 @@ test(
       h.time(initial + policy.oauthMs);
       yield* h.enrollment.begin(yield* enrollmentInput());
       expect(
-        EffectArray.filter(
+        Arr.filter(
           snapshot(h).enrollments,
           (entry) => !!(entry.phase.kind === "pending"),
         ).length,
@@ -605,8 +599,8 @@ test(
       h.control.failCreate = true;
       yield* h.alarm;
 
-      const unknown = EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      const unknown = Option.getOrUndefined(
+        Arr.findFirst(
           h.control.remote,
           (sub) => !!(sub.condition.broadcaster_user_id === "400"),
         ),
@@ -621,7 +615,7 @@ test(
       h.consumeAlarm();
       yield* recovered.credentialAlarm;
       expect(
-        EffectArray.some(h.control.remote, (sub) => !!(sub.id === unknown)),
+        Arr.some(h.control.remote, (sub) => !!(sub.id === unknown)),
       ).toBeFalse();
       const record = snapshot(h).subscriptions["400"];
 
@@ -807,11 +801,11 @@ for (const status of ["authorization_revoked", "user_removed"] as const)
         const restored = yield* h.construct();
         yield* restored.credentialAlarm;
         expect(
-          EffectArray.map(snapshot(h).publicMembers, (member) => member.id),
+          Arr.map(snapshot(h).publicMembers, (member) => member.id),
         ).toEqual([BroadcasterId.make("500")]);
         expect(snapshot(h).subscriptions["400"]).toBeUndefined();
         expect(
-          EffectArray.map(snapshot(h).enrollments, (entry) => entry.session),
+          Arr.map(snapshot(h).enrollments, (entry) => entry.session),
         ).toEqual([survivor.session, revoked.session]);
         expect(snapshot(h).grants["400"]).toBeUndefined();
         expect(snapshot(h).grants["100"]).toContain("user:bot");
@@ -932,7 +926,7 @@ test(
       yield* enroll(h);
       h.time(initial + 1);
       yield* h.alarm;
-      h.control.remote = EffectArray.map(h.control.remote, (record) =>
+      h.control.remote = Arr.map(h.control.remote, (record) =>
         record.condition.broadcaster_user_id === "400"
           ? { ...record, status: "user_removed" }
           : record,
@@ -1160,13 +1154,13 @@ test(
         login: "public_channel",
       });
       expect(
-        EffectArray.some(
+        Arr.some(
           h.control.remote,
           (record) => !!(record.id === "other-application-callback"),
         ),
       ).toBeTrue();
       expect(
-        EffectArray.some(
+        Arr.some(
           h.control.remote,
           (record) => !!(record.id === "other-sender"),
         ),
@@ -1426,8 +1420,8 @@ test(
       yield* Deferred.await(h.control.createStarted);
       expect(h.control.creates).toBe(creates + 1);
 
-      const remote = EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      const remote = Option.getOrUndefined(
+        Arr.findFirst(
           h.control.remote,
           (record) => !!(record.condition.broadcaster_user_id === "400"),
         ),

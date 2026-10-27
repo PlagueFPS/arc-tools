@@ -1,11 +1,5 @@
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import {
-  Effect,
-  Exit,
-  Semaphore,
-  Array as EffectArray,
-  String as EffectString,
-} from "effect";
+import { Effect, Exit, Semaphore, Array as Arr, String as Str } from "effect";
 
 export const fixtureRuntime = RuntimeContext.of({
   Type: "test",
@@ -32,10 +26,7 @@ export const fixtureStorage = Effect.fnUntraced(function* () {
       Effect.sync(
         () =>
           new Map(
-            EffectArray.filter(
-              [...values],
-              ([key]) => !!EffectString.startsWith(prefix)(key),
-            ),
+            Arr.filter([...values], ([key]) => !!Str.startsWith(prefix)(key)),
           ) as Map<string, T>,
       ),
     transaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>

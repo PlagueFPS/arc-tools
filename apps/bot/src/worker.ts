@@ -6,12 +6,7 @@ import { TwitchAccount } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
 import type { HttpEffect } from "alchemy/Http";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
-import {
-  Effect,
-  Layer,
-  String as EffectString,
-  Clock as EffectClock,
-} from "effect";
+import { Effect, Layer, String as Str, Clock } from "effect";
 import {
   HttpMiddleware,
   HttpRouter,
@@ -58,8 +53,7 @@ export default Bot.make(
     const origin = yield* bindBotOrigin;
 
     const testComposition =
-      identity.kind === "test" &&
-      EffectString.startsWith("test-tenant-")(identity.stage)
+      identity.kind === "test" && Str.startsWith("test-tenant-")(identity.stage)
         ? yield* Effect.promise(
             () => import("../../../tests/cloud/bot-composition.js"),
           )
@@ -91,7 +85,7 @@ export default Bot.make(
         operatorSecret,
       }),
       fetch: Effect.gen(function* () {
-        const receivedAt = yield* EffectClock.currentTimeMillis;
+        const receivedAt = yield* Clock.currentTimeMillis;
         const observation = testComposition?.botRequestObservation(identity);
 
         const response = yield* Effect.gen(function* () {

@@ -1,4 +1,5 @@
-/* oxlint-disable effecttsgo/prefer-effect-array, effecttsgo/prefer-effect-string -- This browser utility entry must not import the Effect runtime; browser.test.ts verifies the bundle boundary. */
+import { Array as Arr, Order, String as Str, pipe } from "effect";
+
 export const BASE_API_URL = "https://metaforge.app/api/arc-raiders";
 
 /**
@@ -7,13 +8,15 @@ export const BASE_API_URL = "https://metaforge.app/api/arc-raiders";
  * @returns The formatted string
  */
 export const parseMessageParams = (params: string[]) =>
-  params
-    .flatMap((param) => {
-      const trimmed = param.trim();
+  pipe(
+    params,
+    Arr.flatMap((param) => {
+      const trimmed = Str.trim(param);
 
       return trimmed ? [trimmed] : [];
-    })
-    .join(" ");
+    }),
+    Arr.join(" "),
+  );
 
 /**
  * Formats milliseconds as a human-readable duration string (e.g. "45m", "2h 30m")
@@ -29,18 +32,21 @@ export const formatMinutes = (ms: number): string => {
 };
 
 /** Normalize for matching: lowercase, no spaces */
-export const normalize = (s: string) => s.toLowerCase().replace(/\s/g, "");
+export const normalize = (s: string) =>
+  pipe(s, Str.toLowerCase, Str.replace(/\s/g, ""));
 
 /** Transforms a string into a slug: lowercase, no spaces, hyphens instead of spaces */
 export const slugify = (s: string) =>
-  s
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "") // Remove all non-word characters except spaces and hyphens
-    .replace(/[\s_]+/g, "-") // Replace spaces and underscores with a single hyphen
-    .replace(/--+/g, "-") // Replace multiple hyphens with a single hyphen
-    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
+  pipe(
+    s,
+    Str.toLowerCase,
+    Str.trim,
+    Str.replace(/[^\w\s-]/g, ""),
+    Str.replace(/[\s_]+/g, "-"),
+    Str.replace(/--+/g, "-"),
+    Str.replace(/^-+|-+$/g, ""),
+  );
 
 /** Sorts an array of items by a given key in descending order */
 export const sortByDesc = <T>(items: readonly T[], key: (item: T) => number) =>
-  [...items].sort((a, b) => key(b) - key(a));
+  Arr.sort(items, Order.mapInput(Order.flip(Order.Number), key));

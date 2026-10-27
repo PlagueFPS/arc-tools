@@ -1,4 +1,4 @@
-import { String as EffectString } from "effect";
+import { String as Str } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import type { Message } from "../message";
@@ -116,7 +116,7 @@ function chatLine(
             `size-7 shrink-0 rounded-md text-center text-xs leading-7 ${avatar}`,
           ),
         ],
-        [EffectString.toUpperCase(EffectString.slice(0, 1)(name))],
+        [Str.toUpperCase(Str.slice(0, 1)(name))],
       ),
       h.div(
         [],

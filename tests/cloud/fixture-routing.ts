@@ -1,5 +1,5 @@
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
-import { Context, Effect, Schema, String as EffectString } from "effect";
+import { Context, Effect, Schema, String as Str } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 
 export const JourneyId = Schema.String.check(
@@ -58,8 +58,8 @@ export const routeJourney = <A, E, R>(handler: Effect.Effect<A, E, R>) =>
   });
 
 export const journeyFromName = (name: string | undefined, prefix: string) => {
-  if (name === undefined || !EffectString.startsWith(prefix)(name))
+  if (name === undefined || !Str.startsWith(prefix)(name))
     throw new Error("Fixture native journey identity unavailable");
 
-  return Schema.decodeSync(JourneyId)(EffectString.slice(prefix.length)(name));
+  return Schema.decodeSync(JourneyId)(Str.slice(prefix.length)(name));
 };

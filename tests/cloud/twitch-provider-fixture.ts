@@ -13,10 +13,10 @@ import {
   Layer,
   Redacted,
   Schema,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
-  Option as EffectOption,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Option,
 } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
@@ -161,17 +161,17 @@ export const makeProviderFixture = (
             Effect.gen(function* () {
               return {
                 messages: (yield* storage.get("messages")) ?? [],
-                calls: EffectRecord.fromEntries(
-                  EffectArray.map(
+                calls: Rec.fromEntries(
+                  Arr.map(
                     [...(yield* storage.list<number>({ prefix: "call:" }))],
-                    ([key, value]) => [EffectString.slice(5)(key), value],
+                    ([key, value]) => [Str.slice(5)(key), value],
                   ),
                 ),
                 remote: (yield* storage.get<Subscription[]>("remote")) ?? [],
-                bindings: EffectRecord.fromEntries(
-                  EffectArray.map(
+                bindings: Rec.fromEntries(
+                  Arr.map(
                     [...(yield* storage.list<string>({ prefix: "binding:" }))],
-                    ([key, value]) => [EffectString.slice(8)(key), value],
+                    ([key, value]) => [Str.slice(8)(key), value],
                   ),
                 ),
                 logs: (yield* storage.get<string[]>("logs")) ?? [],
@@ -195,7 +195,7 @@ export const makeProviderFixture = (
         const fingerprint =
           url.pathname === "/oauth/validate"
             ? yield* credentialFingerprint(
-                EffectString.replace(/^OAuth /, "")(authorization),
+                Str.replace(/^OAuth /, "")(authorization),
               )
             : null;
 
@@ -255,29 +255,26 @@ export const makeProviderFixture = (
               ? []
               : full
                 ? commands
-                : EffectArray.map(commands, (command) => ({
+                : Arr.map(commands, (command) => ({
                     ...command,
                     name_localizations: undefined,
                     description_localizations: undefined,
-                    options: EffectOption.getOrUndefined(
-                      EffectOption.map(
-                        EffectOption.fromNullishOr(command.options),
+                    options: Option.getOrUndefined(
+                      Option.map(
+                        Option.fromNullishOr(command.options),
                         (effectNativeValue0) =>
-                          EffectArray.map(effectNativeValue0, (option) => ({
+                          Arr.map(effectNativeValue0, (option) => ({
                             ...option,
                             name_localizations: undefined,
                             description_localizations: undefined,
-                            choices: EffectOption.getOrUndefined(
-                              EffectOption.map(
-                                EffectOption.fromNullishOr(option.choices),
+                            choices: Option.getOrUndefined(
+                              Option.map(
+                                Option.fromNullishOr(option.choices),
                                 (effectNativeValue1) =>
-                                  EffectArray.map(
-                                    effectNativeValue1,
-                                    (choice) => ({
-                                      ...choice,
-                                      name_localizations: undefined,
-                                    }),
-                                  ),
+                                  Arr.map(effectNativeValue1, (choice) => ({
+                                    ...choice,
+                                    name_localizations: undefined,
+                                  })),
                               ),
                             ),
                           })),
@@ -322,9 +319,9 @@ export const makeProviderFixture = (
         }
 
         if (url.pathname === "/oauth/validate") {
-          const token = EffectString.replace(/^OAuth /, "")(authorization);
+          const token = Str.replace(/^OAuth /, "")(authorization);
 
-          if (EffectString.startsWith("synthetic-app-")(token))
+          if (Str.startsWith("synthetic-app-")(token))
             return {
               status: 200,
               body: {
@@ -354,17 +351,14 @@ export const makeProviderFixture = (
           return {
             status: 200,
             body: {
-              data: EffectArray.map(
-                url.searchParams.getAll("login"),
-                (login) => ({
-                  login,
-                  id: Match.value(login).pipe(
-                    Match.when("fixture_sender", () => "100"),
-                    Match.when("fixture_channel", () => "200"),
-                    Match.orElse(() => "300"),
-                  ),
-                }),
-              ),
+              data: Arr.map(url.searchParams.getAll("login"), (login) => ({
+                login,
+                id: Match.value(login).pipe(
+                  Match.when("fixture_sender", () => "100"),
+                  Match.when("fixture_channel", () => "200"),
+                  Match.orElse(() => "300"),
+                ),
+              })),
             },
           };
 
@@ -392,7 +386,7 @@ export const makeProviderFixture = (
 
                   yield* storage.put(
                     "remote",
-                    EffectArray.filter(
+                    Arr.filter(
                       remote,
                       (subscription) =>
                         !!(subscription.id !== url.searchParams.get("id")),
@@ -427,7 +421,7 @@ export const makeProviderFixture = (
                   (yield* storage.get<Subscription[]>("remote")) ?? [];
 
                 if (
-                  EffectArray.some(
+                  Arr.some(
                     remote,
                     (subscription) =>
                       !!(

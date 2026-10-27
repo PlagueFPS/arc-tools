@@ -28,10 +28,10 @@ import {
   Fiber,
   Redacted,
   Schema,
-  Array as EffectArray,
-  Option as EffectOption,
-  String as EffectString,
-  Console as EffectConsole,
+  Array as Arr,
+  Option,
+  String as Str,
+  Console,
 } from "effect";
 
 import { setupWhenAvailable } from "./account-setup.js";
@@ -130,10 +130,10 @@ const authorize = Effect.fnUntraced(function* (url: string) {
       code: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
         userId,
         login: auth.login,
-        scopes: EffectOption.getOrUndefined(
-          EffectOption.map(
-            EffectOption.fromNullishOr(params.get("scope")),
-            (effectNativeValue0) => EffectString.split(effectNativeValue0, " "),
+        scopes: Option.getOrUndefined(
+          Option.map(
+            Option.fromNullishOr(params.get("scope")),
+            (effectNativeValue0) => Str.split(effectNativeValue0, " "),
           ),
         ),
         clientId: "fixture-twitch",
@@ -328,7 +328,7 @@ export function registerAccountTests({
       const ready = yield* authorize(u.account);
       expect(ready.status.setup).toBe("ready");
       expect(
-        EffectArray.map(ready.status.channels, (channel) => String(channel.id)),
+        Arr.map(ready.status.channels, (channel) => String(channel.id)),
       ).toEqual(["200", "300"]);
       expect(
         (yield* get(`${u.account}/snapshot`, Snapshot)).onboardingRetained,
@@ -438,7 +438,7 @@ export function registerAccountTests({
       yield* post(`${u.account}/time`, configured.time + 1);
       yield* post(`${u.account}/credential`);
       expect(
-        EffectArray.map(
+        Arr.map(
           (yield* providerSnapshot(u.provider)).remote,
           (sub) => sub.condition.broadcaster_user_id,
         ),
@@ -770,8 +770,8 @@ export function registerAccountTests({
       ).toEqual({ kind: "expired" });
       const remote = yield* providerSnapshot(u.provider);
 
-      const subscription = EffectOption.getOrUndefined(
-        EffectArray.findFirst(
+      const subscription = Option.getOrUndefined(
+        Arr.findFirst(
           remote.remote,
           (sub) => !!(sub.condition.broadcaster_user_id === "300"),
         ),
@@ -808,10 +808,7 @@ export function registerAccountTests({
 
       expect(status.value.sender?.authorized).toBeTrue();
       expect(
-        EffectArray.some(
-          status.value.channels,
-          (channel) => !!(channel.id === "300"),
-        ),
+        Arr.some(status.value.channels, (channel) => !!(channel.id === "300")),
       ).toBeFalse();
     }),
     { timeout: 120_000 },
@@ -859,7 +856,7 @@ export function registerAccountTests({
           snapshots,
         }).pipe(Effect.orDie);
 
-        yield* EffectConsole.info(`NATIVE_ALARM_ATTRIBUTION ${entry}`);
+        yield* Console.info(`NATIVE_ALARM_ATTRIBUTION ${entry}`);
         yield* Effect.promise(() =>
           appendFile(
             new URL(
@@ -917,7 +914,7 @@ export function registerAccountTests({
         yield* reconstructedSnapshot(native(), prepared.instance);
 
         const recovered = yield* native((value) =>
-          EffectArray.some(
+          Arr.some(
             value.attribution.completedRuns,
             (run) => !!(run.alarmRun === 1),
           ),
@@ -945,7 +942,7 @@ export function registerAccountTests({
         );
 
         const validated = yield* native((value) =>
-          EffectArray.some(
+          Arr.some(
             value.attribution.completedRuns,
             (run) => !!(run.alarmRun === 2),
           ),
@@ -991,14 +988,11 @@ export function registerAccountTests({
         const beforePaired = yield* native();
 
         const priorInstances = new Set(
-          EffectArray.map(
-            beforePaired.attribution.events,
-            (event) => event.instance,
-          ),
+          Arr.map(beforePaired.attribution.events, (event) => event.instance),
         );
 
         const pairedRuns = (value: typeof snapshotSchema.Type) =>
-          EffectArray.filter(
+          Arr.filter(
             value.attribution.completedRuns,
             (run) =>
               !!(
@@ -1016,7 +1010,7 @@ export function registerAccountTests({
         const paired = yield* native((value) => pairedRuns(value).length > 0);
 
         const pairedOrdinal = Math.min(
-          ...EffectArray.map(pairedRuns(paired), (run) => run.alarmRun),
+          ...Arr.map(pairedRuns(paired), (run) => run.alarmRun),
         );
 
         const pairedKey = completedRunKey(paired.attribution, pairedOrdinal);
@@ -1119,7 +1113,7 @@ export function registerAccountTests({
       yield* post(`${u.provider}/control`, {
         commands: [
           { name: "obsolete", description: "obsolete", contexts: [0] },
-          ...EffectArray.map(commandManifest.slice(1), (command, index) =>
+          ...Arr.map(commandManifest.slice(1), (command, index) =>
             index === 0
               ? { ...command, description: "old definition" }
               : command,
@@ -1135,12 +1129,12 @@ export function registerAccountTests({
         ],
       ).toBe(written.calls["PUT /applications/fixture-discord/commands"]);
       yield* post(`${u.provider}/control`, {
-        commands: EffectArray.map(commandManifest, (command, index) =>
+        commands: Arr.map(commandManifest, (command, index) =>
           index === 0
             ? {
                 ...command,
                 name_localizations: { de: "kaufen" },
-                options: EffectArray.map(command.options, (option) => ({
+                options: Arr.map(command.options, (option) => ({
                   ...option,
                   description_localizations: { de: "Objektname" },
                 })),

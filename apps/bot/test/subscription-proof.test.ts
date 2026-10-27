@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 import { expect } from "bun:test";
 
@@ -13,8 +12,8 @@ import {
   Layer,
   Redacted,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
@@ -62,9 +61,7 @@ test(
       send: 0,
     });
     expect(
-      EffectArray.map([...f.control.remote.keys()], (id) =>
-        f.control.secrets.get(id),
-      ),
+      Arr.map([...f.control.remote.keys()], (id) => f.control.secrets.get(id)),
     ).toEqual(["secret-C"]);
     expect(f.snapshot().subscriptions["200"]?.binding).toBe(
       c.config.subscriptionBinding,
@@ -94,7 +91,7 @@ test(
       setup: status.setup,
       outcome: outcome.kind,
       sends: f.control.calls.send,
-      remote: EffectArray.map([...f.control.remote.keys()], (id) =>
+      remote: Arr.map([...f.control.remote.keys()], (id) =>
         f.control.secrets.get(id),
       ),
     }).toEqual({
@@ -130,9 +127,7 @@ test(
     expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
     expect(f.control.calls.post).toBe(4);
     expect(
-      EffectArray.map([...f.control.remote.keys()], (id) =>
-        f.control.secrets.get(id),
-      ),
+      Arr.map([...f.control.remote.keys()], (id) => f.control.secrets.get(id)),
     ).toEqual(["secret-A"]);
   }),
 );
@@ -199,9 +194,7 @@ test(
       "ready",
     );
     expect(
-      EffectArray.map([...f.control.remote.keys()], (id) =>
-        f.control.secrets.get(id),
-      ),
+      Arr.map([...f.control.remote.keys()], (id) => f.control.secrets.get(id)),
     ).toEqual(["secret-C"]);
     expect(f.control.calls).toEqual({
       get: 4,
@@ -246,9 +239,7 @@ test(
       send: 0,
     });
     expect(
-      EffectArray.map([...f.control.remote.keys()], (id) =>
-        f.control.secrets.get(id),
-      ),
+      Arr.map([...f.control.remote.keys()], (id) => f.control.secrets.get(id)),
     ).toEqual(["secret-D"]);
   }),
 );
@@ -631,8 +622,8 @@ test(
       },
       { data: [{ ...receipt, transport: { method: "webhook" } }] },
       { data: [{ ...receipt, status: "authorization_revoked" }] },
-      { data: [{ ...receipt, id: EffectString.repeat(129)("x") }] },
-      { data: [receipt], padding: EffectString.repeat(256 * 1024)("x") },
+      { data: [{ ...receipt, id: Str.repeat(129)("x") }] },
+      { data: [receipt], padding: Str.repeat(256 * 1024)("x") },
     ];
 
     for (const body of malformed) {
@@ -752,9 +743,7 @@ test(
     );
     expect(f.snapshot().subscriptions["200"]?.id).toBe("created-4");
     expect(
-      EffectArray.map([...f.control.remote.keys()], (id) =>
-        f.control.secrets.get(id),
-      ),
+      Arr.map([...f.control.remote.keys()], (id) => f.control.secrets.get(id)),
     ).toEqual(["secret-C"]);
     expect(f.control.calls).toEqual({
       get: 4,
@@ -803,9 +792,7 @@ test(
       send: 0,
     });
     expect(
-      EffectArray.map([...f.control.remote.keys()], (id) =>
-        f.control.secrets.get(id),
-      ),
+      Arr.map([...f.control.remote.keys()], (id) => f.control.secrets.get(id)),
     ).toEqual(["secret-A", "secret-A"]);
   }),
 );
@@ -874,7 +861,7 @@ test(
     expect(result.retryAt).toBeGreaterThanOrEqual(due);
     expect(f.snapshot().apiBlockedUntil).toBeGreaterThanOrEqual(due);
 
-    const posts = EffectArray.filter(
+    const posts = Arr.filter(
       f.control.requests,
       (entry) =>
         !!(entry.method === "POST" && entry.path === "/eventsub/subscriptions"),
@@ -889,7 +876,7 @@ test(
     const reconstructed = yield* f.construct("secret-A");
     yield* reconstructed.credentialAlarm;
     expect(
-      EffectArray.filter(
+      Arr.filter(
         f.control.requests,
         (entry) =>
           !!(
@@ -949,7 +936,7 @@ test(
       "rejected",
     );
     expect(
-      EffectArray.filter(
+      Arr.filter(
         f.control.requests,
         (entry) =>
           !!(entry.method === "POST" && entry.path === "/chat/messages"),

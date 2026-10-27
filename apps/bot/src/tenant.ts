@@ -23,8 +23,8 @@ import {
   Result,
   Schema,
   Semaphore,
-  Array as EffectArray,
-  Record as EffectRecord,
+  Array as Arr,
+  Record as Rec,
 } from "effect";
 
 import {
@@ -309,7 +309,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
 
       if (now >= work.claim.until) return false;
 
-      let plan = EffectArray.map(twitchParts(reply.text), (text, index) => ({
+      let plan = Arr.map(twitchParts(reply.text), (text, index) => ({
         attemptId: AttemptId.make(`${work.id}:${index}`),
         source: work.source,
         broadcasterId: work.broadcasterId,
@@ -489,7 +489,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     const result = yield* store.update((state) => {
       reclaim(state, now);
 
-      for (const [id, work] of EffectRecord.toEntries(state.works))
+      for (const [id, work] of Rec.toEntries(state.works))
         if (
           work.transport === "discord" &&
           work.kind === "computing" &&
@@ -505,7 +505,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
       if (Predicate.isNotNull(state.tenant) && state.tenant !== tenant)
         return { kind: "input" } as const;
 
-      const previous = EffectRecord.has(state.works, receipt.id)
+      const previous = Rec.has(state.works, receipt.id)
         ? state.works[receipt.id]
         : undefined;
 
@@ -726,9 +726,9 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     const ids = yield* store.update((state) => {
       reclaim(state, now);
 
-      return EffectArray.map(
-        EffectArray.filter(
-          EffectRecord.values(state.works),
+      return Arr.map(
+        Arr.filter(
+          Rec.values(state.works),
           (work) =>
             !!(
               work.transport === "twitch" &&
@@ -801,7 +801,7 @@ export const makeTenantStorage = Effect.fnUntraced(function* (
 
             const result = f(state);
 
-            if (EffectRecord.keys(state.works).length === 0) {
+            if (Rec.keys(state.works).length === 0) {
               yield* storage.setAlarm((yield* Clock.currentTimeMillis) + 1000);
 
               return { result, empty: true };

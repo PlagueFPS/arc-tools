@@ -27,9 +27,9 @@ import {
   Match,
   Redacted,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
-  Option as EffectOption,
+  Array as Arr,
+  String as Str,
+  Option,
 } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
@@ -189,10 +189,10 @@ const fixture = Effect.fnUntraced(function* (
     const location = new URL(response.headers.get("location") ?? "");
 
     const cookie =
-      EffectOption.getOrUndefined(
-        EffectOption.map(
-          EffectOption.fromNullishOr(response.headers.get("set-cookie")),
-          (effectNativeValue0) => EffectString.split(effectNativeValue0, ";"),
+      Option.getOrUndefined(
+        Option.map(
+          Option.fromNullishOr(response.headers.get("set-cookie")),
+          (effectNativeValue0) => Str.split(effectNativeValue0, ";"),
         ),
       )?.[0] ?? "";
 
@@ -257,7 +257,7 @@ test(
       expect(begun.location.searchParams.get("scope")).toBe("channel:bot");
       expect(begun.state).toMatch(/^enroll\.[a-f0-9]{64}$/);
       expect(begun.cookie).toMatch(/^__Host-arctools-enrollment=[a-f0-9]{64}$/);
-      const browserCredential = EffectString.split(begun.cookie, "=")[1];
+      const browserCredential = Str.split(begun.cookie, "=")[1];
       expect(begun.state).not.toBe(`enroll.${browserCredential}`);
       expect(begun.response.headers.get("set-cookie")).toContain(
         "Path=/; Secure; HttpOnly; SameSite=Lax",
@@ -446,14 +446,14 @@ test(
       for (const [path, cookie] of [
         [denial, ""],
         [
-          `/oauth/twitch/callback?state=${EffectString.slice(7)(begun.state)}&code=controlled`,
+          `/oauth/twitch/callback?state=${Str.slice(7)(begun.state)}&code=controlled`,
           begun.cookie,
         ],
         [denial, other.cookie],
         [`${denial}&state=${other.state}`, begun.cookie],
         [`${denial}&code=ambiguous`, begun.cookie],
         [
-          `/oauth/twitch/callback?state=${begun.state}&code=${EffectString.repeat(2049)("x")}`,
+          `/oauth/twitch/callback?state=${begun.state}&code=${Str.repeat(2049)("x")}`,
           begun.cookie,
         ],
         [
@@ -462,8 +462,8 @@ test(
         ],
         [`${denial}&cookie=${encodeURIComponent(begun.cookie)}`, ""],
         [denial, `${begun.cookie}; ${begun.cookie}`],
-        [denial, `${enrollmentCookie}=%61${EffectString.repeat(63)("a")}`],
-        [denial, `oversized=${EffectString.repeat(4097)("a")}`],
+        [denial, `${enrollmentCookie}=%61${Str.repeat(63)("a")}`],
+        [denial, `oversized=${Str.repeat(4097)("a")}`],
       ]) {
         const response = yield* f.request(path ?? "", cookie);
         expect(response.status).toBe(400);
@@ -525,22 +525,19 @@ for (const websiteOrigin of [
             Match.orElse(() => "300"),
           );
           f.h.control.grantScopes =
-            EffectOption.getOrUndefined(
-              EffectOption.map(
-                EffectOption.fromNullishOr(
+            Option.getOrUndefined(
+              Option.map(
+                Option.fromNullishOr(
                   new URL(auth.url).searchParams.get("scope"),
                 ),
-                (effectNativeValue1) =>
-                  EffectString.split(effectNativeValue1, " "),
+                (effectNativeValue1) => Str.split(effectNativeValue1, " "),
               ),
             ) ?? [];
 
           const cookie = Match.value(index).pipe(
             Match.when(0, () => ""),
             Match.when(1, () => `${enrollmentCookie}=malformed`),
-            Match.orElse(
-              () => `${enrollmentCookie}=${EffectString.repeat(64)("a")}`,
-            ),
+            Match.orElse(() => `${enrollmentCookie}=${Str.repeat(64)("a")}`),
           );
 
           const response = yield* f.complete(state, cookie);
@@ -634,9 +631,9 @@ test(
     });
     const state = yield* Schema.decodeEffect(AccountState)(f.h.snapshot());
     expect(state.grants["400"]).toEqual(["channel:bot"]);
-    expect(
-      EffectArray.map(state.publicMembers, (member) => String(member.id)),
-    ).toEqual(["400"]);
+    expect(Arr.map(state.publicMembers, (member) => String(member.id))).toEqual(
+      ["400"],
+    );
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
@@ -767,7 +764,7 @@ test(
       privateHeaders(response);
     }
 
-    const secure = `${enrollmentCookie}=${EffectString.slice(localEnrollmentCookie.length + 1)(local.cookie)}`;
+    const secure = `${enrollmentCookie}=${Str.slice(localEnrollmentCookie.length + 1)(local.cookie)}`;
     expect(
       (yield* f.request("/oauth/twitch/enroll/status", secure)).status,
     ).toBe(401);

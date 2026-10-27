@@ -1,4 +1,4 @@
-import { Effect, Option, Array as EffectArray } from "effect";
+import { Effect, Option, Array as Arr } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 import { resolveItem } from "./utils.js";
@@ -24,8 +24,8 @@ export const craftHandler = Effect.fn("Command.craftHandler")(
       return yield* Effect.succeed(`${item.value.name} cannot be crafted.`);
     }
 
-    const components = EffectArray.join(
-      EffectArray.map(
+    const components = Arr.join(
+      Arr.map(
         item.value.components.value,
         (component) => `${component.component.name} (x${component.quantity})`,
       ),

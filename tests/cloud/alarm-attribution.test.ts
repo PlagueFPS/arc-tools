@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/crypto-random-uuid -- Native fixture callbacks allocate secure operation IDs synchronously. */
 /* oxlint-disable effecttsgo/global-fetch-in-effect -- The transport test exercises native Fetch cancellation and wire behavior at the HTTP boundary. */
 /* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
@@ -32,9 +31,9 @@ import {
   Redacted,
   Schema,
   Semaphore,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 
 import { EnvironmentConfig } from "../../apps/bot/src/config.js";
@@ -101,10 +100,7 @@ const memory = Effect.fnUntraced(function* () {
       Effect.sync(
         () =>
           new Map(
-            EffectArray.filter(
-              [...values],
-              ([key]) => !!EffectString.startsWith(prefix)(key),
-            ),
+            Arr.filter([...values], ([key]) => !!Str.startsWith(prefix)(key)),
           ) as Map<string, T>,
       ),
     delete: (key: string) => Effect.sync(() => values.delete(key)),
@@ -377,13 +373,13 @@ test(
       const verified = verifyCompletedRecovery(evidence);
       expect(verified.runKey).toBe(evidence.recoveryRunKey);
       expect(
-        EffectArray.map(
+        Arr.map(
           evidence.account.completedRuns,
           (run) => run.validationInvocationIds.length,
         ),
       ).toEqual([0, 1]);
       expect(
-        EffectArray.filter(
+        Arr.filter(
           evidence.provider.events,
           (event) =>
             !!(event.correlation?.invocationId === verified.invocationId),
@@ -454,7 +450,7 @@ test(
       const invocationId = recovery.validationInvocationIds[0];
       expect(recovery.validationInvocationIds).toHaveLength(1);
       expect(
-        EffectArray.filter(
+        Arr.filter(
           provider.events,
           (event) => !!(event.correlation?.invocationId === invocationId),
         ),
@@ -512,7 +508,7 @@ test(
       const provider = (yield* proof.core.snapshot()).validations;
       expect(proof.early.validationInvocationIds).toHaveLength(1);
       expect(
-        EffectArray.filter(
+        Arr.filter(
           provider.events,
           (event) => !!(event.correlation?.origin.alarmRun === 1),
         ),
@@ -552,7 +548,7 @@ test(
         evidence.account.completedRuns[0]?.validationInvocationIds,
       ).toHaveLength(0);
       expect(
-        EffectArray.filter(
+        Arr.filter(
           provider.events,
           (event) => !!(event.correlation?.origin.alarmRun === 1),
         ),
@@ -587,7 +583,7 @@ test(
         ...evidence,
         provider: {
           ...evidence.provider,
-          events: EffectArray.map(evidence.provider.events, (event) =>
+          events: Arr.map(evidence.provider.events, (event) =>
             event.correlation?.invocationId === id ? change(event) : event,
           ),
         },
@@ -598,7 +594,7 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            completedRuns: EffectArray.filter(
+            completedRuns: Arr.filter(
               evidence.account.completedRuns,
               (run) => !!(run.key !== recovery.key),
             ),
@@ -615,7 +611,7 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            invocations: EffectArray.filter(
+            invocations: Arr.filter(
               evidence.account.invocations,
               (invocation) => !!(invocation.id !== id),
             ),
@@ -625,12 +621,10 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            invocations: EffectArray.map(
-              evidence.account.invocations,
-              (invocation) =>
-                invocation.id === id
-                  ? { ...invocation, completion: null }
-                  : invocation,
+            invocations: Arr.map(evidence.account.invocations, (invocation) =>
+              invocation.id === id
+                ? { ...invocation, completion: null }
+                : invocation,
             ),
           },
         },
@@ -638,15 +632,13 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            invocations: EffectArray.map(
-              evidence.account.invocations,
-              (invocation) =>
-                invocation.id === id
-                  ? {
-                      ...invocation,
-                      credentialFingerprint: EffectString.repeat(64)("0"),
-                    }
-                  : invocation,
+            invocations: Arr.map(evidence.account.invocations, (invocation) =>
+              invocation.id === id
+                ? {
+                    ...invocation,
+                    credentialFingerprint: Str.repeat(64)("0"),
+                  }
+                : invocation,
             ),
           },
         },
@@ -654,7 +646,7 @@ test(
           ...evidence,
           provider: {
             ...evidence.provider,
-            events: EffectArray.filter(
+            events: Arr.filter(
               evidence.provider.events,
               (event) => !!(event.correlation?.invocationId !== id),
             ),
@@ -684,7 +676,7 @@ test(
         })),
         changeEvent((event) => ({
           ...event,
-          credentialFingerprint: EffectString.repeat(64)("0"),
+          credentialFingerprint: Str.repeat(64)("0"),
         })),
         changeEvent((event) => ({ ...event, correlationError: true })),
       ];
@@ -821,7 +813,7 @@ for (const phase of ["start", "completion"] as const) {
 
             if (Exit.isFailure(exit))
               expect(
-                EffectArray.every(
+                Arr.every(
                   exit.cause.reasons,
                   (reason) => !!Predicate.isTagged(reason, "Interrupt"),
                 ),
@@ -846,7 +838,7 @@ for (const phase of ["start", "completion"] as const) {
           expect((yield* core.snapshot()).calls["GET /oauth/validate"]).toBe(1);
           const account = yield* readAccountAttribution(storage);
           expect(
-            EffectArray.some(
+            Arr.some(
               account.integrityErrors,
               (error) => !!(error.phase === phase),
             ),
@@ -1016,9 +1008,7 @@ test(
           `OAuth synthetic-app-bounded-${i}`,
         );
       const credentials = (yield* core.snapshot()).validations;
-      expect(EffectRecord.keys(credentials.counts)).toHaveLength(
-        attributionLimit,
-      );
+      expect(Rec.keys(credentials.counts)).toHaveLength(attributionLimit);
       expect(credentials.credentialsDropped).toBe(4);
       expect(yield* credentialFingerprint("CANARY-TOKEN")).toMatch(
         /^[a-f0-9]{64}$/,

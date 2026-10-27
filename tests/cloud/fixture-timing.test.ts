@@ -1,7 +1,7 @@
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect, test } from "bun:test";
 
-import { Schema, String as EffectString } from "effect";
+import { Schema, String as Str } from "effect";
 
 import { Work } from "../../apps/bot/src/tenant-state.js";
 import {
@@ -15,7 +15,7 @@ const work = Schema.decodeSync(Work)({
   transport: "twitch",
   kind: "computing",
   id: "native",
-  fingerprint: EffectString.repeat(64)("f"),
+  fingerprint: Str.repeat(64)("f"),
   receivedAt: 1000,
   deadline: 11000,
   retainUntil: 611000,
@@ -38,7 +38,7 @@ test("ingress timing requires a present finite decimal stamp", () => {
     "-1",
     "1.5",
     "1e3",
-    EffectString.repeat(400)("9"),
+    Str.repeat(400)("9"),
   ])
     expect(() =>
       ingressTiming(new Headers({ "x-arc-ingress-ms": stamp })),

@@ -12,11 +12,11 @@ import {
   Exit,
   Fiber,
   Layer,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
-  Schema as EffectSchema,
-  Option as EffectOption,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Schema,
+  Option,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -58,7 +58,7 @@ describe("Tenant durable behavior", () => {
         yield* TestClock.setTime(until - 1);
         const restored = yield* fixture.construct("restored");
         yield* restored.recover();
-        expect(EffectRecord.keys(fixture.snapshot().works)).toEqual(["work"]);
+        expect(Rec.keys(fixture.snapshot().works)).toEqual(["work"]);
         yield* TestClock.setTime(until);
         yield* restored.recover();
         expect(fixture.snapshot().works).toEqual({});
@@ -116,7 +116,7 @@ describe("Tenant durable behavior", () => {
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(cleanup);
       expect((yield* Fiber.join(fresh)).data.flags).toBe(0);
-      expect(EffectRecord.keys(fixture.snapshot().works)).toEqual(["fresh"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["fresh"]);
       expect(fixture.alarm()).toBe(1206000);
     }),
   );
@@ -131,7 +131,7 @@ describe("Tenant durable behavior", () => {
       yield* tenant.respondDiscord(discordReceipt("newer", 1000));
       yield* TestClock.setTime(603000);
       yield* tenant.recover();
-      expect(EffectRecord.keys(fixture.snapshot().works)).toEqual(["newer"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["newer"]);
       expect(fixture.alarm()).toBe(604000);
       expect(fixture.deletions()).toBe(0);
       yield* TestClock.setTime(604000);
@@ -142,7 +142,7 @@ describe("Tenant durable behavior", () => {
         (yield* reinstalled.respondDiscord(discordReceipt("fresh", 604000)))
           .data.flags,
       ).toBe(0);
-      expect(EffectRecord.keys(fixture.snapshot().works)).toEqual(["fresh"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["fresh"]);
       expect(fixture.alarm()).toBe(1207000);
     }),
   );
@@ -173,7 +173,7 @@ describe("Tenant durable behavior", () => {
       const conflict = yield* tenant
         .acceptTwitch({
           ...twitchReceipt(),
-          fingerprint: EffectString.repeat(64)("b"),
+          fingerprint: Str.repeat(64)("b"),
         })
         .pipe(Effect.result);
 
@@ -190,7 +190,7 @@ describe("Tenant durable behavior", () => {
         transport: "twitch",
         source: twitchReceipt().source,
         id: WorkId.make("work"),
-        fingerprint: EffectString.repeat(64)("a"),
+        fingerprint: Str.repeat(64)("a"),
         receivedAt: 0,
         deadline: Deadline.make(10000),
         retainUntil: 610000,
@@ -226,7 +226,7 @@ describe("Tenant durable behavior", () => {
       yield* next.recover();
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(running);
-      expect(EffectArray.map(fixture.sent, (send) => send.text)).toEqual([
+      expect(Arr.map(fixture.sent, (send) => send.text)).toEqual([
         "New can be sold for 20 coins each",
       ]);
       expect(fixture.snapshot().generation).toBe(3);
@@ -300,9 +300,7 @@ describe("Tenant durable behavior", () => {
         const fixture = yield* tenantFixture();
         const tenant = yield* fixture.construct();
         fixture.source.body({
-          data: [
-            { id: "sensors", name: EffectString.repeat(1200)("x"), value: 10 },
-          ],
+          data: [{ id: "sensors", name: Str.repeat(1200)("x"), value: 10 }],
         });
         fixture.dispatch((input) =>
           Effect.sync(() => {
@@ -315,11 +313,11 @@ describe("Tenant durable behavior", () => {
         yield* fixture.drain;
         expect(fixture.sent).toHaveLength(1);
         expect(
-          EffectOption.getOrUndefined(
-            EffectOption.map(
-              EffectOption.fromNullishOr(fixture.sent[0]?.text),
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(fixture.sent[0]?.text),
               (effectNativeValue0) =>
-                EffectString.startsWith("[1/3]: ")(effectNativeValue0),
+                Str.startsWith("[1/3]: ")(effectNativeValue0),
             ),
           ),
         ).toBeTrue();
@@ -328,9 +326,9 @@ describe("Tenant durable behavior", () => {
           outcome: kind,
         });
         expect(
-          yield* EffectSchema.encodeEffect(
-            EffectSchema.fromJsonString(EffectSchema.Unknown),
-          )(fixture.snapshot()).pipe(Effect.orDie),
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            fixture.snapshot(),
+          ).pipe(Effect.orDie),
         ).not.toContain("parent");
       }),
     );
@@ -347,7 +345,7 @@ describe("Tenant durable behavior", () => {
           .acceptTwitch(twitchReceipt("overflow"))
           .pipe(Effect.result),
       ).toMatchObject(Result.fail({ code: "capacity" }));
-      expect(EffectRecord.keys(fixture.snapshot().works)).toHaveLength(8);
+      expect(Rec.keys(fixture.snapshot().works)).toHaveLength(8);
       expect(fits(fixture.snapshot())).toBeTrue();
       expect(
         encodedBytes(fixture.snapshot()) + 8 * tenantPolicy.reservation,
@@ -375,7 +373,7 @@ describe("Tenant durable behavior", () => {
         (yield* tenant.respondDiscord(discordReceipt("new", 603000))).data
           .flags,
       ).toBe(0);
-      expect(EffectRecord.keys(fixture.snapshot().works)).toEqual(["new"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["new"]);
       expect(fixture.alarm()).toBe(1206000);
     }),
   );
@@ -478,9 +476,9 @@ describe("Tenant durable behavior", () => {
         deadline: 3000,
       });
       expect(
-        yield* EffectSchema.encodeEffect(
-          EffectSchema.fromJsonString(EffectSchema.Unknown),
-        )(fixture.snapshot()).pipe(Effect.orDie),
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          fixture.snapshot(),
+        ).pipe(Effect.orDie),
       ).not.toContain("invocation");
     }),
   );
@@ -526,9 +524,7 @@ test(
     const fixture = yield* tenantFixture();
     const tenant = yield* fixture.construct();
     fixture.source.body({
-      data: [
-        { id: "sensors", name: EffectString.repeat(900)("😀"), value: 10 },
-      ],
+      data: [{ id: "sensors", name: Str.repeat(900)("😀"), value: 10 }],
     });
     let admitted = 0;
 
@@ -555,7 +551,7 @@ test(
     expect(
       (yield* tenant.respondDiscord(discordReceipt("large-0"))).data.flags,
     ).toBe(0);
-    expect(EffectRecord.keys(fixture.snapshot().works)).toHaveLength(admitted);
+    expect(Rec.keys(fixture.snapshot().works)).toHaveLength(admitted);
   }),
 );
 
@@ -607,7 +603,7 @@ test(
     fixture.source.respond((url) =>
       Effect.succeed(
         Response.json({
-          data: EffectString.endsWith("/traders")(url.pathname)
+          data: Str.endsWith("/traders")(url.pathname)
             ? {
                 Apollo: [],
                 Celeste: [],
@@ -615,7 +611,7 @@ test(
                 Shani: [{ id: "sensors", name: "Sensors", trader_price: 100 }],
                 TianWen: [],
               }
-            : EffectString.endsWith("/arcs")(url.pathname)
+            : Str.endsWith("/arcs")(url.pathname)
               ? [
                   {
                     id: "bastion",
@@ -623,7 +619,7 @@ test(
                     loot: [{ item: { id: "sensors", name: "Sensors" } }],
                   },
                 ]
-              : EffectString.endsWith("/events-schedule")(url.pathname)
+              : Str.endsWith("/events-schedule")(url.pathname)
                 ? [
                     {
                       name: "Harvester",
@@ -688,9 +684,9 @@ test(
       yield* twitchFixture.drain;
     }
 
-    expect(
-      EffectArray.map(twitchFixture.sent, (message) => message.text),
-    ).toEqual(EffectArray.map(cases, ([, , text]) => text));
+    expect(Arr.map(twitchFixture.sent, (message) => message.text)).toEqual(
+      Arr.map(cases, ([, , text]) => text),
+    );
     expect(fixture.source.calls).toHaveLength(5);
   }),
 );

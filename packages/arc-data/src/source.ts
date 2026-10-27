@@ -8,9 +8,9 @@ import {
   Schema,
   SchemaIssue,
   Stream,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
 } from "effect";
 import {
   HttpClient,
@@ -50,10 +50,10 @@ export function canonicalRequest(query: ResourceQuery) {
   const params = new URLSearchParams();
 
   if (query.resource === "items" || query.resource === "arcs") {
-    for (const [key, value] of EffectRecord.toEntries<
+    for (const [key, value] of Rec.toEntries<
       string,
       string | number | boolean | undefined
-    >(query.params).sort(([a], [b]) => EffectString.localeCompare(b)(a))) {
+    >(query.params).sort(([a], [b]) => Str.localeCompare(b)(a))) {
       if (Predicate.isNotUndefined(value)) params.set(key, String(value));
     }
   }
@@ -106,7 +106,7 @@ export const makeSource = Effect.fnUntraced(function* (
           Effect.logWarning("Metaforge schema failure").pipe(
             Effect.annotateLogs({
               resource: query.resource,
-              paths: EffectArray.map(
+              paths: Arr.map(
                 SchemaIssue.makeFormatterStandardSchemaV1()(error.issue).issues,
                 (issue) => issue.path,
               ),

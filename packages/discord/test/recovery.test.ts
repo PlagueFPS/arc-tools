@@ -22,8 +22,8 @@ import {
   Layer,
   Redacted,
   Stream,
-  Array as EffectArray,
-  Schema as EffectSchema,
+  Array as Arr,
+  Schema,
 } from "effect";
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import { TestClock } from "effect/testing";
@@ -112,9 +112,7 @@ const fixture = Effect.fnUntraced(function* () {
       const body =
         reply?.kind === "http"
           ? reply.body
-          : yield* EffectSchema.encodeEffect(
-              EffectSchema.fromJsonString(EffectSchema.Unknown),
-            )(
+          : yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
               health
                 ? {
                     status: "ready",
@@ -204,9 +202,7 @@ for (const operation of ["health", "read"] as const)
         expect((yield* f.finish(syncCommands(f.release))).changed).toBeTrue();
         expect(f.control.writes).toBe(1);
         expect(f.logs).toHaveLength(1);
-        expect(
-          EffectArray.join(EffectArray.map(f.logs, String), ","),
-        ).not.toContain("canary");
+        expect(Arr.join(Arr.map(f.logs, String), ",")).not.toContain("canary");
       }).pipe(Effect.provide(TestClock.layer())),
     );
 
@@ -228,19 +224,18 @@ for (const reply of [
         code: reply.kind === "http" ? "provider" : "network",
       });
       expect(
-        EffectArray.map(
-          EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+        Arr.map(
+          Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
           ({ time }) => time,
         ),
       ).toEqual([0, 250, 750, 1750]);
       expect(f.control.writes).toBe(0);
       expect(f.logs).toHaveLength(3);
       expect(
-        yield* EffectSchema.encodeEffect(
-          EffectSchema.fromJsonString(EffectSchema.Unknown),
-        )({ logs: f.logs, diagnostic: syncDiagnostic(error) }).pipe(
-          Effect.orDie,
-        ),
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+          logs: f.logs,
+          diagnostic: syncDiagnostic(error),
+        }).pipe(Effect.orDie),
       ).not.toContain("canary");
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -282,9 +277,9 @@ test(
   Effect.gen(function* () {
     const f = yield* fixture();
     yield* f.finish(preflightCommands(f.release));
-    expect(
-      EffectArray.map(f.requests, ({ method, path }) => [method, path]),
-    ).toEqual([["GET", "/api/v10/applications/fixture/commands"]]);
+    expect(Arr.map(f.requests, ({ method, path }) => [method, path])).toEqual([
+      ["GET", "/api/v10/applications/fixture/commands"],
+    ]);
     expect(f.control.writes).toBe(0);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -319,8 +314,8 @@ test(
     expect((yield* f.finish(syncCommands(f.release))).changed).toBeTrue();
     expect(f.control.writes).toBe(1);
     expect(
-      EffectArray.map(
-        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+      Arr.map(
+        Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
         ({ method }) => method,
       ),
     ).toEqual(["GET", "PUT", "GET"]);
@@ -339,8 +334,8 @@ test(
     });
     yield* f.finish(syncCommands(f.release));
     expect(
-      EffectArray.map(
-        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+      Arr.map(
+        Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
         ({ method }) => method,
       ),
     ).toEqual(["GET", "PUT", "GET", "PUT", "GET"]);
@@ -362,8 +357,8 @@ test(
       attempt: 2,
     });
     expect(
-      EffectArray.map(
-        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+      Arr.map(
+        Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
         ({ method }) => method,
       ),
     ).toEqual(["GET", "PUT"]);
@@ -381,7 +376,7 @@ test(
     );
     yield* f.finish(syncCommands(f.release));
     expect(f.control.writes).toBe(1);
-    expect(EffectArray.join(EffectArray.map(f.logs, String), ",")).toContain(
+    expect(Arr.join(Arr.map(f.logs, String), ",")).toContain(
       '"operation":"readback"',
     );
   }).pipe(Effect.provide(TestClock.layer())),
@@ -403,9 +398,9 @@ test(
 
     expect(syncDiagnostic(error).discordCode).toBeNull();
     expect(
-      yield* EffectSchema.encodeEffect(
-        EffectSchema.fromJsonString(EffectSchema.Unknown),
-      )(syncDiagnostic(error)).pipe(Effect.orDie),
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        syncDiagnostic(error),
+      ).pipe(Effect.orDie),
     ).not.toContain("canary");
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -432,9 +427,7 @@ test(
       phase: "after",
       attempt: 2,
     });
-    expect(
-      EffectArray.every(f.requests, ({ time }) => !!(time < 30_000)),
-    ).toBeTrue();
+    expect(Arr.every(f.requests, ({ time }) => !!(time < 30_000))).toBeTrue();
     expect(f.control.writes).toBe(1);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -469,16 +462,16 @@ for (const seconds of [5, 60])
       f.replies.health.push({
         kind: "http",
         status: 429,
-        body: yield* EffectSchema.encodeEffect(
-          EffectSchema.fromJsonString(EffectSchema.Unknown),
-        )({ retry_after: seconds }).pipe(Effect.orDie),
+        body: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          { retry_after: seconds },
+        ).pipe(Effect.orDie),
       });
 
       const result = yield* f.finish(
         waitForRelease(f.release, true).pipe(Effect.result),
       );
 
-      expect(EffectArray.map(f.requests, ({ time }) => time)).toEqual(
+      expect(Arr.map(f.requests, ({ time }) => time)).toEqual(
         seconds === 5 ? [0, 5000] : [0],
       );
       expect(Result.isSuccess(result)).toBe(seconds === 5);
@@ -499,14 +492,10 @@ test(
     f.replies.read.push({ kind: "stream-failure" });
     yield* f.finish(syncCommands(f.release));
     expect(f.control.writes).toBe(1);
-    expect(EffectArray.join(EffectArray.map(f.logs, String), ",")).toContain(
+    expect(Arr.join(Arr.map(f.logs, String), ",")).toContain(
       '"code":"network"',
     );
-    expect(EffectArray.join(EffectArray.map(f.logs, String), ",")).toContain(
-      '"status":200',
-    );
-    expect(
-      EffectArray.join(EffectArray.map(f.logs, String), ","),
-    ).not.toContain("canary");
+    expect(Arr.join(Arr.map(f.logs, String), ",")).toContain('"status":200');
+    expect(Arr.join(Arr.map(f.logs, String), ",")).not.toContain("canary");
   }).pipe(Effect.provide(TestClock.layer())),
 );

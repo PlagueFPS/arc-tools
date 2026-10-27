@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
 /* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 /* oxlint-disable effecttsgo/global-fetch -- The transport harness exercises native Fetch and Response behavior at the actual HTTP boundary. */
@@ -23,8 +22,8 @@ import {
   Fiber,
   Layer,
   Schema,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 import {
   FetchHttpClient,
@@ -187,8 +186,7 @@ const errorBodies: { name: string; response: () => Response }[] = [
   },
   {
     name: "oversized",
-    response: () =>
-      new Response(EffectString.repeat(300_000)("x"), { status: 401 }),
+    response: () => new Response(Str.repeat(300_000)("x"), { status: 401 }),
   },
   { name: "empty", response: () => new Response(null, { status: 401 }) },
   {
@@ -517,7 +515,7 @@ test(
   "accepted bodies are capped at 256 KiB of bytes including JSON framing",
   Effect.gen(function* () {
     const f = yield* fixture();
-    const text = EffectString.repeat(131_071)("é");
+    const text = Str.repeat(131_071)("é");
     f.control.responses.set("GET /users", () => Response.json(text));
     expect(
       (yield* fetchResponse(HttpClientRequest.get(`${f.base}/users`))).body,
@@ -580,7 +578,7 @@ test(
 for (const body of [
   "{",
   JSON.stringify({ data: [{ is_sent: "true" }] }),
-  EffectString.repeat(300_000)("x"),
+  Str.repeat(300_000)("x"),
 ]) {
   test(
     `invalid successful send ${body.length} bytes stays ambiguous without POST replay`,
@@ -605,7 +603,7 @@ for (const body of [
       expect(yield* a.service.dispatch(input)).toEqual({ kind: "ambiguous" });
       expect((yield* a.service.status).credential).toBe("valid");
       expect(
-        EffectArray.filter(
+        Arr.filter(
           f.control.requests,
           (entry) => !!(entry.path === "/chat/messages"),
         ),
@@ -636,7 +634,7 @@ const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
       data(socket, bytes) {
         socket.data += bytes.toString();
 
-        if (!EffectString.includes("\r\n\r\n")(socket.data)) return;
+        if (!Str.includes("\r\n\r\n")(socket.data)) return;
         socket.data = "";
         calls.requests++;
         socket.write(

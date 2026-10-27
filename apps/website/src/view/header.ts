@@ -1,5 +1,5 @@
 import { Nav } from "@foldkit/ui";
-import { Array as EffectArray } from "effect";
+import { Array as Arr } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import { cn } from "../lib/utils";
@@ -48,7 +48,7 @@ export const view = (route: ApplicationRoute, h: HtmlBuilder<Message>): Html =>
         toView: ({ nav, items }) =>
           h.nav(
             nav,
-            EffectArray.map(items, (item) =>
+            Arr.map(items, (item) =>
               h.a(
                 [
                   ...item.link,

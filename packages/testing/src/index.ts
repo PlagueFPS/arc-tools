@@ -1,12 +1,6 @@
 import { layerUncached } from "@arctools/arc-data";
 import { BASE_API_URL } from "@arctools/utils";
-import {
-  Effect,
-  Layer,
-  Array as EffectArray,
-  String as EffectString,
-  Schema as EffectSchema,
-} from "effect";
+import { Effect, Layer, Array as Arr, String as Str, Schema } from "effect";
 import {
   HttpClient,
   type HttpClientRequest,
@@ -78,20 +72,20 @@ export function createMockHttpClientLayer(mock: MockData) {
   const arcs = mock.arcs ?? [];
   const events = mock.events ?? [];
 
-  const baseUrl = `${EffectString.replace(/\/$/, "")(BASE_API_URL)}/`;
+  const baseUrl = `${Str.replace(/\/$/, "")(BASE_API_URL)}/`;
 
   const mockClient = HttpClient.make(
     (request: HttpClientRequest.HttpClientRequest) =>
       Effect.gen(function* () {
         const url = request.url;
 
-        if (!EffectString.startsWith(baseUrl)(url)) {
+        if (!Str.startsWith(baseUrl)(url)) {
           return HttpClientResponse.fromWeb(
             request,
             new Response(
-              yield* EffectSchema.encodeEffect(
-                EffectSchema.fromJsonString(EffectSchema.Unknown),
-              )({ error: "unexpected url" }),
+              yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+                { error: "unexpected url" },
+              ),
               {
                 status: 404,
               },
@@ -99,18 +93,15 @@ export function createMockHttpClientLayer(mock: MockData) {
           );
         }
 
-        const path = EffectString.split(
-          EffectString.slice(baseUrl.length)(url),
-          "?",
-        )[0];
+        const path = Str.split(Str.slice(baseUrl.length)(url), "?")[0];
 
         if (path === "traders") {
           return HttpClientResponse.fromWeb(
             request,
             new Response(
-              yield* EffectSchema.encodeEffect(
-                EffectSchema.fromJsonString(EffectSchema.Unknown),
-              )({ data: traders }),
+              yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+                { data: traders },
+              ),
               {
                 status: 200,
                 headers: { "Content-Type": "application/json" },
@@ -126,28 +117,18 @@ export function createMockHttpClientLayer(mock: MockData) {
           let matched = items;
 
           if (id) {
-            matched = EffectArray.filter(
+            matched = Arr.filter(
               items,
-              (i) =>
-                !!(
-                  EffectString.toLowerCase(i.id) ===
-                  EffectString.toLowerCase(id)
-                ),
+              (i) => !!(Str.toLowerCase(i.id) === Str.toLowerCase(id)),
             );
           } else if (search) {
-            const norm = EffectString.replace(
-              /\s/g,
-              "",
-            )(EffectString.toLowerCase(search));
+            const norm = Str.replace(/\s/g, "")(Str.toLowerCase(search));
 
-            matched = EffectArray.filter(
+            matched = Arr.filter(
               items,
               (i: MockItem) =>
-                !!EffectString.includes(norm)(
-                  EffectString.replace(
-                    /\s/g,
-                    "",
-                  )(EffectString.toLowerCase(i.name)),
+                !!Str.includes(norm)(
+                  Str.replace(/\s/g, "")(Str.toLowerCase(i.name)),
                 ),
             );
           }
@@ -155,9 +136,9 @@ export function createMockHttpClientLayer(mock: MockData) {
           return HttpClientResponse.fromWeb(
             request,
             new Response(
-              yield* EffectSchema.encodeEffect(
-                EffectSchema.fromJsonString(EffectSchema.Unknown),
-              )({ data: matched }),
+              yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+                { data: matched },
+              ),
               {
                 status: 200,
                 headers: { "Content-Type": "application/json" },
@@ -173,28 +154,18 @@ export function createMockHttpClientLayer(mock: MockData) {
           let matched = arcs;
 
           if (id) {
-            matched = EffectArray.filter(
+            matched = Arr.filter(
               arcs,
-              (a) =>
-                !!(
-                  EffectString.toLowerCase(a.id) ===
-                  EffectString.toLowerCase(id)
-                ),
+              (a) => !!(Str.toLowerCase(a.id) === Str.toLowerCase(id)),
             );
           } else if (search) {
-            const norm = EffectString.replace(
-              /\s/g,
-              "",
-            )(EffectString.toLowerCase(search));
+            const norm = Str.replace(/\s/g, "")(Str.toLowerCase(search));
 
-            matched = EffectArray.filter(
+            matched = Arr.filter(
               arcs,
               (a: MockArc) =>
-                !!EffectString.includes(norm)(
-                  EffectString.replace(
-                    /\s/g,
-                    "",
-                  )(EffectString.toLowerCase(a.name)),
+                !!Str.includes(norm)(
+                  Str.replace(/\s/g, "")(Str.toLowerCase(a.name)),
                 ),
             );
           }
@@ -202,9 +173,9 @@ export function createMockHttpClientLayer(mock: MockData) {
           return HttpClientResponse.fromWeb(
             request,
             new Response(
-              yield* EffectSchema.encodeEffect(
-                EffectSchema.fromJsonString(EffectSchema.Unknown),
-              )({ data: matched }),
+              yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+                { data: matched },
+              ),
               {
                 status: 200,
                 headers: { "Content-Type": "application/json" },
@@ -217,9 +188,9 @@ export function createMockHttpClientLayer(mock: MockData) {
           return HttpClientResponse.fromWeb(
             request,
             new Response(
-              yield* EffectSchema.encodeEffect(
-                EffectSchema.fromJsonString(EffectSchema.Unknown),
-              )({ data: events }),
+              yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+                { data: events },
+              ),
               {
                 status: 200,
                 headers: { "Content-Type": "application/json" },
@@ -231,9 +202,9 @@ export function createMockHttpClientLayer(mock: MockData) {
         return HttpClientResponse.fromWeb(
           request,
           new Response(
-            yield* EffectSchema.encodeEffect(
-              EffectSchema.fromJsonString(EffectSchema.Unknown),
-            )({ error: "not found" }),
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+              error: "not found",
+            }),
             { status: 404 },
           ),
         );

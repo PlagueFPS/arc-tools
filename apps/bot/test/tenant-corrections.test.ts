@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 /* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
@@ -13,10 +12,10 @@ import {
   Exit,
   Fiber,
   Layer,
-  Array as EffectArray,
-  Record as EffectRecord,
-  String as EffectString,
-  Schema as EffectSchema,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Schema,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -94,7 +93,7 @@ for (const [activation, at] of [
         expect(f.snapshot().works[id]?.retainUntil).toBe(603000);
       }
 
-      expect(EffectRecord.keys(f.snapshot().works)).toHaveLength(9);
+      expect(Rec.keys(f.snapshot().works)).toHaveLength(9);
       expect(f.alarm()).toBe(603000);
     }),
   );
@@ -139,8 +138,8 @@ test(
         .pipe(Effect.result),
     ).toMatchObject(Result.fail({ code: "capacity" }));
     expect(
-      EffectArray.every(
-        EffectRecord.values(f.snapshot().works),
+      Arr.every(
+        Rec.values(f.snapshot().works),
         (work) => !!(work.kind === "computing"),
       ),
     ).toBeTrue();
@@ -252,7 +251,7 @@ test(
     });
     const f = yield* tenantFixture();
     f.source.body({
-      data: [{ id: "sensors", name: EffectString.repeat(650)("x"), value: 10 }],
+      data: [{ id: "sensors", name: Str.repeat(650)("x"), value: 10 }],
     });
     f.dispatch((input) =>
       Effect.sync(() => {
@@ -291,7 +290,7 @@ test(
       deadline: start + 10000,
     });
     expect(bodies).toHaveLength(2);
-    expect(EffectArray.map(f.sent, (send) => send.attemptId)).toEqual([
+    expect(Arr.map(f.sent, (send) => send.attemptId)).toEqual([
       AttemptId.make("slow-send:0"),
       AttemptId.make("slow-send:1"),
     ]);
@@ -317,16 +316,14 @@ for (const transport of ["discord", "twitch"] as const)
       } else {
         yield* tenant.acceptTwitch(twitchReceipt());
         yield* f.drain;
-        expect(EffectArray.map(f.sent, (send) => send.text)).toEqual([
-          friendlyFailure,
-        ]);
+        expect(Arr.map(f.sent, (send) => send.text)).toEqual([friendlyFailure]);
       }
 
       expect(f.snapshot().works.work?.kind).toBe("terminal");
       expect(
-        yield* EffectSchema.encodeEffect(
-          EffectSchema.fromJsonString(EffectSchema.Unknown),
-        )(f.snapshot()).pipe(Effect.orDie),
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          f.snapshot(),
+        ).pipe(Effect.orDie),
       ).not.toContain("CANARY");
       const next = yield* f.construct();
 
@@ -359,8 +356,8 @@ test(
     yield* restored.recover();
     expect(f.sent).toHaveLength(8);
     expect(
-      EffectArray.every(
-        EffectRecord.values(f.snapshot().works),
+      Arr.every(
+        Rec.values(f.snapshot().works),
         (work) => !!(work.kind === "terminal"),
       ),
     ).toBeTrue();

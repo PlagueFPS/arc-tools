@@ -5,8 +5,8 @@ import {
   Effect,
   Schema,
   Semaphore,
-  Array as EffectArray,
-  String as EffectString,
+  Array as Arr,
+  String as Str,
 } from "effect";
 
 import type { AttributionStorage } from "./alarm-attribution.js";
@@ -42,9 +42,9 @@ const hash = Effect.fnUntraced(function* <P>(value: P) {
     ),
   );
 
-  return EffectArray.join(
+  return Arr.join(
     Array.from(new Uint8Array(digest), (byte) =>
-      EffectString.padStart(2, "0")(byte.toString(16)),
+      Str.padStart(2, "0")(byte.toString(16)),
     ),
     "",
   );
