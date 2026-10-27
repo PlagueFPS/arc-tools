@@ -1,3 +1,7 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import { Dispatch } from "@arctools/twitch/server";
@@ -15,6 +19,8 @@ import {
   Match,
   Redacted,
   Schema,
+  Array as EffectArray,
+  String as EffectString,
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { TestClock } from "effect/testing";
@@ -24,7 +30,9 @@ const { test } = Test.make({ providers: Layer.empty });
 const fixture = Effect.fnUntraced(function* () {
   const control = {
     status: 200,
-    body: JSON.stringify({ data: [{ is_sent: true, message_id: "message" }] }),
+    body: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+      data: [{ is_sent: true, message_id: "message" }],
+    }).pipe(Effect.orDie),
     sends: 0,
     pages: 0,
     sourceOnly: false,
@@ -82,7 +90,7 @@ const fixture = Effect.fnUntraced(function* () {
     },
   });
 
-  yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
+  yield* Effect.addFinalizer(() => Effect.promise(() => server.stop(true)));
   const base = `http://127.0.0.1:${server.port}`;
 
   const provider = yield* makeProvider(
@@ -98,7 +106,7 @@ const fixture = Effect.fnUntraced(function* () {
 
   const now = yield* Clock.currentTimeMillis;
 
-  const input = Schema.decodeUnknownSync(Dispatch)({
+  const input = yield* Schema.decodeEffect(Dispatch)({
     source: {
       installationId: "provider-fixture",
       subscriptionId: "provider-fixture",
@@ -122,7 +130,9 @@ test(
       messageId: "message",
     });
     expect(f.control.sourceOnly).toBeTrue();
-    f.control.body = JSON.stringify({
+    f.control.body = yield* Schema.encodeEffect(
+      Schema.fromJsonString(Schema.Unknown),
+    )({
       data: [
         {
           is_sent: false,
@@ -130,7 +140,7 @@ test(
           drop_reason: { code: "automod", message: "canary-private-drop" },
         },
       ],
-    });
+    }).pipe(Effect.orDie);
     expect(yield* f.provider.send("canary-app-token", "100", f.input)).toEqual({
       kind: "rejected",
       code: "automod",
@@ -161,7 +171,7 @@ test(
     ).toBe("limited");
     const now = yield* Clock.currentTimeMillis;
 
-    const input = Schema.decodeUnknownSync(Dispatch)({
+    const input = yield* Schema.decodeEffect(Dispatch)({
       ...f.input,
       deadline: now,
     });
@@ -178,7 +188,10 @@ test(
   Effect.gen(function* () {
     const f = yield* fixture();
     expect(
-      (yield* f.provider.list("canary-app-token")).map((sub) => sub.id),
+      EffectArray.map(
+        yield* f.provider.list("canary-app-token"),
+        (sub) => sub.id,
+      ),
     ).toEqual(["first", "second"]);
     expect(f.control.pages).toBe(2);
 
@@ -186,7 +199,10 @@ test(
       .exchange("canary-oauth-code")
       .pipe(Effect.exit);
 
-    const serialized = JSON.stringify(failure);
+    const serialized = yield* Schema.encodeEffect(
+      Schema.fromJsonString(Schema.Unknown),
+    )(failure).pipe(Effect.orDie);
+
     expect(serialized).not.toContain("canary");
 
     if (Predicate.isTagged(failure, "Failure"))
@@ -225,7 +241,7 @@ const nativeFixture = Effect.fnUntraced(function* (
 
   const now = yield* Clock.currentTimeMillis;
 
-  const input = Schema.decodeUnknownSync(Dispatch)({
+  const input = yield* Schema.decodeEffect(Dispatch)({
     source: {
       installationId: "provider-fixture",
       subscriptionId: "provider-fixture",
@@ -322,29 +338,38 @@ test(
     }
 
     expect(
-      f.requests.map(({ request }) => request.headers.authorization),
+      EffectArray.map(
+        f.requests,
+        ({ request }) => request.headers.authorization,
+      ),
     ).toEqual(
-      ["first-token", "rotated-token"].flatMap((token) => [
+      EffectArray.flatMap(["first-token", "rotated-token"], (token) => [
         `OAuth ${token}`,
         ...Array<string>(5).fill(`Bearer ${token}`),
       ]),
     );
     expect(
-      f.requests
-        .filter(({ url }) => url.pathname.startsWith("/helix/"))
-        .every(
-          ({ request }) => request.headers["client-id"] === "native-client",
+      EffectArray.every(
+        EffectArray.filter(
+          f.requests,
+          ({ url }) => !!EffectString.startsWith("/helix/")(url.pathname),
         ),
+        ({ request }) => !!(request.headers["client-id"] === "native-client"),
+      ),
     ).toBeTrue();
     expect(
-      f.requests
-        .filter(({ url }) => url.pathname === "/helix/users")
-        .map(({ url }) => url.searchParams.getAll("login")),
+      EffectArray.map(
+        EffectArray.filter(
+          f.requests,
+          ({ url }) => !!(url.pathname === "/helix/users"),
+        ),
+        ({ url }) => url.searchParams.getAll("login"),
+      ),
     ).toEqual([
       ["sender", "channel"],
       ["sender", "channel"],
     ]);
-    yield* f.provider.mint();
+    yield* f.provider.mint;
     yield* f.provider.exchange("authorization-code");
 
     for (const { request, url } of f.requests.slice(-2)) {
@@ -421,9 +446,11 @@ test(
     const now = yield* Clock.currentTimeMillis;
     let status = 200;
 
-    let body = JSON.stringify({
+    let body = yield* Schema.encodeEffect(
+      Schema.fromJsonString(Schema.Unknown),
+    )({
       data: [{ is_sent: true, message_id: "sent" }],
-    });
+    }).pipe(Effect.orDie);
 
     const headers = new Headers({
       "Ratelimit-Remaining": "0",
@@ -487,7 +514,9 @@ test(
     headers.set("Ratelimit-Reset", String((now + 2000) / 1000));
     headers.set("Ratelimit-Remaining", "1");
     status = 200;
-    body = JSON.stringify({ data: [{ is_sent: false, message_id: "" }] });
+    body = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+      data: [{ is_sent: false, message_id: "" }],
+    }).pipe(Effect.orDie);
     expect(yield* f.provider.send("token", "100", f.input)).toEqual({
       kind: "rejected",
       code: "dropped",
@@ -530,7 +559,7 @@ for (const remaining of [250, 8000])
         Effect.provideService(HttpClient.HttpClient, client),
       );
 
-      const input = Schema.decodeUnknownSync(Dispatch)({
+      const input = yield* Schema.decodeEffect(Dispatch)({
         source: {
           installationId: "provider-fixture",
           subscriptionId: "provider-fixture",

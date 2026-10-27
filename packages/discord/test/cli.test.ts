@@ -1,4 +1,7 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect, test } from "bun:test";
+
+import { Option as EffectOption, String as EffectString } from "effect";
 
 const run = async (scenario: string, preflight = false) => {
   const process = Bun.spawn(
@@ -51,7 +54,11 @@ test("the preflight CLI reports rejected authentication without health checks, r
     discordCode: 50001,
     retryCount: 0,
   });
-  expect(result.stdout.match(/fixture-request/g)).toHaveLength(1);
+  expect(
+    EffectOption.getOrNull(
+      EffectString.match(/fixture-request/g)(result.stdout),
+    ),
+  ).toHaveLength(1);
   expect(result.stdout).not.toContain('"operation":"health"');
   expect(result.stdout).not.toContain('"method":"PUT"');
 });
@@ -78,7 +85,11 @@ test("the sync CLI retains typed readiness diagnostics and makes no provider mut
 test("the actual sync CLI recovers a lost overwrite response without writing twice", async () => {
   const result = await run("lost-write");
   expect(result.exitCode).toBe(0);
-  expect(result.stdout.match(/"method":"PUT"/g)).toHaveLength(1);
+  expect(
+    EffectOption.getOrNull(
+      EffectString.match(/"method":"PUT"/g)(result.stdout),
+    ),
+  ).toHaveLength(1);
   expect(result.stdout).toContain('"changed":true');
   expect(result.stdout).toContain("discord-sync-retry");
   expect(result.stderr).toBe("");

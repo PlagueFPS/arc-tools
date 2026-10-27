@@ -1,7 +1,19 @@
+/* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+import type { DurableObjectStorageError } from "@alchemy.run/cloudflare";
 import type { Provider } from "@arctools/twitch/testing";
 import { nextAlarm, SharedAccount } from "@arctools/twitch/testing";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Context, Effect, Exit, Schema } from "effect";
+import {
+  Context,
+  Effect,
+  Exit,
+  Schema,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 
 export interface AttributionStorage {
   readonly get: <T = unknown>(
@@ -13,7 +25,7 @@ export interface AttributionStorage {
   ) => Effect.Effect<void, never, RuntimeContext>;
   readonly transaction: <A, E, R>(
     effect: Effect.Effect<A, E, R>,
-  ) => Effect.Effect<A, unknown, R | RuntimeContext>;
+  ) => Effect.Effect<A, E | DurableObjectStorageError, R | RuntimeContext>;
 }
 
 export const attributionLimit = 128;
@@ -52,35 +64,35 @@ const Invocation = Schema.Struct({
   instance: Uuid,
   origin: ValidationOrigin,
   credentialFingerprint: Fingerprint,
-  startedAt: Schema.Number,
+  startedAt: Schema.Finite,
   completion: Schema.NullOr(
     Schema.Struct({
-      at: Schema.Number,
+      at: Schema.Finite,
       outcome: Schema.Literals(["success", "failure", "interrupted"]),
     }),
   ),
 });
 
 const Lease = Schema.NullOr(
-  Schema.Struct({ owner: Schema.String, until: Schema.Number }),
+  Schema.Struct({ owner: Schema.String, until: Schema.Finite }),
 );
 
 export const CompletedAlarmRun = Schema.Struct({
   key: Schema.String,
   instance: Uuid,
   alarmRun: AlarmRun,
-  completedAt: Schema.Number,
-  accountTime: Schema.Number,
-  entryAlarm: Schema.NullOr(Schema.Number),
+  completedAt: Schema.Finite,
+  accountTime: Schema.Finite,
+  entryAlarm: Schema.NullOr(Schema.Finite),
   lease: Lease,
-  intended: Schema.NullOr(Schema.Number),
-  scheduled: Schema.NullOr(Schema.Number),
-  native: Schema.NullOr(Schema.Number),
+  intended: Schema.NullOr(Schema.Finite),
+  scheduled: Schema.NullOr(Schema.Finite),
+  native: Schema.NullOr(Schema.Finite),
   credential: Schema.NullOr(
     Schema.Struct({
       fingerprint: Fingerprint,
-      validatedAt: Schema.Number,
-      expiresAt: Schema.Number,
+      validatedAt: Schema.Finite,
+      expiresAt: Schema.Finite,
     }),
   ),
   validationInvocationIds: Schema.Array(Uuid),
@@ -95,7 +107,7 @@ const ActivationEvent = Schema.Struct({
     "alarm-complete",
   ]),
   instance: Uuid,
-  at: Schema.Number,
+  at: Schema.Finite,
   alarmRun: Schema.NullOr(AlarmRun),
 });
 
@@ -125,7 +137,7 @@ export const ProviderAttribution = Schema.Struct({
   events: Schema.Array(
     Schema.Struct({
       id: Uuid,
-      at: Schema.Number,
+      at: Schema.Finite,
       credentialFingerprint: Fingerprint,
       credentialCount: Schema.Int,
       globalCount: Schema.Int,
@@ -139,11 +151,11 @@ export const ProviderAttribution = Schema.Struct({
 
 export const NativeAlarmSnapshot = Schema.Struct({
   instance: Uuid,
-  capturedAt: Schema.Number,
+  capturedAt: Schema.Finite,
   liveAlarmRuns: Schema.Int,
   attribution: AccountAttribution,
-  intended: Schema.NullOr(Schema.Number),
-  native: Schema.NullOr(Schema.Number),
+  intended: Schema.NullOr(Schema.Finite),
+  native: Schema.NullOr(Schema.Finite),
   lease: Lease,
 });
 
@@ -156,7 +168,7 @@ export const validationEndpoints = (
   baseUrl: string,
   correlation: typeof ValidationCorrelation.Type | null,
 ) => {
-  const base = baseUrl.replace(/\/$/, "");
+  const base = EffectString.replace(/\/$/, "")(baseUrl);
 
   const prefix =
     correlation === null
@@ -169,11 +181,11 @@ export const validationEndpoints = (
 export function parseValidationPath(path: string) {
   const url = new URL(path, "https://fixture.invalid");
 
-  if (!url.pathname.startsWith("/fixture-validation/"))
+  if (!EffectString.startsWith("/fixture-validation/")(url.pathname))
     return { path: url.pathname, correlation: null, correlationError: false };
 
   const [, , instance, operation, alarmRun, invocationId, ...rest] =
-    url.pathname.split("/");
+    EffectString.split(url.pathname, "/");
 
   const decoded = Schema.decodeUnknownExit(ValidationCorrelation)({
     instance,
@@ -185,7 +197,7 @@ export function parseValidationPath(path: string) {
   });
 
   return {
-    path: `/${rest.join("/")}`,
+    path: `/${EffectArray.join(rest, "/")}`,
     correlation: Exit.isSuccess(decoded) ? decoded.value : null,
     correlationError: Exit.isFailure(decoded),
   };
@@ -198,9 +210,12 @@ export const credentialFingerprint = Effect.fnUntraced(function* (
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
   );
 
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  return EffectArray.join(
+    EffectArray.map([...new Uint8Array(digest)], (byte) =>
+      EffectString.padStart(2, "0")(byte.toString(16)),
+    ),
+    "",
+  );
 });
 
 export const readAccountAttribution = Effect.fnUntraced(function* (
@@ -274,7 +289,12 @@ export const recordCompletedAlarm = Effect.fnUntraced(function* (
         const previous = yield* readAccountAttribution(storage);
         const key = stableRunKey(run);
 
-        if (previous.completedRuns.some((completed) => completed.key === key))
+        if (
+          EffectArray.some(
+            previous.completedRuns,
+            (completed) => !!(completed.key === key),
+          )
+        )
           return yield* Effect.die("Completed alarm key already exists");
 
         const completed: typeof CompletedAlarmRun.Type = {
@@ -295,13 +315,17 @@ export const recordCompletedAlarm = Effect.fnUntraced(function* (
                   validatedAt: record.session.validatedAt,
                   expiresAt: record.session.expiresAt,
                 },
-          validationInvocationIds: previous.invocations
-            .filter(
+          validationInvocationIds: EffectArray.map(
+            EffectArray.filter(
+              previous.invocations,
               (invocation) =>
-                invocation.instance === run.instance &&
-                invocation.origin.alarmRun === run.alarmRun,
-            )
-            .map((invocation) => invocation.id),
+                !!(
+                  invocation.instance === run.instance &&
+                  invocation.origin.alarmRun === run.alarmRun
+                ),
+            ),
+            (invocation) => invocation.id,
+          ),
         };
 
         yield* storage.put("fixtureAttribution", {
@@ -334,10 +358,10 @@ export const observeValidations = Effect.fnUntraced(function* (
 ) {
   const runtime = yield* RuntimeContext;
 
-  const write = (
+  const write = <E>(
     invocationId: string,
     phase: "start" | "completion",
-    effect: Effect.Effect<void, unknown, RuntimeContext>,
+    effect: Effect.Effect<void, E, RuntimeContext>,
   ) =>
     effect.pipe(
       Effect.catchCause(() =>
@@ -357,13 +381,13 @@ export const observeValidations = Effect.fnUntraced(function* (
               });
             }),
           )
-          .pipe(Effect.catchCause(() => Effect.void)),
+          .pipe(Effect.ignoreCause),
       ),
     );
 
   const validate = Effect.fnUntraced(function* (token: string) {
     const invocation: typeof Invocation.Type = {
-      id: crypto.randomUUID(),
+      id: yield* secureRandomUUID,
       instance,
       origin: yield* CurrentValidationOrigin,
       credentialFingerprint: yield* credentialFingerprint(token),
@@ -408,8 +432,9 @@ export const observeValidations = Effect.fnUntraced(function* (
                     const previous = yield* readAccountAttribution(storage);
 
                     if (
-                      !previous.invocations.some(
-                        (record) => record.id === invocation.id,
+                      !EffectArray.some(
+                        previous.invocations,
+                        (record) => !!(record.id === invocation.id),
                       )
                     )
                       return yield* Effect.die(
@@ -429,10 +454,12 @@ export const observeValidations = Effect.fnUntraced(function* (
 
                     yield* storage.put("fixtureAttribution", {
                       ...previous,
-                      invocations: previous.invocations.map((record) =>
-                        record.id === invocation.id
-                          ? { ...record, completion }
-                          : record,
+                      invocations: EffectArray.map(
+                        previous.invocations,
+                        (record) =>
+                          record.id === invocation.id
+                            ? { ...record, completion }
+                            : record,
                       ),
                     });
                   }),
@@ -473,13 +500,18 @@ export const recordProviderValidation = Effect.fnUntraced(function* (
 ) {
   const previous = yield* readProviderAttribution(storage);
   const count = (previous.counts[fingerprint] ?? 0) + 1;
-  const counts = Object.entries({ ...previous.counts, [fingerprint]: count });
+
+  const counts = EffectRecord.toEntries({
+    ...previous.counts,
+    [fingerprint]: count,
+  });
+
   yield* storage.put("fixtureValidations", {
-    counts: Object.fromEntries(counts.slice(-attributionLimit)),
+    counts: EffectRecord.fromEntries(counts.slice(-attributionLimit)),
     events: [
       ...previous.events.slice(-(attributionLimit - 1)),
       {
-        id: crypto.randomUUID(),
+        id: yield* secureRandomUUID,
         at: Date.now(),
         credentialFingerprint: fingerprint,
         credentialCount: count,

@@ -1,9 +1,12 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import { Schema } from "effect";
+import { Schema, Array as EffectArray, String as EffectString } from "effect";
 
 const root = resolve(import.meta.dir, "../../..");
 
@@ -94,22 +97,25 @@ globalThis.fetch = Object.assign(async (input, init) => {
       );
 
       expect(calls.length).toBeGreaterThan(2);
-      expect(calls.every((call) => call.redirect === "manual")).toBeTrue();
+      expect(
+        EffectArray.every(calls, (call) => !!(call.redirect === "manual")),
+      ).toBeTrue();
 
       for (const call of calls) {
         const url = new URL(call.url);
         expect(call.authorization).toBe(
           url.origin === "https://discord.com"
             ? "Bot cli-bot-token"
-            : url.pathname.startsWith("/ops/")
+            : EffectString.startsWith("/ops/")(url.pathname)
               ? "Bearer cli-operator"
               : null,
         );
       }
 
       expect(
-        calls.filter(
-          (call) => new URL(call.url).origin === "https://discord.com",
+        EffectArray.filter(
+          calls,
+          (call) => !!(new URL(call.url).origin === "https://discord.com"),
         ),
       ).toHaveLength(1);
     } finally {

@@ -1,3 +1,5 @@
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import {
   AccountError,
@@ -6,6 +8,7 @@ import {
   SubscriptionObservation,
   TwitchAccount,
 } from "@arctools/twitch/server";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { Stack } from "alchemy";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Effect, Exit, Layer, Schema, Struct } from "effect";
@@ -57,13 +60,13 @@ const CompletedAlarmActivity = Schema.Struct({
 export const TenantSnapshot = Schema.Struct({
   instance: Schema.String,
   state: Schema.NullOr(TenantState),
-  alarm: Schema.NullOr(Schema.Number),
+  alarm: Schema.NullOr(Schema.Finite),
   alarmRuns: Schema.Int,
   alarmActivity: Schema.Struct({
     running: Schema.NullOr(AlarmActivity),
     completed: Schema.NullOr(CompletedAlarmActivity),
   }),
-  lostAccountResponseAt: Schema.NullOr(Schema.Number),
+  lostAccountResponseAt: Schema.NullOr(Schema.Finite),
 });
 
 const AccountReference = Cloudflare.DurableObject<
@@ -99,8 +102,9 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
     const { stage } = yield* Stack;
     const accounts = yield* AccountReference.from(`arc-tools-bot-${stage}`);
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
-      const instance = crypto.randomUUID();
+      const instance = yield* secureRandomUUID;
       let runningAlarm: typeof AlarmActivity.Type | null = null;
 
       let liveAlarmRun =
@@ -126,7 +130,7 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
               Effect.mapError(() => new AccountError({ code: "provider" })),
             );
 
-            const reply = yield* Schema.decodeUnknownEffect(
+            const reply = yield* Schema.decodeEffect(
               Schema.Union([
                 Schema.Struct({
                   kind: Schema.Literal("success"),
@@ -163,7 +167,7 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
           },
           (effect) => provide(effect),
         ),
-        status: () => new AccountError({ code: "configuration" }),
+        status: new AccountError({ code: "configuration" }),
         setup: () => new AccountError({ code: "configuration" }),
         completeOAuth: () => new AccountError({ code: "configuration" }),
         observeSubscription: () => Effect.succeed(null),
@@ -186,7 +190,6 @@ class TenantFixtureObject extends Cloudflare.DurableObject<TenantFixtureObject>(
             ),
           }),
         ),
-      ).pipe(
         Effect.provideService(TenantStore, store),
         Effect.provideService(ArcData, data),
         Effect.provideService(TwitchAccount, account),

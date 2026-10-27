@@ -1,3 +1,10 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/crypto-random-uuid -- Native fixture callbacks allocate secure operation IDs synchronously. */
+/* oxlint-disable effecttsgo/global-fetch-in-effect -- The transport test exercises native Fetch cancellation and wire behavior at the HTTP boundary. */
+/* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import { makeAccountStorage } from "@arctools/twitch/cloudflare";
@@ -10,6 +17,7 @@ import {
   AccountStore,
   policy,
 } from "@arctools/twitch/testing";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { providerTransport } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Test from "alchemy/Test/Bun";
@@ -24,6 +32,9 @@ import {
   Redacted,
   Schema,
   Semaphore,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
 } from "effect";
 
 import { EnvironmentConfig } from "../../apps/bot/src/config.js";
@@ -51,7 +62,7 @@ const { test } = Test.make({ providers: Layer.empty });
 
 const initial = 1_000_000_000_000;
 
-const fixtureConfig = Schema.decodeUnknownSync(EnvironmentConfig)({
+const fixtureConfig = Schema.decodeSync(EnvironmentConfig)({
   kind: "test",
   stage: "test-account-0123456789ab",
   applicationStage: "test-account-0123456789ab",
@@ -66,7 +77,7 @@ const runtime = RuntimeContext.of({
   Type: "test",
   id: "attribution",
   env: {},
-  get: () => Effect.succeed(undefined),
+  get: () => Effect.as(Effect.void, undefined),
   set: (key) => Effect.succeed(key),
 });
 
@@ -89,10 +100,12 @@ const memory = Effect.fnUntraced(function* () {
     list: <T = unknown>({ prefix }: { prefix: string }) =>
       Effect.sync(
         () =>
-          new Map([...values].filter(([key]) => key.startsWith(prefix))) as Map<
-            string,
-            T
-          >,
+          new Map(
+            EffectArray.filter(
+              [...values],
+              ([key]) => !!EffectString.startsWith(prefix)(key),
+            ),
+          ) as Map<string, T>,
       ),
     delete: (key: string) => Effect.sync(() => values.delete(key)),
     transaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -111,7 +124,7 @@ const memory = Effect.fnUntraced(function* () {
         }
 
         return exit.value;
-      }).pipe(lock.withPermit),
+      }).pipe((effect) => lock.withPermit(effect)),
     getAlarm: () => Effect.sync(() => alarm),
     setAlarm: (value: number | Date) =>
       Effect.sync(() => {
@@ -210,7 +223,7 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
         instance,
         alarmRun: null,
       });
-    instance = crypto.randomUUID();
+    instance = yield* secureRandomUUID;
     yield* recordActivation(storage, {
       kind: "activation",
       instance,
@@ -263,7 +276,7 @@ const actor = Effect.fnUntraced(function* (url: string, start = initial) {
     });
     yield* run(
       Effect.gen(function* () {
-        yield* account.credentialAlarm();
+        yield* account.credentialAlarm;
 
         if (extraInvocation) {
           const token = (yield* state()).session?.token;
@@ -364,13 +377,16 @@ test(
       const verified = verifyCompletedRecovery(evidence);
       expect(verified.runKey).toBe(evidence.recoveryRunKey);
       expect(
-        evidence.account.completedRuns.map(
+        EffectArray.map(
+          evidence.account.completedRuns,
           (run) => run.validationInvocationIds.length,
         ),
       ).toEqual([0, 1]);
       expect(
-        evidence.provider.events.filter(
-          (event) => event.correlation?.invocationId === verified.invocationId,
+        EffectArray.filter(
+          evidence.provider.events,
+          (event) =>
+            !!(event.correlation?.invocationId === verified.invocationId),
         ),
       ).toHaveLength(1);
       const other = yield* actor(url, initial + 86_400_000);
@@ -413,7 +429,11 @@ test(
         ),
       ).toBeTrue();
       expect(yield* target.observations()).toEqual(latest.account);
-      const safe = JSON.stringify(latest);
+
+      const safe = yield* Schema.encodeEffect(
+        Schema.fromJsonString(Schema.Unknown),
+      )(latest).pipe(Effect.orDie);
+
       expect(safe).not.toContain("synthetic-app-");
       expect(safe).not.toContain("CANARY-");
       expect(safe).not.toContain("access_token");
@@ -434,8 +454,9 @@ test(
       const invocationId = recovery.validationInvocationIds[0];
       expect(recovery.validationInvocationIds).toHaveLength(1);
       expect(
-        provider.events.filter(
-          (event) => event.correlation?.invocationId === invocationId,
+        EffectArray.filter(
+          provider.events,
+          (event) => !!(event.correlation?.invocationId === invocationId),
         ),
       ).toHaveLength(2);
       expect((yield* proof.core.snapshot()).calls["GET /oauth/validate"]).toBe(
@@ -491,8 +512,9 @@ test(
       const provider = (yield* proof.core.snapshot()).validations;
       expect(proof.early.validationInvocationIds).toHaveLength(1);
       expect(
-        provider.events.filter(
-          (event) => event.correlation?.origin.alarmRun === 1,
+        EffectArray.filter(
+          provider.events,
+          (event) => !!(event.correlation?.origin.alarmRun === 1),
         ),
       ).toHaveLength(1);
       expect(() =>
@@ -522,7 +544,7 @@ test(
         .providerFor({
           instance: early.instance,
           origin: { operation: "alarm", alarmRun: 1 },
-          invocationId: crypto.randomUUID(),
+          invocationId: yield* secureRandomUUID,
         })
         .validate(token);
       const provider = (yield* core.snapshot()).validations;
@@ -530,8 +552,9 @@ test(
         evidence.account.completedRuns[0]?.validationInvocationIds,
       ).toHaveLength(0);
       expect(
-        provider.events.filter(
-          (event) => event.correlation?.origin.alarmRun === 1,
+        EffectArray.filter(
+          provider.events,
+          (event) => !!(event.correlation?.origin.alarmRun === 1),
         ),
       ).toHaveLength(1);
       expect(() => verifyCompletedRecovery({ ...evidence, provider })).toThrow(
@@ -564,7 +587,7 @@ test(
         ...evidence,
         provider: {
           ...evidence.provider,
-          events: evidence.provider.events.map((event) =>
+          events: EffectArray.map(evidence.provider.events, (event) =>
             event.correlation?.invocationId === id ? change(event) : event,
           ),
         },
@@ -575,8 +598,9 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            completedRuns: evidence.account.completedRuns.filter(
-              (run) => run.key !== recovery.key,
+            completedRuns: EffectArray.filter(
+              evidence.account.completedRuns,
+              (run) => !!(run.key !== recovery.key),
             ),
           },
         },
@@ -591,8 +615,9 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            invocations: evidence.account.invocations.filter(
-              (invocation) => invocation.id !== id,
+            invocations: EffectArray.filter(
+              evidence.account.invocations,
+              (invocation) => !!(invocation.id !== id),
             ),
           },
         },
@@ -600,10 +625,12 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            invocations: evidence.account.invocations.map((invocation) =>
-              invocation.id === id
-                ? { ...invocation, completion: null }
-                : invocation,
+            invocations: EffectArray.map(
+              evidence.account.invocations,
+              (invocation) =>
+                invocation.id === id
+                  ? { ...invocation, completion: null }
+                  : invocation,
             ),
           },
         },
@@ -611,10 +638,15 @@ test(
           ...evidence,
           account: {
             ...evidence.account,
-            invocations: evidence.account.invocations.map((invocation) =>
-              invocation.id === id
-                ? { ...invocation, credentialFingerprint: "0".repeat(64) }
-                : invocation,
+            invocations: EffectArray.map(
+              evidence.account.invocations,
+              (invocation) =>
+                invocation.id === id
+                  ? {
+                      ...invocation,
+                      credentialFingerprint: EffectString.repeat(64)("0"),
+                    }
+                  : invocation,
             ),
           },
         },
@@ -622,8 +654,9 @@ test(
           ...evidence,
           provider: {
             ...evidence.provider,
-            events: evidence.provider.events.filter(
-              (event) => event.correlation?.invocationId !== id,
+            events: EffectArray.filter(
+              evidence.provider.events,
+              (event) => !!(event.correlation?.invocationId !== id),
             ),
           },
         },
@@ -651,7 +684,7 @@ test(
         })),
         changeEvent((event) => ({
           ...event,
-          credentialFingerprint: "0".repeat(64),
+          credentialFingerprint: EffectString.repeat(64)("0"),
         })),
         changeEvent((event) => ({ ...event, correlationError: true })),
       ];
@@ -706,7 +739,7 @@ for (const phase of ["start", "completion"] as const) {
         Effect.gen(function* () {
           const { core, url } = yield* loopback;
           const storage = yield* memory();
-          const instance = crypto.randomUUID();
+          const instance = yield* secureRandomUUID;
           const failure = new AccountError({ code: "provider" });
           const defect = new Error("CANARY-DIAGNOSTIC-DEFECT");
           const entered = yield* Deferred.make<void>();
@@ -788,8 +821,9 @@ for (const phase of ["start", "completion"] as const) {
 
             if (Exit.isFailure(exit))
               expect(
-                exit.cause.reasons.every((reason) =>
-                  Predicate.isTagged(reason, "Interrupt"),
+                EffectArray.every(
+                  exit.cause.reasons,
+                  (reason) => !!Predicate.isTagged(reason, "Interrupt"),
                 ),
               ).toBeTrue();
           } else {
@@ -812,7 +846,10 @@ for (const phase of ["start", "completion"] as const) {
           expect((yield* core.snapshot()).calls["GET /oauth/validate"]).toBe(1);
           const account = yield* readAccountAttribution(storage);
           expect(
-            account.integrityErrors.some((error) => error.phase === phase),
+            EffectArray.some(
+              account.integrityErrors,
+              (error) => !!(error.phase === phase),
+            ),
           ).toBeTrue();
           const providerEvidence = (yield* core.snapshot()).validations;
           expect(() =>
@@ -822,7 +859,11 @@ for (const phase of ["start", "completion"] as const) {
               runKey: `${instance}:2`,
             }),
           ).toThrow("diagnostic storage failure");
-          const safe = JSON.stringify(account);
+
+          const safe = yield* Schema.encodeEffect(
+            Schema.fromJsonString(Schema.Unknown),
+          )(account).pipe(Effect.orDie);
+
           expect(safe).not.toContain("CANARY-");
           expect(safe).not.toContain("synthetic-app-");
         }),
@@ -948,7 +989,7 @@ test(
         yield* target.alarm(account, true);
         yield* recordActivation(target.storage, {
           kind: "build",
-          instance: crypto.randomUUID(),
+          instance: yield* secureRandomUUID,
           alarmRun: null,
         });
       }
@@ -975,7 +1016,9 @@ test(
           `OAuth synthetic-app-bounded-${i}`,
         );
       const credentials = (yield* core.snapshot()).validations;
-      expect(Object.keys(credentials.counts)).toHaveLength(attributionLimit);
+      expect(EffectRecord.keys(credentials.counts)).toHaveLength(
+        attributionLimit,
+      );
       expect(credentials.credentialsDropped).toBe(4);
       expect(yield* credentialFingerprint("CANARY-TOKEN")).toMatch(
         /^[a-f0-9]{64}$/,

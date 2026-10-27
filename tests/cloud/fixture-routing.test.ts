@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, String as EffectString } from "effect";
 import {
   HttpRouter,
   HttpServer,
@@ -111,7 +111,7 @@ test(
       "/journeys//snapshot",
       "/journeys/a%2Fb/snapshot",
       "/journeys/A/snapshot",
-      `/journeys/${"a".repeat(65)}/snapshot`,
+      `/journeys/${EffectString.repeat(65)("a")}/snapshot`,
     ])
       expect((yield* call(path)).status).toBe(400);
   }).pipe(Effect.scoped),

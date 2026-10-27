@@ -8,7 +8,8 @@ import { WebsiteUnavailable } from "./errors.js";
 
 export const botClient = Effect.gen(function* () {
   const { env } = yield* Effect.tryPromise({
-    try: () => import("cloudflare:workers"),
+    try: (): Promise<Pick<typeof import("cloudflare:workers"), "env">> =>
+      import("cloudflare:workers"),
     catch: () => new WebsiteUnavailable(),
   });
 
@@ -25,7 +26,8 @@ export const botClient = Effect.gen(function* () {
 
 export const canonicalWebsiteOrigin = Effect.gen(function* () {
   const { env } = yield* Effect.tryPromise({
-    try: () => import("cloudflare:workers"),
+    try: (): Promise<Pick<typeof import("cloudflare:workers"), "env">> =>
+      import("cloudflare:workers"),
     catch: () => new WebsiteUnavailable(),
   });
 

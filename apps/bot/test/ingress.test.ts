@@ -1,3 +1,5 @@
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import { botOrigin } from "@arctools/bot-contracts/origins";
@@ -10,7 +12,17 @@ import {
   TwitchAccount,
 } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
-import { Result, Clock, Effect, Fiber, Layer, Redacted, Schema } from "effect";
+import {
+  Result,
+  Clock,
+  Effect,
+  Fiber,
+  Layer,
+  Redacted,
+  Schema,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { TestClock } from "effect/testing";
@@ -66,7 +78,7 @@ const fixture = Effect.fnUntraced(function* (
   let reads = 0;
   let setups = 0;
 
-  const status = Schema.decodeUnknownSync(AccountStatus)({
+  const status = yield* Schema.decodeEffect(AccountStatus)({
     stage: identity.stage,
     revision: "r",
     setup: "ready",
@@ -85,12 +97,11 @@ const fixture = Effect.fnUntraced(function* (
   });
 
   const account: Account = {
-    status: () =>
-      Effect.sync(() => {
-        reads++;
+    status: Effect.sync(() => {
+      reads++;
 
-        return status;
-      }),
+      return status;
+    }),
     dispatch: () => Effect.succeed({ kind: "rejected" }),
     setup: Effect.fnUntraced(function* () {
       setups++;
@@ -235,7 +246,11 @@ describe("signed HttpApi ingress", () => {
         expect(
           (yield* f.request(
             "/interactions/discord",
-            encode(JSON.parse(new TextDecoder().decode(body))),
+            encode(
+              yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(
+                new TextDecoder().decode(body),
+              ).pipe(Effect.orDie),
+            ),
             signed,
           )).status,
         ).toBe(401);
@@ -278,7 +293,7 @@ describe("signed HttpApi ingress", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const f = yield* fixture();
-        const huge = encode("x".repeat(65537));
+        const huge = encode(EffectString.repeat(65537)("x"));
         expect(
           (yield* f.request("/interactions/discord", huge, {})).status,
         ).toBe(413);
@@ -312,10 +327,10 @@ describe("signed HttpApi ingress", () => {
           { data: { name: "missing", type: 1 } },
         ]) {
           const response = yield* f.discord(
-            JSON.stringify({
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
               ...discordCommand("id"),
               ...extra,
-            }),
+            }).pipe(Effect.orDie),
           );
 
           expect(response.status).toBe(200);
@@ -333,7 +348,11 @@ describe("signed HttpApi ingress", () => {
           discordResponse("Sensors can be sold for 10 coins each"),
         );
         expect(f.admissions).toHaveLength(1);
-        expect(JSON.stringify(f.admissions)).not.toContain("CANARY");
+        expect(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            f.admissions,
+          ).pipe(Effect.orDie),
+        ).not.toContain("CANARY");
       }),
     ),
   );
@@ -370,11 +389,14 @@ describe("signed HttpApi ingress", () => {
 
       for (const headers of [
         { ...twitch, "twitch-eventsub-message-id": "" },
-        { ...twitch, "twitch-eventsub-message-id": "x".repeat(129) },
+        {
+          ...twitch,
+          "twitch-eventsub-message-id": EffectString.repeat(129)("x"),
+        },
         { ...twitch, "twitch-eventsub-message-timestamp": "123" },
         {
           ...twitch,
-          "twitch-eventsub-message-signature": `sha256=${"g".repeat(64)}`,
+          "twitch-eventsub-message-signature": `sha256=${EffectString.repeat(64)("g")}`,
         },
       ])
         expect(
@@ -387,7 +409,7 @@ describe("signed HttpApi ingress", () => {
         {},
         { ...discord, "x-signature-timestamp": "" },
         { ...discord, "x-signature-timestamp": "1.5" },
-        { ...discord, "x-signature-ed25519": "g".repeat(128) },
+        { ...discord, "x-signature-ed25519": EffectString.repeat(128)("g") },
       ])
         expect(
           (yield* f.request("/interactions/discord", discordBody, headers))
@@ -588,9 +610,11 @@ describe("signed HttpApi ingress", () => {
 
       const failed = yield* unknown.discord(discordCommand("unknown"));
       expect(failed.headers.get("x-arc-command-code")).toBe("rpc-defect");
-      expect(JSON.stringify(yield* json(failed))).not.toContain(
-        "CANARY-SECRET",
-      );
+      expect(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          yield* json(failed),
+        ).pipe(Effect.orDie),
+      ).not.toContain("CANARY-SECRET");
     }),
   );
   test(
@@ -780,7 +804,7 @@ test(
     );
 
     const twitch = encode(
-      ` ${JSON.stringify(twitchEvent("utf8", "!sell 雪🙂"))}\r\n`,
+      ` ${yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(twitchEvent("utf8", "!sell 雪🙂")).pipe(Effect.orDie)}\r\n`,
     );
 
     for (const [path, bytes, headers, status] of [
@@ -816,7 +840,11 @@ test(
       expect(
         (yield* f.request(
           path,
-          encode(JSON.parse(new TextDecoder().decode(bytes))),
+          encode(
+            yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(
+              new TextDecoder().decode(bytes),
+            ).pipe(Effect.orDie),
+          ),
           headers,
         )).status,
       ).toBe(401);
@@ -861,8 +889,15 @@ test(
   "operator body limits preserve success, authorization and external error mappings",
   Effect.gen(function* () {
     const f = yield* fixture();
-    const input = JSON.stringify({ stage: identity.stage });
-    const body = encode(input + " ".repeat(4096 - encode(input).byteLength));
+
+    const input = yield* Schema.encodeEffect(
+      Schema.fromJsonString(Schema.Unknown),
+    )({ stage: identity.stage }).pipe(Effect.orDie);
+
+    const body = encode(
+      input + EffectString.repeat(4096 - encode(input).byteLength)(" "),
+    );
+
     const authorization = { authorization: "Bearer operator" };
     const accepted = yield* f.request("/ops/status", body, authorization);
     expect(accepted.status).toBe(200);
@@ -990,7 +1025,7 @@ for (const delta of [-1, -20, 3000])
         expect(tenant.source.calls).toHaveLength(1);
       } else {
         expect(reply).toMatchObject({ data: { flags: 64 } });
-        expect(Object.values(tenant.snapshot().works)).toHaveLength(0);
+        expect(EffectRecord.values(tenant.snapshot().works)).toHaveLength(0);
         expect(tenant.source.calls).toHaveLength(0);
       }
     }).pipe(Effect.provide(TestClock.layer())),

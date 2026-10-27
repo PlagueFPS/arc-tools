@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/prefer-effect-array, effecttsgo/prefer-effect-string -- The public browser catalog must not import Effect; catalog.test.ts verifies this bundle boundary. */
 export interface SlashOption {
   readonly name: string;
   readonly description: string;

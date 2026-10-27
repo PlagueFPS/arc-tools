@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer, Result } from "effect";
+import { Effect, Layer, Result, String as EffectString } from "effect";
 import { HttpServerRequest } from "effect/http";
 
 import { OperatorBodyTooLarge, readOperatorBody } from "../src/operator.js";
@@ -23,7 +23,7 @@ test(
     const encoded = new TextEncoder().encode(valid);
 
     const bytes = new TextEncoder().encode(
-      valid + " ".repeat(4096 - encoded.byteLength),
+      valid + EffectString.repeat(4096 - encoded.byteLength)(" "),
     );
 
     const body = new ReadableStream<Uint8Array>({

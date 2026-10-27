@@ -2,6 +2,7 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Cause, Effect, Exit } from "effect";
 import { HttpServerResponse } from "effect/http";
 
+import { FixtureInvariantError } from "./fixture-error.js";
 import { fixtureHeader } from "./fixture-http.js";
 
 export const identifyFixtureResponse = HttpServerResponse.setHeader(
@@ -16,9 +17,9 @@ export const acknowledgeReconstruction = Effect.fnUntraced(function* <A, E, R>(
   const result = yield* Effect.exit(reset);
 
   if (Exit.isSuccess(result))
-    return yield* Effect.fail(
-      new Error("Reconstruction RPC returned without aborting"),
-    );
+    return yield* new FixtureInvariantError({
+      message: "Reconstruction RPC returned without aborting",
+    });
   const error = Cause.squash(result.cause);
 
   if (

@@ -1,3 +1,7 @@
+/* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
 
@@ -5,7 +9,14 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import { manifestHash } from "@arctools/discord/server";
 import { State, localState } from "alchemy/State";
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Schedule, Schema } from "effect";
+import {
+  Effect,
+  Schedule,
+  Schema,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 
 import { makeStack } from "../../alchemy.run.js";
 import {
@@ -66,15 +77,19 @@ export const stack = beforeAll(
   { timeout: 240_000 },
 );
 
-beforeAll(
-  Effect.fn("Local fixture startup and provider state")(function* () {
+export const fixturesReady = beforeAll(
+  Effect.gen(function* () {
     const deployed = yield* stack;
 
-    const resources = Schema.decodeUnknownSync(LocalTestResources)({
+    const resources = yield* Schema.decodeEffect(LocalTestResources)({
       stage: settings.stage,
-      origins: Object.entries(deployed)
-        .filter(([key]) => key.endsWith("Url") || key === "url")
-        .map(([, value]) => value),
+      origins: EffectArray.map(
+        EffectArray.filter(
+          EffectRecord.toEntries<string, string | undefined>(deployed),
+          ([key]) => !!(EffectString.endsWith("Url")(key) || key === "url"),
+        ),
+        ([, value]) => value ?? "",
+      ),
     });
 
     yield* Effect.promise(() =>
@@ -83,7 +98,9 @@ beforeAll(
           `../../.cloud-tests/${settings.stage}/resources.json`,
           import.meta.url,
         ),
-        JSON.stringify(resources, null, 2),
+        Schema.encodeSync(Schema.fromJsonString(Schema.Unknown, { space: 2 }))(
+          resources,
+        ),
       ),
     );
     yield* get(`${deployed.probeUrl}/snapshot`, ProbeSnapshot);
@@ -125,12 +142,15 @@ beforeAll(
       ).toBe("local");
     }
 
-    for (const [key, value] of Object.entries(deployed)) {
-      if (key.endsWith("Url") || key === "url") {
-        expect(new URL(value).hostname).toBe("localhost");
+    for (const [key, value] of EffectRecord.toEntries<
+      string,
+      string | undefined
+    >(deployed)) {
+      if (EffectString.endsWith("Url")(key) || key === "url") {
+        expect(new URL(value ?? "").hostname).toBe("localhost");
       }
     }
-  })(),
+  }).pipe(Effect.withSpan("Local fixture startup and provider state")),
   { timeout: 90_000 },
 );
 
@@ -199,7 +219,7 @@ test(
       response,
       Schema.Struct({
         rolledBack: Schema.Boolean,
-        before: Schema.Number,
+        before: Schema.Finite,
         snapshot: ProbeSnapshot,
       }),
     );
@@ -271,7 +291,9 @@ test(
               `../../.cloud-tests/${settings.stage}/alarm-observation.json`,
               import.meta.url,
             ),
-            JSON.stringify(record(), null, 2),
+            Schema.encodeSync(
+              Schema.fromJsonString(Schema.Unknown, { space: 2 }),
+            )(record()),
           ),
         ),
       ),
@@ -282,7 +304,7 @@ test(
     expect(completed.attempts).toBe(2);
     expect(completed.retryCount).toBe(1);
     expect(
-      completed.invocations.map(({ attempt, retryCount }) => ({
+      EffectArray.map(completed.invocations, ({ attempt, retryCount }) => ({
         attempt,
         retryCount,
       })),
@@ -296,23 +318,23 @@ test(
 );
 
 if (
-  settings.stage.startsWith("test-cache-") ||
-  settings.stage.startsWith("test-account-") ||
-  settings.stage.startsWith("test-tenant-")
+  EffectString.startsWith("test-cache-")(settings.stage) ||
+  EffectString.startsWith("test-account-")(settings.stage) ||
+  EffectString.startsWith("test-tenant-")(settings.stage)
 ) {
   const { registerCacheTests } = await import("./cache-cases.js");
   registerCacheTests({ stack, test });
 }
 
 if (
-  settings.stage.startsWith("test-account-") ||
-  settings.stage.startsWith("test-tenant-")
+  EffectString.startsWith("test-account-")(settings.stage) ||
+  EffectString.startsWith("test-tenant-")(settings.stage)
 ) {
   const { registerAccountTests } = await import("./account-cases.js");
   registerAccountTests({ stack, test });
 }
 
-if (settings.stage.startsWith("test-tenant-")) {
+if (EffectString.startsWith("test-tenant-")(settings.stage)) {
   const { registerTenantTests } = await import("./tenant-cases.js");
   registerTenantTests({ stack, test });
 }

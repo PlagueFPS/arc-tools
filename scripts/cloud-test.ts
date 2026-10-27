@@ -1,7 +1,12 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/global-console -- This host boundary writes native CLI output or captures console output in tests. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/process-env -- Host environment snapshots are parsed at the CLI or subprocess boundary. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { createHash, randomBytes } from "node:crypto";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 
-import { Match, Schema } from "effect";
+import { Match, Schema, String as EffectString } from "effect";
 
 import { cleanupLocalTest } from "./local-test-cleanup.js";
 import {
@@ -29,9 +34,7 @@ if (cleanupOnly) {
       "Cleanup requires the exact test stage from the run output",
     );
 
-  const validated = Schema.decodeUnknownSync(LocalTestSettings.fields.stage)(
-    stage,
-  );
+  const validated = Schema.decodeSync(LocalTestSettings.fields.stage)(stage);
 
   const journal = new URL(
     `../.cloud-tests/${validated}/run.json`,
@@ -47,10 +50,10 @@ if (cleanupOnly) {
 } else {
   const run = randomBytes(6).toString("hex");
 
-  const worktree = createHash("sha256")
-    .update(process.cwd())
-    .digest("hex")
-    .slice(0, 8);
+  const worktree = EffectString.slice(
+    0,
+    8,
+  )(createHash("sha256").update(process.cwd()).digest("hex"));
 
   settings = localTestSettings({
     ARC_CLOUD_STAGE: `test-${suite}-${worktree}-${run}`,

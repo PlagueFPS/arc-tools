@@ -17,10 +17,10 @@ import { Stage } from "./config.js";
 
 export const OperatorRequest = Schema.Struct({ stage: Stage });
 
-export class OperatorBodyTooLarge extends Schema.TaggedError<OperatorBodyTooLarge>()(
-  "OperatorBodyTooLarge",
-  {},
-) {}
+export class OperatorBodyTooLarge extends Schema.TaggedError<
+  OperatorBodyTooLarge,
+  { readonly brand: unique symbol }
+>()("OperatorBodyTooLarge", {}) {}
 
 type OperatorBodyError = HttpServerError.HttpServerError | OperatorBodyTooLarge;
 
@@ -31,10 +31,7 @@ const headers = {
 };
 
 const response = (
-  body:
-    | typeof AccountStatus.Type
-    | typeof SetupResult.Type
-    | { readonly error: string },
+  body: AccountStatus | SetupResult | { readonly error: string },
   status = 200,
 ) => HttpServerResponse.jsonUnsafe(body, { status, headers });
 
@@ -48,9 +45,9 @@ export const readOperatorBody = Effect.fnUntraced(function* (
     Stream.mkUint8Array,
   );
 
-  return yield* Schema.decodeUnknownEffect(
-    Schema.fromJsonString(OperatorRequest),
-  )(new TextDecoder().decode(bytes));
+  return yield* Schema.decodeEffect(Schema.fromJsonString(OperatorRequest))(
+    new TextDecoder().decode(bytes),
+  );
 });
 
 export const operatorHandlers = (
@@ -88,7 +85,7 @@ export const operatorHandlers = (
           const result =
             operation === "setup"
               ? yield* account.setup(yield* digest(Redacted.value(secret)))
-              : yield* account.status();
+              : yield* account.status;
 
           return response(result);
         }).pipe(

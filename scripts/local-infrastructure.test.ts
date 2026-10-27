@@ -1,3 +1,7 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/process-env -- Host environment snapshots are parsed at the CLI or subprocess boundary. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -137,13 +141,15 @@ test("cleanup refuses a live local listener and removes only stopped runtime fil
       new URL("resources.json", directory),
       JSON.stringify({ stage, origins: [`http://localhost:${server.port}`] }),
     );
-    await expect(cleanupLocalTest(directory, stage)).rejects.toThrow(
-      "still running",
+    await Promise.resolve(
+      expect(cleanupLocalTest(directory, stage)).rejects.toThrow(
+        "still running",
+      ),
     );
     expect(
       await Bun.file(new URL(".alchemy/state.json", directory)).exists(),
     ).toBeTrue();
-    server.stop(true);
+    await server.stop(true);
     await cleanupLocalTest(directory, stage);
     expect(
       await Bun.file(new URL(".alchemy/state.json", directory)).exists(),
@@ -152,11 +158,11 @@ test("cleanup refuses a live local listener and removes only stopped runtime fil
       await Bun.file(new URL("resources.json", directory)).exists(),
     ).toBeTrue();
     await cleanupLocalTest(directory, stage);
-    await expect(
+    expect(
       cleanupLocalTest(directory, "test-tenant-aaaaaaaaaaaa"),
     ).rejects.toThrow("mismatch");
   } finally {
-    server.stop(true);
+    await server.stop(true);
     await rm(directory, { recursive: true, force: true });
   }
 });

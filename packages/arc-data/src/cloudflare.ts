@@ -32,7 +32,7 @@ export const makeDurableStorage: Effect.Effect<
     get: (key) => provide(storage.get(key)),
     put: (key, value) => provide(storage.put(key, value)),
     remove: (key) => provide(storage.delete(key)).pipe(Effect.asVoid),
-    entries: () => provide(storage.list({ prefix: "entry:" })),
+    entries: provide(storage.list({ prefix: "entry:" })),
     transaction: (effect) =>
       provide(storage.transaction(effect)).pipe(
         Effect.catchIf(
@@ -55,8 +55,11 @@ export const makeCacheRpc = Effect.fnUntraced(function* (
   const storage = yield* makeDurableStorage;
 
   const cache = yield* Cache.pipe(
-    Effect.provide(cacheLayer(storage, options)),
-  ).pipe(Effect.provide(FetchHttpClient.layer));
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
+    Effect.provide(
+      cacheLayer(storage, options).pipe(Layer.provide(FetchHttpClient.layer)),
+    ),
+  );
 
   const read = Effect.fn("ArcCache.rpc")(function* (query: ResourceQuery) {
     return yield* cache.read(query).pipe(
@@ -88,6 +91,7 @@ export class ArcCacheDO extends Cloudflare.DurableObject<ArcCacheDO>()(
   Effect.gen(function* () {
     const source = yield* Effect.serviceOption(CacheSource);
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
       const options = Option.isSome(source) ? yield* source.value.options : {};
       const cache = yield* makeCacheRpc(options);
@@ -100,6 +104,7 @@ export class ArcCacheDO extends Cloudflare.DurableObject<ArcCacheDO>()(
 export const bindData = Effect.gen(function* () {
   const objects = yield* ArcCacheDO;
 
+  // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
   return Effect.gen(function* () {
     const runtime = yield* RuntimeContext;
     const object = objects.getByName("environment");
@@ -117,7 +122,7 @@ export const bindData = Effect.gen(function* () {
           ),
         );
 
-        const reply = yield* Schema.decodeUnknownEffect(CacheReply)(raw).pipe(
+        const reply = yield* Schema.decodeEffect(CacheReply)(raw).pipe(
           Effect.mapError(
             () =>
               new DataUnavailable({

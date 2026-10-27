@@ -1,3 +1,7 @@
+/* oxlint-disable effecttsgo/global-console -- This host boundary writes native CLI output or captures console output in tests. */
+/* oxlint-disable effecttsgo/process-env -- Host environment snapshots are parsed at the CLI or subprocess boundary. */
+/* oxlint-disable effecttsgo/process-env-in-effect -- The fixture or CLI explicitly reads the host environment, rather than the injected application configuration. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { parseArgs } from "node:util";
 
 import { syncCommands } from "@arctools/discord/server";
@@ -8,7 +12,13 @@ import {
   readJson,
   request,
 } from "@arctools/utils/http";
-import { Effect, Redacted, Schema } from "effect";
+import {
+  Effect,
+  Redacted,
+  Schema,
+  String as EffectString,
+  Console as EffectConsole,
+} from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { Stage } from "../apps/bot/src/config.js";
@@ -35,7 +45,7 @@ try {
   if (
     (endpoint.protocol !== "https:" &&
       !(
-        stage.startsWith("test-") &&
+        EffectString.startsWith("test-")(stage) &&
         endpoint.protocol === "http:" &&
         endpoint.hostname === "localhost"
       )) ||
@@ -73,12 +83,20 @@ try {
 
         if (setup.status.stage !== stage)
           return yield* Effect.fail("stage mismatch");
-        console.info(JSON.stringify(setup, null, 2));
+        yield* EffectConsole.info(
+          yield* Schema.encodeEffect(
+            Schema.fromJsonString(Schema.Unknown, { space: 2 }),
+          )(setup).pipe(Effect.orDie),
+        );
       } else {
         const status = yield* decodeBody(AccountStatus)(result);
 
         if (status.stage !== stage) return yield* Effect.fail("stage mismatch");
-        console.info(JSON.stringify(status, null, 2));
+        yield* EffectConsole.info(
+          yield* Schema.encodeEffect(
+            Schema.fromJsonString(Schema.Unknown, { space: 2 }),
+          )(status).pipe(Effect.orDie),
+        );
       }
 
       if (values.discord) {
@@ -86,14 +104,14 @@ try {
           {
             stage,
             endpoint: endpoint.origin,
-            revision: Schema.decodeUnknownSync(Schema.NonEmptyString)(
+            revision: yield* Schema.decodeUnknownEffect(Schema.NonEmptyString)(
               values.revision,
             ),
-            applicationId: Schema.decodeUnknownSync(Schema.NonEmptyString)(
-              process.env.DISCORD_APPLICATION_ID,
-            ),
+            applicationId: yield* Schema.decodeUnknownEffect(
+              Schema.NonEmptyString,
+            )(process.env.DISCORD_APPLICATION_ID),
             token: Redacted.make(
-              Schema.decodeUnknownSync(Schema.NonEmptyString)(
+              yield* Schema.decodeUnknownEffect(Schema.NonEmptyString)(
                 process.env.DISCORD_BOT_TOKEN,
               ),
             ),
@@ -101,13 +119,14 @@ try {
           { checkOnly: true },
         );
 
-        console.info(
-          JSON.stringify({
+        yield* EffectConsole.info(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
             discordDrift: drift.drift,
             manifestHash: drift.hash,
-          }),
+          }).pipe(Effect.orDie),
         );
       }
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This CLI or deployment entry point owns the composed layer scope.
     }).pipe(Effect.provide(providerTransport)),
   );
 } catch {

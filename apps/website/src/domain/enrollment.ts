@@ -46,17 +46,14 @@ export const canReconnect = (reason: typeof EnrollmentFailure.Type) =>
   reason === "expired" ||
   reason === "authorization-failed";
 
-export const canLeaveChannel = (status: typeof EnrollmentStatus.Type) =>
+export const canLeaveChannel = (status: EnrollmentStatus) =>
   status.kind === "ready" ||
   status.kind === "recovering" ||
   status.kind === "attention-required";
 
 const attentionGuidance: Readonly<
   Record<
-    Extract<
-      typeof EnrollmentStatus.Type,
-      { kind: "attention-required" }
-    >["reason"],
+    Extract<EnrollmentStatus, { kind: "attention-required" }>["reason"],
     string
   >
 > = {
@@ -71,8 +68,5 @@ const attentionGuidance: Readonly<
 };
 
 export const attentionMessage = (
-  reason: Extract<
-    typeof EnrollmentStatus.Type,
-    { kind: "attention-required" }
-  >["reason"],
+  reason: Extract<EnrollmentStatus, { kind: "attention-required" }>["reason"],
 ) => attentionGuidance[reason];

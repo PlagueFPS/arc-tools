@@ -1,6 +1,16 @@
+/* oxlint-disable effecttsgo/crypto-random-uuid -- Native fixture callbacks allocate secure operation IDs synchronously. */
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { Stack } from "alchemy";
-import { Deferred, Effect, Result, Layer, Schema } from "effect";
+import {
+  Deferred,
+  Effect,
+  Result,
+  Layer,
+  Schema,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
   HttpApi,
@@ -18,11 +28,11 @@ export const SourceControl = Schema.Struct({
   key: Schema.String,
   status: Schema.optional(Schema.Int),
   body: Schema.Json,
-  delayMs: Schema.optional(Schema.Number),
+  delayMs: Schema.optional(Schema.Finite),
   raw: Schema.optional(Schema.Boolean),
 });
 
-export const Observations = Schema.Record(Schema.String, Schema.Number);
+export const Observations = Schema.Record(Schema.String, Schema.Finite);
 
 const Activation = Schema.Struct({ id: ControlId, patch: SourceControl });
 
@@ -69,9 +79,10 @@ export const makeSourceFixture = Effect.fnUntraced(function* (
     retire: (id: string) => temporary.retire(id),
     controlState: (id: string) => temporary.observe(id),
     observations: Effect.fnUntraced(function* () {
-      return Object.fromEntries(
-        [...(yield* storage.list<number>({ prefix: "calls:" }))].map(
-          ([key, value]) => [key.slice(6), value],
+      return EffectRecord.fromEntries(
+        EffectArray.map(
+          [...(yield* storage.list<number>({ prefix: "calls:" }))],
+          ([key, value]) => [EffectString.slice(6)(key), value],
         ),
       );
     }),
@@ -135,6 +146,7 @@ class MetaforgeState extends Cloudflare.DurableObject<MetaforgeState>()(
   Effect.gen(function* () {
     const { storage } = yield* Cloudflare.DurableObjectState;
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return makeSourceFixture(storage);
   }),
 ) {}
@@ -188,9 +200,14 @@ export class MetaforgeWorker extends Cloudflare.Worker<MetaforgeWorker>()(
       );
 
       return result.raw
-        ? HttpServerResponse.text(String(result.body), {
-            status: result.status,
-          })
+        ? HttpServerResponse.text(
+            yield* Schema.decodeUnknownEffect(Schema.String)(result.body).pipe(
+              Effect.orDie,
+            ),
+            {
+              status: result.status,
+            },
+          )
         : HttpServerResponse.jsonUnsafe(result.body, { status: result.status });
     });
 

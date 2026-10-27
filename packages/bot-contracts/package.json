@@ -8,7 +8,7 @@
     "./origins": "./src/origins.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@arctools/twitch": "workspace:*",

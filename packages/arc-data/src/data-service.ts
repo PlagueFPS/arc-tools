@@ -35,7 +35,7 @@ export type ResourceQuery = typeof ResourceQuery.Type;
 
 export const Provenance = Schema.Struct({
   freshness: Schema.Literals(["fresh", "fallback"]),
-  fetchedAt: Schema.Number,
+  fetchedAt: Schema.Finite,
 });
 
 export type Provenance = typeof Provenance.Type;
@@ -45,20 +45,20 @@ export interface DataRead<A> {
   readonly provenance: Provenance;
 }
 
-export class DataUnavailable extends Schema.TaggedError<DataUnavailable>()(
-  "DataUnavailable",
-  {
-    resource: Schema.String,
-    reason: Schema.Literals([
-      "query",
-      "source",
-      "capacity",
-      "refreshing",
-      "superseded",
-      "deadline",
-    ]),
-  },
-) {
+export class DataUnavailable extends Schema.TaggedError<
+  DataUnavailable,
+  { readonly brand: unique symbol }
+>()("DataUnavailable", {
+  resource: Schema.String,
+  reason: Schema.Literals([
+    "query",
+    "source",
+    "capacity",
+    "refreshing",
+    "superseded",
+    "deadline",
+  ]),
+}) {
   get message() {
     return "Game data is temporarily unavailable. Please try again shortly.";
   }
@@ -71,14 +71,11 @@ export interface Interface {
   readonly arcs: (
     params: ArcsAPIParams,
   ) => Effect.Effect<DataRead<readonly Arc[]>, DataUnavailable>;
-  readonly traders: () => Effect.Effect<
+  readonly traders: Effect.Effect<
     DataRead<TradersAPIResponse["data"]>,
     DataUnavailable
   >;
-  readonly events: () => Effect.Effect<
-    DataRead<readonly Event[]>,
-    DataUnavailable
-  >;
+  readonly events: Effect.Effect<DataRead<readonly Event[]>, DataUnavailable>;
 }
 
 export class ArcData extends Context.Service<ArcData, Interface>()(

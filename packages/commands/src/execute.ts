@@ -13,9 +13,9 @@ export interface CommandReply {
 export const executeCommand = Effect.fn("Command.execute")(function* (
   request: CommandExecution,
 ) {
-  const input = yield* Schema.decodeUnknownEffect(CommandExecution)(
-    request,
-  ).pipe(Effect.mapError((cause) => new CommandError({ cause })));
+  const input = yield* Schema.decodeEffect(CommandExecution)(request).pipe(
+    Effect.mapError((cause) => new CommandError({ cause })),
+  );
 
   const remaining = input.deadline - (yield* Clock.currentTimeMillis);
 
@@ -38,8 +38,8 @@ export const executeCommand = Effect.fn("Command.execute")(function* (
   const local = ArcData.of({
     items: (params) => observe(data.items(params)),
     arcs: (params) => observe(data.arcs(params)),
-    traders: () => observe(data.traders()),
-    events: () => observe(data.events()),
+    traders: observe(data.traders),
+    events: observe(data.events),
   });
 
   const text = yield* commandHandlers[input.command](input.input).pipe(

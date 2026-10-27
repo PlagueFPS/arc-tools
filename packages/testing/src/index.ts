@@ -1,6 +1,12 @@
 import { layerUncached } from "@arctools/arc-data";
 import { BASE_API_URL } from "@arctools/utils";
-import { Effect, Layer } from "effect";
+import {
+  Effect,
+  Layer,
+  Array as EffectArray,
+  String as EffectString,
+  Schema as EffectSchema,
+} from "effect";
 import {
   HttpClient,
   type HttpClientRequest,
@@ -72,31 +78,44 @@ export function createMockHttpClientLayer(mock: MockData) {
   const arcs = mock.arcs ?? [];
   const events = mock.events ?? [];
 
-  const baseUrl = `${BASE_API_URL.replace(/\/$/, "")}/`;
+  const baseUrl = `${EffectString.replace(/\/$/, "")(BASE_API_URL)}/`;
 
   const mockClient = HttpClient.make(
     (request: HttpClientRequest.HttpClientRequest) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         const url = request.url;
 
-        if (!url.startsWith(baseUrl)) {
+        if (!EffectString.startsWith(baseUrl)(url)) {
           return HttpClientResponse.fromWeb(
             request,
-            new Response(JSON.stringify({ error: "unexpected url" }), {
-              status: 404,
-            }),
+            new Response(
+              yield* EffectSchema.encodeEffect(
+                EffectSchema.fromJsonString(EffectSchema.Unknown),
+              )({ error: "unexpected url" }),
+              {
+                status: 404,
+              },
+            ),
           );
         }
 
-        const path = url.slice(baseUrl.length).split("?")[0];
+        const path = EffectString.split(
+          EffectString.slice(baseUrl.length)(url),
+          "?",
+        )[0];
 
         if (path === "traders") {
           return HttpClientResponse.fromWeb(
             request,
-            new Response(JSON.stringify({ data: traders }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
+            new Response(
+              yield* EffectSchema.encodeEffect(
+                EffectSchema.fromJsonString(EffectSchema.Unknown),
+              )({ data: traders }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
           );
         }
 
@@ -107,22 +126,43 @@ export function createMockHttpClientLayer(mock: MockData) {
           let matched = items;
 
           if (id) {
-            matched = items.filter(
-              (i) => i.id.toLowerCase() === id.toLowerCase(),
+            matched = EffectArray.filter(
+              items,
+              (i) =>
+                !!(
+                  EffectString.toLowerCase(i.id) ===
+                  EffectString.toLowerCase(id)
+                ),
             );
           } else if (search) {
-            const norm = search.toLowerCase().replace(/\s/g, "");
-            matched = items.filter((i: MockItem) =>
-              i.name.toLowerCase().replace(/\s/g, "").includes(norm),
+            const norm = EffectString.replace(
+              /\s/g,
+              "",
+            )(EffectString.toLowerCase(search));
+
+            matched = EffectArray.filter(
+              items,
+              (i: MockItem) =>
+                !!EffectString.includes(norm)(
+                  EffectString.replace(
+                    /\s/g,
+                    "",
+                  )(EffectString.toLowerCase(i.name)),
+                ),
             );
           }
 
           return HttpClientResponse.fromWeb(
             request,
-            new Response(JSON.stringify({ data: matched }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
+            new Response(
+              yield* EffectSchema.encodeEffect(
+                EffectSchema.fromJsonString(EffectSchema.Unknown),
+              )({ data: matched }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
           );
         }
 
@@ -133,40 +173,71 @@ export function createMockHttpClientLayer(mock: MockData) {
           let matched = arcs;
 
           if (id) {
-            matched = arcs.filter(
-              (a) => a.id.toLowerCase() === id.toLowerCase(),
+            matched = EffectArray.filter(
+              arcs,
+              (a) =>
+                !!(
+                  EffectString.toLowerCase(a.id) ===
+                  EffectString.toLowerCase(id)
+                ),
             );
           } else if (search) {
-            const norm = search.toLowerCase().replace(/\s/g, "");
-            matched = arcs.filter((a: MockArc) =>
-              a.name.toLowerCase().replace(/\s/g, "").includes(norm),
+            const norm = EffectString.replace(
+              /\s/g,
+              "",
+            )(EffectString.toLowerCase(search));
+
+            matched = EffectArray.filter(
+              arcs,
+              (a: MockArc) =>
+                !!EffectString.includes(norm)(
+                  EffectString.replace(
+                    /\s/g,
+                    "",
+                  )(EffectString.toLowerCase(a.name)),
+                ),
             );
           }
 
           return HttpClientResponse.fromWeb(
             request,
-            new Response(JSON.stringify({ data: matched }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
+            new Response(
+              yield* EffectSchema.encodeEffect(
+                EffectSchema.fromJsonString(EffectSchema.Unknown),
+              )({ data: matched }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
           );
         }
 
         if (path === "events-schedule") {
           return HttpClientResponse.fromWeb(
             request,
-            new Response(JSON.stringify({ data: events }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
+            new Response(
+              yield* EffectSchema.encodeEffect(
+                EffectSchema.fromJsonString(EffectSchema.Unknown),
+              )({ data: events }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
           );
         }
 
         return HttpClientResponse.fromWeb(
           request,
-          new Response(JSON.stringify({ error: "not found" }), { status: 404 }),
+          new Response(
+            yield* EffectSchema.encodeEffect(
+              EffectSchema.fromJsonString(EffectSchema.Unknown),
+            )({ error: "not found" }),
+            { status: 404 },
+          ),
         );
-      }),
+      }).pipe(Effect.orDie),
   );
 
   return layerUncached.pipe(

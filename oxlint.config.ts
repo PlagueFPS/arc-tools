@@ -1,7 +1,13 @@
+import {
+  antipattern,
+  effectNative,
+  recommended,
+} from "@effect/tsgo/oxlint-presets";
 import foldkit from "@foldkit/oxlint-plugin";
 import { defineConfig } from "oxlint";
 
 export default defineConfig({
+  extends: [recommended, effectNative, antipattern],
   plugins: ["typescript", "unicorn", "oxc"],
   jsPlugins: [
     { name: "foldkit", specifier: "@foldkit/oxlint-plugin" },
@@ -12,6 +18,9 @@ export default defineConfig({
     },
   ],
   rules: {
+    "effecttsgo/unstable-api-usage": "off",
+    "effecttsgo/prefer-barrel-import": "warn",
+    "effecttsgo/prefer-schema-tagged-error": "warn",
     "oxc/no-accumulating-spread": "error",
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",

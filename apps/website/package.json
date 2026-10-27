@@ -6,7 +6,7 @@
     "dev": "vite --port 3000 --strictPort",
     "build": "vite build",
     "preview": "vite preview --outDir dist/client --port 3000 --strictPort",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit",
     "test": "vitest run",
     "verify:build": "bun --no-env-file ../../scripts/verify-website-build.ts"
   },

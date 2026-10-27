@@ -1,3 +1,8 @@
+/* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { AccountRpc, accountRpcLayer } from "@arctools/twitch/cloudflare";
 import {
@@ -15,6 +20,7 @@ import {
   AccountState,
   policy,
 } from "@arctools/twitch/testing";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { providerTransport } from "@arctools/utils/http";
 import { Stack } from "alchemy";
 import { Cause, Clock, Effect, Layer, Logger, Redacted, Schema } from "effect";
@@ -54,7 +60,7 @@ const FixtureDispatch = Dispatch.mapFields((fields) => ({
   ),
 }));
 
-const missingSource = Schema.decodeUnknownSync(ChatSource)({
+const missingSource = Schema.decodeSync(ChatSource)({
   installationId: "unowned-fixture",
   subscriptionId: "unowned-fixture",
 });
@@ -77,8 +83,9 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
     const sourceUrl = yield* source.url;
     const config = yield* runtimeConfig.pipe(Effect.orDie);
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
-      const instance = crypto.randomUUID();
+      const instance = yield* secureRandomUUID;
 
       const event = (
         kind: Parameters<typeof recordActivation>[1]["kind"],
@@ -358,7 +365,10 @@ export class AccountFixtureObject extends Cloudflare.DurableObject<AccountFixtur
         }),
         snapshot: Effect.fnUntraced(function* () {
           const records = yield* state.storage.list({ prefix: "account:" });
-          const serialized = JSON.stringify([...records]);
+
+          const serialized = yield* Schema.encodeEffect(
+            Schema.fromJsonString(Schema.Unknown),
+          )([...records]).pipe(Effect.orDie);
 
           return {
             instance,

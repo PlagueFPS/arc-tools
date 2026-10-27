@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Array as EffectArray } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 import { resolveItem } from "./utils.js";
@@ -27,9 +27,10 @@ export const findHandler = Effect.fn("Command.findHandler")(
       Option.isSome(item.value.dropped_by) &&
       item.value.dropped_by.value.length > 0
     ) {
-      const droppedBy = item.value.dropped_by.value
-        .map((e) => e.arc.name)
-        .join(", ");
+      const droppedBy = EffectArray.join(
+        EffectArray.map(item.value.dropped_by.value, (e) => e.arc.name),
+        ", ",
+      );
 
       parts.push(`can be dropped by ${droppedBy}`);
     }
@@ -40,7 +41,9 @@ export const findHandler = Effect.fn("Command.findHandler")(
       );
     }
 
-    return yield* Effect.succeed(`${item.value.name} ${parts.join(" and ")}.`);
+    return yield* Effect.succeed(
+      `${item.value.name} ${EffectArray.join(parts, " and ")}.`,
+    );
   },
   (self) => Effect.mapError(self, (cause) => new CommandError({ cause })),
 );

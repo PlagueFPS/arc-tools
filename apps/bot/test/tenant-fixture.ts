@@ -1,3 +1,5 @@
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { ArcData } from "@arctools/arc-data";
 import { makeFixture } from "@arctools/arc-data/testing";
 import {
@@ -8,7 +10,13 @@ import {
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Effect, Exit, Schema, Semaphore } from "effect";
+import {
+  Effect,
+  Exit,
+  Schema,
+  Semaphore,
+  String as EffectString,
+} from "effect";
 
 import { DiscordReceipt, TwitchReceipt } from "../src/tenant-contracts.js";
 import { emptyTenant, TenantState, TenantStore } from "../src/tenant-state.js";
@@ -19,9 +27,9 @@ import {
 } from "../src/tenant.js";
 
 export const twitchReceipt = (id = "work", receivedAt = 0) =>
-  Schema.decodeUnknownSync(TwitchReceipt)({
+  Schema.decodeSync(TwitchReceipt)({
     id,
-    fingerprint: "a".repeat(64),
+    fingerprint: EffectString.repeat(64)("a"),
     receivedAt,
     broadcasterId: "200",
     source: {
@@ -33,9 +41,9 @@ export const twitchReceipt = (id = "work", receivedAt = 0) =>
   });
 
 export const discordReceipt = (id = "work", receivedAt = 0) =>
-  Schema.decodeUnknownSync(DiscordReceipt)({
+  Schema.decodeSync(DiscordReceipt)({
     id,
-    fingerprint: "a".repeat(64),
+    fingerprint: EffectString.repeat(64)("a"),
     receivedAt,
     guildId: "guild",
     invocation: { command: "sell", input: "sensors" },
@@ -72,7 +80,7 @@ export const tenantFixture = Effect.fnUntraced(function* () {
     dispatch: (input) => dispatch(input),
     setup: () => new AccountError({ code: "configuration" }),
     completeOAuth: () => new AccountError({ code: "configuration" }),
-    status: () => new AccountError({ code: "configuration" }),
+    status: new AccountError({ code: "configuration" }),
     observeSubscription: () => Effect.succeed(null),
   };
 
@@ -121,17 +129,16 @@ export const tenantFixture = Effect.fnUntraced(function* () {
             }
 
             return exit.value;
-          }).pipe(mutex.withPermit),
+          }).pipe((effect) => mutex.withPermit(effect)),
       }),
     ),
-  ).pipe(
     Effect.provideService(
       RuntimeContext,
       RuntimeContext.of({
         Type: "test",
         id: "tenant-storage",
         env: {},
-        get: () => Effect.succeed(undefined),
+        get: () => Effect.as(Effect.void, undefined),
         set: (key) => Effect.succeed(key),
       }),
     ),
@@ -154,7 +161,6 @@ export const tenantFixture = Effect.fnUntraced(function* () {
             }),
         }),
       ),
-    ).pipe(
       Effect.provideService(TenantStore, storage),
       Effect.provideService(ArcData, data),
       Effect.provideService(TwitchAccount, account),

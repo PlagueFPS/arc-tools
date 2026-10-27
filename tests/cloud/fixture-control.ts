@@ -1,4 +1,13 @@
-import { Deferred, Effect, Schema, Semaphore } from "effect";
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+import {
+  Deferred,
+  Effect,
+  Schema,
+  Semaphore,
+  Array as EffectArray,
+  String as EffectString,
+} from "effect";
 
 import type { AttributionStorage } from "./alarm-attribution.js";
 
@@ -15,25 +24,30 @@ export const ControlObservation = Schema.Struct({
   precedingSettingsSha256: Schema.String,
 });
 
-export class FixtureControlError extends Schema.TaggedError<FixtureControlError>()(
-  "FixtureControlError",
-  {
-    id: ControlId,
-    code: Schema.Literals(["retired", "overlap"]),
-  },
-) {}
+export class FixtureControlError extends Schema.TaggedError<
+  FixtureControlError,
+  { readonly brand: unique symbol }
+>()("FixtureControlError", {
+  id: ControlId,
+  code: Schema.Literals(["retired", "overlap"]),
+}) {}
 
 const hash = Effect.fnUntraced(function* <P>(value: P) {
   const digest = yield* Effect.promise(() =>
     crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(JSON.stringify(value)),
+      new TextEncoder().encode(
+        Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(value),
+      ),
     ),
   );
 
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  return EffectArray.join(
+    Array.from(new Uint8Array(digest), (byte) =>
+      EffectString.padStart(2, "0")(byte.toString(16)),
+    ),
+    "",
+  );
 });
 
 type Active<P> = { id: string; previous: P; applied: P };
@@ -103,7 +117,11 @@ export const fixtureControl = Effect.fnUntraced(function* <P>(
 
       yield* rebuild(next);
     },
-    (effect) => effect.pipe(permit.withPermit, Effect.uninterruptible),
+    (effect) =>
+      effect.pipe(
+        (effect) => permit.withPermit(effect),
+        Effect.uninterruptible,
+      ),
   );
 
   const retire = Effect.fnUntraced(
@@ -135,7 +153,11 @@ export const fixtureControl = Effect.fnUntraced(function* <P>(
 
       yield* rebuild(next);
     },
-    (effect) => effect.pipe(permit.withPermit, Effect.uninterruptible),
+    (effect) =>
+      effect.pipe(
+        (effect) => permit.withPermit(effect),
+        Effect.uninterruptible,
+      ),
   );
 
   return {
@@ -147,7 +169,7 @@ export const fixtureControl = Effect.fnUntraced(function* <P>(
         settings: yield* settings(),
         gates: new Map(gates),
       };
-    }).pipe(permit.withPermit),
+    }).pipe((effect) => permit.withPermit(effect)),
     update: Effect.fnUntraced(
       function* (id: string | null, change: (settings: P) => P) {
         yield* storage
@@ -166,7 +188,11 @@ export const fixtureControl = Effect.fnUntraced(function* <P>(
           )
           .pipe(Effect.orDie);
       },
-      (effect) => effect.pipe(permit.withPermit, Effect.uninterruptible),
+      (effect) =>
+        effect.pipe(
+          (effect) => permit.withPermit(effect),
+          Effect.uninterruptible,
+        ),
     ),
     observe: Effect.fnUntraced(
       function* (id: string) {
@@ -189,7 +215,7 @@ export const fixtureControl = Effect.fnUntraced(function* <P>(
           ),
         };
       },
-      (effect) => effect.pipe(permit.withPermit),
+      (effect) => effect.pipe((effect) => permit.withPermit(effect)),
     ),
   };
 });

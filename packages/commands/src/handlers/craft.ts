@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Array as EffectArray } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 import { resolveItem } from "./utils.js";
@@ -24,11 +24,13 @@ export const craftHandler = Effect.fn("Command.craftHandler")(
       return yield* Effect.succeed(`${item.value.name} cannot be crafted.`);
     }
 
-    const components = item.value.components.value
-      .map(
+    const components = EffectArray.join(
+      EffectArray.map(
+        item.value.components.value,
         (component) => `${component.component.name} (x${component.quantity})`,
-      )
-      .join(", ");
+      ),
+      ", ",
+    );
 
     return yield* Effect.succeed(
       `You must have ${item.value.workbench.value} and the following items to craft ${item.value.name}: ${components}`,

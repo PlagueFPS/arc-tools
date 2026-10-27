@@ -27,7 +27,7 @@ describe("TradersAPIResponse", () => {
       };
 
       const result = yield* Effect.exit(
-        Schema.decodeUnknownEffect(TradersAPIResponse)(payload),
+        Schema.decodeEffect(TradersAPIResponse)(payload),
       );
 
       expect(Exit.isSuccess(result)).toBeTrue();
@@ -61,7 +61,7 @@ describe("ArcsAPIResponse", () => {
       };
 
       const result = yield* Effect.exit(
-        Schema.decodeUnknownEffect(ArcsAPIResponse)(payload),
+        Schema.decodeEffect(ArcsAPIResponse)(payload),
       );
 
       expect(Exit.isSuccess(result)).toBeTrue();
@@ -76,7 +76,7 @@ describe("ArcsAPIResponse", () => {
       };
 
       const result = yield* Effect.exit(
-        Schema.decodeUnknownEffect(ArcsAPIResponse)(payload),
+        Schema.decodeEffect(ArcsAPIResponse)(payload),
       );
 
       expect(Exit.isSuccess(result)).toBeTrue();
@@ -105,7 +105,7 @@ describe("ItemAPIResponse", () => {
       };
 
       const result = yield* Effect.exit(
-        Schema.decodeUnknownEffect(ItemAPIResponse)(payload),
+        Schema.decodeEffect(ItemAPIResponse)(payload),
       );
 
       expect(Exit.isSuccess(result)).toBeTrue();
@@ -120,7 +120,7 @@ describe("ItemAPIResponse", () => {
       };
 
       const result = yield* Effect.exit(
-        Schema.decodeUnknownEffect(ItemAPIResponse)(payload),
+        Schema.decodeEffect(ItemAPIResponse)(payload),
       );
 
       expect(Exit.isSuccess(result)).toBeTrue();
@@ -144,7 +144,7 @@ describe("EventAPIResponse", () => {
       };
 
       const result = yield* Effect.exit(
-        Schema.decodeUnknownEffect(EventAPIResponse)(payload),
+        Schema.decodeEffect(EventAPIResponse)(payload),
       );
 
       expect(Exit.isSuccess(result)).toBeTrue();

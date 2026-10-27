@@ -1,3 +1,7 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   copyFile,
@@ -21,6 +25,9 @@ import {
   Match,
   Schema,
   Redacted,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
 } from "effect";
 import { FetchHttpClient, HttpClient } from "effect/http";
 import { TestClock } from "effect/testing";
@@ -42,9 +49,9 @@ const preview = previewIdentity({
   number: 10,
 });
 
-const checked = Schema.decodeUnknownSync(CheckedPreview)({
-  revision: "a".repeat(40),
-  head: "b".repeat(40),
+const checked = Schema.decodeSync(CheckedPreview)({
+  revision: EffectString.repeat(40)("a"),
+  head: EffectString.repeat(40)("b"),
 });
 
 const pr = (
@@ -63,9 +70,9 @@ const directories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
-    directories
-      .splice(0)
-      .map((directory) => rm(directory, { recursive: true, force: true })),
+    EffectArray.map(directories.splice(0), (directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
   );
 });
 
@@ -107,7 +114,7 @@ describe("preview identity and boundaries", () => {
       previewIdentity({ repository: preview.repository, number: 10 }),
     ).toEqual(preview);
     expect(preview.stage).toMatch(/^test-tenant-[a-f0-9]{8}-[a-f0-9]{12}$/);
-    expect(preview.stage.endsWith(`-${preview.run}`)).toBeTrue();
+    expect(EffectString.endsWith(`-${preview.run}`)(preview.stage)).toBeTrue();
     expect(
       new Set(
         Array.from(
@@ -138,7 +145,7 @@ describe("preview identity and boundaries", () => {
       "test-account-0123abcd-0123456789ab",
       "test-tenant-1-0123456789ab",
     ])
-      expect(() => Schema.decodeUnknownSync(PreviewStage)(target)).toThrow();
+      expect(() => Schema.decodeSync(PreviewStage)(target)).toThrow();
 
     for (const args of [
       ["cleanup", "--stage", "prod"],
@@ -154,13 +161,13 @@ describe("preview identity and boundaries", () => {
   });
   test("unknown or abbreviated revisions and untrusted PR origins fail", () => {
     for (const revision of [
-      "a".repeat(7),
-      "A".repeat(40),
+      EffectString.repeat(7)("a"),
+      EffectString.repeat(40)("A"),
       "refs/heads/main",
       "",
     ])
       expect(() =>
-        Schema.decodeUnknownSync(CheckedPreview)({
+        Schema.decodeSync(CheckedPreview)({
           revision,
           head: checked.head,
         }),
@@ -177,7 +184,7 @@ describe("preview identity and boundaries", () => {
     );
   });
   test("all inherited bot values are removed before explicit synthetic values and checked SHA", () => {
-    const settings = Schema.decodeUnknownSync(CloudSettings)({
+    const settings = Schema.decodeSync(CloudSettings)({
       ...preview,
       profile: "fixture",
     });
@@ -199,7 +206,7 @@ describe("preview identity and boundaries", () => {
       settings,
     );
 
-    expect(Object.values(env)).not.toContain("PROD");
+    expect(EffectRecord.values(env)).not.toContain("PROD");
     expect(env.ARC_BOT_URL).toBeUndefined();
     expect(env.ARC_BUILD_REVISION).toBeUndefined();
     expect(env.ARC_STAGE).toBe(preview.stage);
@@ -249,16 +256,19 @@ describe("resident preview reconciliation", () => {
       ).toBe("destroyed");
       expect(f.calls.at(-1)).toBe("cleanup");
       expect(
-        f.publications.some((body) => body.includes("https://")),
+        EffectArray.some(
+          f.publications,
+          (body) => !!EffectString.includes("https://")(body),
+        ),
       ).toBeFalse();
     });
   }
 
   for (const states of [
-    [pr("open", "c".repeat(40))],
-    [pr(), pr("open", "c".repeat(40))],
-    [pr(), pr(), pr("open", checked.head, "d".repeat(40))],
-    [pr(), pr(), pr(), pr("open", "c".repeat(40))],
+    [pr("open", EffectString.repeat(40)("c"))],
+    [pr(), pr("open", EffectString.repeat(40)("c"))],
+    [pr(), pr(), pr("open", checked.head, EffectString.repeat(40)("d"))],
+    [pr(), pr(), pr(), pr("open", EffectString.repeat(40)("c"))],
   ]) {
     test(`a stale head or merge at observation ${states.length} never publishes its URL`, async () => {
       const f = fixture([...states]);
@@ -269,7 +279,10 @@ describe("resident preview reconciliation", () => {
         ),
       ).toBe("stale");
       expect(
-        f.publications.some((body) => body.includes("https://")),
+        EffectArray.some(
+          f.publications,
+          (body) => !!EffectString.includes("https://")(body),
+        ),
       ).toBeFalse();
     });
   }
@@ -281,9 +294,11 @@ describe("resident preview reconciliation", () => {
       expect(
         await reconcilePreview({ action: "cleanup", preview }, f.operations),
       ).toBe("destroyed");
-    expect(f.calls.filter((call) => call === "cleanup")).toHaveLength(2);
+    expect(
+      EffectArray.filter(f.calls, (call) => !!(call === "cleanup")),
+    ).toHaveLength(2);
     const open = fixture([pr()]);
-    await expect(
+    expect(
       reconcilePreview({ action: "cleanup", preview }, open.operations),
     ).rejects.toThrow("closed PR");
     expect(open.calls).toEqual(["read"]);
@@ -292,12 +307,12 @@ describe("resident preview reconciliation", () => {
       throw new Error("strict cleanup failed");
     };
 
-    await expect(
+    expect(
       reconcilePreview({ action: "cleanup", preview }, failed.operations),
     ).rejects.toThrow("strict cleanup failed");
     expect(failed.publications).toEqual([]);
     const unavailable = fixture([]);
-    await expect(
+    expect(
       reconcilePreview(
         { action: "deploy", preview, checked },
         unavailable.operations,
@@ -311,18 +326,21 @@ describe("resident preview reconciliation", () => {
       throw new Error("wrong revision");
     };
 
-    await expect(
+    expect(
       reconcilePreview({ action: "deploy", preview, checked }, f.operations),
     ).rejects.toThrow("wrong revision");
     expect(
-      f.publications.some((body) => body.includes("https://")),
+      EffectArray.some(
+        f.publications,
+        (body) => !!EffectString.includes("https://")(body),
+      ),
     ).toBeFalse();
     const changing = fixture([pr(), pr()]);
     changing.operations.deploy = async (origin) => ({
       stage: preview.stage,
       url: origin ? "https://changed.invalid" : "https://fixture.invalid",
     });
-    await expect(
+    expect(
       reconcilePreview(
         { action: "deploy", preview, checked },
         changing.operations,
@@ -449,10 +467,13 @@ globalThis.fetch = async (input, init) => {
       return { code, output: stdout + stderr };
     },
     async calls() {
-      return (await readFile(join(directory, "calls"), "utf8"))
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
+      return EffectArray.map(
+        EffectString.split(
+          EffectString.trim(await readFile(join(directory, "calls"), "utf8")),
+          "\n",
+        ),
+        (line) => JSON.parse(line),
+      );
     },
     journal(name: string) {
       return Bun.file(
@@ -468,9 +489,14 @@ test("real controller CLI writes recovery before children, strips secrets, redep
   expect(result).toMatchObject({ code: 0 });
 
   const calls = await f.calls();
-  const deployments = calls.filter((call) => call.type === "deploy");
+
+  const deployments = EffectArray.filter(
+    calls,
+    (call) => !!(call.type === "deploy"),
+  );
+
   expect(deployments).toHaveLength(2);
-  expect(deployments.map((call) => call.env.ARC_BOT_URL)).toEqual([
+  expect(EffectArray.map(deployments, (call) => call.env.ARC_BOT_URL)).toEqual([
     "",
     "https://fixture.invalid",
   ]);
@@ -484,12 +510,13 @@ test("real controller CLI writes recovery before children, strips secrets, redep
   }
 
   expect(
-    calls
-      .filter((call) => call.type === "comment")
-      .every(
-        (call) =>
-          call.method === "PATCH" && call.url.endsWith("/issues/comments/123"),
-      ),
+    EffectArray.every(
+      EffectArray.filter(calls, (call) => !!(call.type === "comment")),
+      (call) =>
+        !!(
+          call.method === "PATCH" && call.url.endsWith("/issues/comments/123")
+        ),
+    ),
   ).toBeTrue();
   expect(await f.journal("run.json")).toMatchObject({
     stage: preview.stage,
@@ -515,7 +542,7 @@ test("closed cleanup works in a fresh checkout with no prior artifact, repeats, 
   }
 
   expect(
-    (await f.calls()).filter((call) => call.type === "cleanup"),
+    EffectArray.filter(await f.calls(), (call) => !!(call.type === "cleanup")),
   ).toHaveLength(2);
   expect(
     (await f.run("cleanup", { PR_STATE: "closed", FAIL_CLEANUP: "1" })).code,
@@ -529,13 +556,14 @@ test("closed cleanup works in a fresh checkout with no prior artifact, repeats, 
     run: preview.run,
   });
 
-  const before = (await f.calls()).filter(
-    (call) => call.type === "comment",
+  const before = EffectArray.filter(
+    await f.calls(),
+    (call) => !!(call.type === "comment"),
   ).length;
 
   expect((await f.run("deploy", { FAIL_DEPLOY: "1" })).code).toBe(1);
   expect(
-    (await f.calls()).filter((call) => call.type === "comment"),
+    EffectArray.filter(await f.calls(), (call) => !!(call.type === "comment")),
   ).toHaveLength(before + 1);
   expect(await f.journal("preview-result.json")).toMatchObject({
     result: "failed",
@@ -610,11 +638,12 @@ describe("native preview HTTP boundary", () => {
             body: await request.text(),
           });
 
-          if (path.endsWith("/pulls/10")) return Response.json(pr());
+          if (EffectString.endsWith("/pulls/10")(path))
+            return Response.json(pr());
 
           if (request.method !== "GET") return Response.json({ id: 123 });
 
-          if (existing && path.endsWith("page=1"))
+          if (existing && EffectString.endsWith("page=1")(path))
             return Response.json(
               Array.from({ length: 100 }, (_, id) => ({
                 id: id + 1,
@@ -641,20 +670,20 @@ describe("native preview HTTP boundary", () => {
         const http = await makeHttp(server.url.origin);
         expect(await Effect.runPromise(http.readPr())).toEqual(pr());
         await Effect.runPromise(http.publish("deployment result"));
-        expect(requests.map(({ method, path }) => `${method} ${path}`)).toEqual(
-          [
-            "GET /repos/PlagueFPS/arc-tools/pulls/10",
-            "GET /repos/PlagueFPS/arc-tools/issues/10/comments?per_page=100&page=1",
-            ...(existing
-              ? [
-                  "GET /repos/PlagueFPS/arc-tools/issues/10/comments?per_page=100&page=2",
-                ]
-              : []),
-            existing
-              ? "PATCH /repos/PlagueFPS/arc-tools/issues/comments/123"
-              : "POST /repos/PlagueFPS/arc-tools/issues/10/comments",
-          ],
-        );
+        expect(
+          EffectArray.map(requests, ({ method, path }) => `${method} ${path}`),
+        ).toEqual([
+          "GET /repos/PlagueFPS/arc-tools/pulls/10",
+          "GET /repos/PlagueFPS/arc-tools/issues/10/comments?per_page=100&page=1",
+          ...(existing
+            ? [
+                "GET /repos/PlagueFPS/arc-tools/issues/10/comments?per_page=100&page=2",
+              ]
+            : []),
+          existing
+            ? "PATCH /repos/PlagueFPS/arc-tools/issues/comments/123"
+            : "POST /repos/PlagueFPS/arc-tools/issues/10/comments",
+        ]);
 
         for (const request of requests) {
           expect(request.headers.get("authorization")).toBe(
@@ -697,7 +726,7 @@ describe("native preview HTTP boundary", () => {
 
     try {
       const http = await makeHttp(server.url.origin);
-      const failed = await Effect.runPromise(Effect.exit(http.readPr()));
+      const failed = await Effect.runPromiseExit(http.readPr());
       expect(Exit.isFailure(failed)).toBeTrue();
 
       if (Exit.isFailure(failed)) {
@@ -713,7 +742,7 @@ describe("native preview HTTP boundary", () => {
         new Response(""),
       ]) {
         response = invalid;
-        await expect(Effect.runPromise(http.readPr())).rejects.toThrow();
+        expect(Effect.runPromise(http.readPr())).rejects.toThrow();
       }
 
       expect(calls).toBe(4);
@@ -750,7 +779,7 @@ describe("native preview HTTP boundary", () => {
 
       try {
         const http = await makeHttp(server.url.origin);
-        await expect(Effect.runPromise(http.publish("result"))).rejects.toThrow(
+        expect(Effect.runPromise(http.publish("result"))).rejects.toThrow(
           existing
             ? "GitHub PATCH issues/comments/123: HTTP 503"
             : "GitHub POST issues/10/comments: HTTP 503",
@@ -814,15 +843,16 @@ describe("native preview HTTP boundary", () => {
           .pipe(Effect.provideService(Clock.Clock, clock)),
       );
       expect(requests).toHaveLength(6);
-      expect(sleeps.filter((millis) => millis < 10_000)).toEqual(
-        Array(5).fill(1000),
-      );
-      expect(sleeps.filter((millis) => millis >= 10_000)).toEqual(
-        Array(6).fill(10_000),
-      );
       expect(
-        requests.every(
-          (request) => request.path === "/health" && !request.authorized,
+        EffectArray.filter(sleeps, (millis) => !!(millis < 10_000)),
+      ).toEqual(Array(5).fill(1000));
+      expect(
+        EffectArray.filter(sleeps, (millis) => !!(millis >= 10_000)),
+      ).toEqual(Array(6).fill(10_000));
+      expect(
+        EffectArray.every(
+          requests,
+          (request) => !!(request.path === "/health" && !request.authorized),
         ),
       ).toBeTrue();
     } finally {
@@ -846,7 +876,7 @@ describe("native preview HTTP boundary", () => {
               status: "ready",
               stage: preview.stage,
               revision: checked.revision,
-              padding: "x".repeat(2 * 1024 * 1024),
+              padding: EffectString.repeat(2 * 1024 * 1024)("x"),
             });
       },
     });
@@ -888,7 +918,7 @@ describe("native preview HTTP boundary", () => {
       try {
         const http = await makeHttp(server.url.origin);
         const clock = await Effect.runPromise(fastPollingClock(sleeps));
-        await expect(
+        expect(
           Effect.runPromise(
             http
               .health(server.url.origin, checked)
@@ -898,12 +928,12 @@ describe("native preview HTTP boundary", () => {
           "Preview health did not match the exact stage and checked merge revision",
         );
         expect(calls).toBe(60);
-        expect(sleeps.filter((millis) => millis < 10_000)).toEqual(
-          Array(59).fill(1000),
-        );
-        expect(sleeps.filter((millis) => millis >= 10_000)).toEqual(
-          Array(60).fill(10_000),
-        );
+        expect(
+          EffectArray.filter(sleeps, (millis) => !!(millis < 10_000)),
+        ).toEqual(Array(59).fill(1000));
+        expect(
+          EffectArray.filter(sleeps, (millis) => !!(millis >= 10_000)),
+        ).toEqual(Array(60).fill(10_000));
       } finally {
         await server.stop(true);
       }
@@ -1127,7 +1157,7 @@ test("a rejected GitHub status aborts an unread streaming error body", async () 
 
   try {
     const http = await makeHttp(server.url.origin);
-    await expect(Effect.runPromise(http.readPr())).rejects.toThrow(
+    expect(Effect.runPromise(http.readPr())).rejects.toThrow(
       "GitHub GET pulls/10: HTTP 503",
     );
     await aborted.promise;

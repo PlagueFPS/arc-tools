@@ -1,7 +1,13 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer } from "effect";
+import {
+  Effect,
+  Layer,
+  Option as EffectOption,
+  String as EffectString,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { upcomingHandler } from "../../src/handlers/upcoming.js";
@@ -58,8 +64,16 @@ describe("upcomingHandler", () => {
         ],
       })("");
 
-      const idxEarlier = result.indexOf("Earlier");
-      const idxLater = result.indexOf("Later");
+      const idxEarlier = EffectOption.getOrElse(
+        EffectString.indexOf("Earlier")(result),
+        () => -1,
+      );
+
+      const idxLater = EffectOption.getOrElse(
+        EffectString.indexOf("Later")(result),
+        () => -1,
+      );
+
       expect(idxEarlier >= 0).toBeTrue();
       expect(idxLater >= 0).toBeTrue();
       expect(idxEarlier < idxLater).toBeTrue();

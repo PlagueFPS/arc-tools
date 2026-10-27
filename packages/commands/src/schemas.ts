@@ -1,9 +1,9 @@
-import { Schema } from "effect";
+import { Schema, Array as EffectArray } from "effect";
 
 import { commandCatalog } from "./catalog.js";
 
 export const CommandName = Schema.Literals(
-  commandCatalog.map((command) => command.name),
+  EffectArray.map(commandCatalog, (command) => command.name),
 );
 
 export const CommandExecution = Schema.Struct({

@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { Effect } from "effect";
 import { Server } from "foldkit/experimental";
 import { expect, test, vi } from "vitest";

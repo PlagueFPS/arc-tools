@@ -1,3 +1,5 @@
+import { Array as EffectArray, Record as EffectRecord } from "effect";
+
 import type { Work } from "../../apps/bot/src/tenant-state.js";
 import type { TenantSnapshot } from "./tenant-fixture.js";
 
@@ -15,15 +17,19 @@ export const hasUsefulNativeSchedule = (
 ) =>
   snapshot.alarm !== null
     ? snapshot.alarm <= deadline ||
-      Object.values(snapshot.state?.works ?? {}).every(
-        (work) => work.kind === "terminal",
+      EffectArray.every(
+        EffectRecord.values(snapshot.state?.works ?? {}),
+        (work) => !!(work.kind === "terminal"),
       )
     : snapshot.alarmActivity.running?.instance === snapshot.instance ||
       (snapshot.alarmActivity.completed?.instance === snapshot.instance &&
-        Object.values(snapshot.state?.works ?? {}).every(
+        EffectArray.every(
+          EffectRecord.values(snapshot.state?.works ?? {}),
           (work) =>
-            work.kind === "terminal" &&
-            snapshot.alarmActivity.completed?.workIds.includes(work.id),
+            !!(
+              work.kind === "terminal" &&
+              snapshot.alarmActivity.completed?.workIds.includes(work.id)
+            ),
         ));
 
 export const ingressTiming = (headers: Headers) => {

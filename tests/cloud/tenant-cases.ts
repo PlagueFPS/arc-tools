@@ -1,3 +1,6 @@
+/* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/process-env-in-effect -- The fixture or CLI explicitly reads the host environment, rather than the injected application configuration. */
 import { expect } from "bun:test";
 
 import {
@@ -14,6 +17,11 @@ import {
   Schedule,
   Schema,
   Redacted,
+  Array as EffectArray,
+  Option as EffectOption,
+  Record as EffectRecord,
+  String as EffectString,
+  Console as EffectConsole,
 } from "effect";
 
 import { discordResponse } from "../../apps/bot/src/presentation.js";
@@ -92,8 +100,9 @@ const provider = (url: string) =>
 const waitMessages = (url: string, parent: string) =>
   observe(auditedObservation("provider", `${url}/snapshot`, ProviderSnapshot), {
     until: (value) =>
-      value.messages.some(
-        (message) => message.body.reply_parent_message_id === parent,
+      EffectArray.some(
+        value.messages,
+        (message) => !!(message.body.reply_parent_message_id === parent),
       ),
     budgetMs: 5000,
   });
@@ -109,7 +118,7 @@ const sourceControl = (
 const baseReceipt = (id: string, receivedAt = Date.now()) => ({
   id,
   receivedAt,
-  fingerprint: "a".repeat(64),
+  fingerprint: EffectString.repeat(64)("a"),
   broadcasterId: "200",
   replyParentId: id,
   invocation: { command: "sell", input: "sensors" },
@@ -145,7 +154,7 @@ export function registerTenantTests({
     const source = yield* request(`${u.tenant}/source`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
         id: remote.id,
         status: remote.status,
         broadcasterId: "200",
@@ -156,7 +165,7 @@ export function registerTenantTests({
           clientId: "fixture-twitch",
           signingSecret: Redacted.make("fixture-signing"),
         }),
-      }),
+      }).pipe(Effect.orDie),
     }).pipe(
       Effect.flatMap((response) =>
         json(
@@ -200,7 +209,7 @@ export function registerTenantTests({
           type: Schema.Literal(4),
           data: Schema.Struct({
             content: Schema.String,
-            flags: Schema.Number,
+            flags: Schema.Finite,
             allowed_mentions: Schema.Struct({
               parse: Schema.Array(Schema.Never),
               replied_user: Schema.Literal(false),
@@ -235,8 +244,8 @@ export function registerTenantTests({
 
       const { reply: _reply, content: _content, ...timing } = sample;
       yield* retainJourney(`bot-${scenario}`, timing);
-      console.info(
-        JSON.stringify({
+      yield* EffectConsole.info(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
           discordTiming: scenario,
           workerMs,
           clientMs: elapsed,
@@ -246,7 +255,7 @@ export function registerTenantTests({
           cutoff: sample.cutoff,
           fallback: sample.fallback,
           fallbackCode: sample.fallbackCode,
-        }),
+        }).pipe(Effect.orDie),
       );
 
       expect(workerMs).toBeGreaterThanOrEqual(0);
@@ -284,7 +293,9 @@ export function registerTenantTests({
         authorization: "Bearer fixture-operator",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ stage: settings.stage }),
+      body: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+        stage: settings.stage,
+      }).pipe(Effect.orDie),
     }).pipe(Effect.flatMap((response) => json(response, SetupResult)));
   });
 
@@ -295,7 +306,9 @@ export function registerTenantTests({
         authorization: "Bearer fixture-operator",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ stage: settings.stage }),
+      body: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+        stage: settings.stage,
+      }).pipe(Effect.orDie),
     }).pipe(Effect.flatMap((response) => json(response, AccountStatus)));
   });
 
@@ -359,7 +372,7 @@ export function registerTenantTests({
       yield* rejected(
         request(`${u.bot}/interactions/discord`, {
           method: "POST",
-          body: "x".repeat(65537),
+          body: EffectString.repeat(65537)("x"),
         }),
         413,
       );
@@ -376,10 +389,10 @@ export function registerTenantTests({
       ]) {
         const response = (yield* signedDiscord(
           u.bot,
-          JSON.stringify({
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
             ...discordCommand("wrong"),
             ...extra,
-          }),
+          }).pipe(Effect.orDie),
         )).response;
 
         noTenant(response);
@@ -566,12 +579,20 @@ export function registerTenantTests({
 
           const completion = yield* post(`${u.tenant}/operator-oauth`, {
             state: params.get("state") ?? "",
-            code: JSON.stringify({
+            code: yield* Schema.encodeEffect(
+              Schema.fromJsonString(Schema.Unknown),
+            )({
               userId: authorization.login === "fixture_sender" ? "100" : "200",
               login: authorization.login,
-              scopes: params.get("scope")?.split(" "),
+              scopes: EffectOption.getOrUndefined(
+                EffectOption.map(
+                  EffectOption.fromNullishOr(params.get("scope")),
+                  (effectNativeValue0) =>
+                    EffectString.split(effectNativeValue0, " "),
+                ),
+              ),
               clientId: "fixture-twitch",
-            }),
+            }).pipe(Effect.orDie),
           });
 
           expect(
@@ -585,10 +606,13 @@ export function registerTenantTests({
         const pending = yield* status(u.bot).pipe(
           Effect.repeat({
             until: (value) =>
-              value.channels.some(
+              EffectArray.some(
+                value.channels,
                 (channel) =>
-                  channel.subscription ===
-                  "webhook_callback_verification_pending",
+                  !!(
+                    channel.subscription ===
+                    "webhook_callback_verification_pending"
+                  ),
               ),
             times: 60,
             schedule: Schedule.spaced("100 millis"),
@@ -597,15 +621,21 @@ export function registerTenantTests({
 
         expect(pending.setup).toBe("pending");
         expect(
-          pending.channels.some(
+          EffectArray.some(
+            pending.channels,
             (channel) =>
-              channel.subscription === "webhook_callback_verification_pending",
+              !!(
+                channel.subscription === "webhook_callback_verification_pending"
+              ),
           ),
         ).toBe(true);
 
-        const remote = (yield* provider(u.provider)).remote.find(
-          (entry) =>
-            entry.transport.callback === `${u.publicBot}/webhooks/twitch`,
+        const remote = EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            (yield* provider(u.provider)).remote,
+            (entry) =>
+              !!(entry.transport.callback === `${u.publicBot}/webhooks/twitch`),
+          ),
         );
 
         if (!remote)
@@ -786,11 +816,12 @@ export function registerTenantTests({
       expect(admitted.headers.get("x-arc-tenant-lookups")).toBe("1");
       expect(admitted.headers.get("x-arc-tenant-rpcs")).toBe("1");
 
-      const sent = (yield* waitMessages(
-        u.provider,
-        `all-${command}`,
-      )).messages.find(
-        (message) => message.body.reply_parent_message_id === `all-${command}`,
+      const sent = EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          (yield* waitMessages(u.provider, `all-${command}`)).messages,
+          (message) =>
+            !!(message.body.reply_parent_message_id === `all-${command}`),
+        ),
       );
 
       const sample = {
@@ -813,9 +844,10 @@ export function registerTenantTests({
         (yield* signedTwitch(u.bot, event, `retry-${command}`)).status,
       ).toBe(204);
       expect(
-        (yield* provider(u.provider)).messages.filter(
+        EffectArray.filter(
+          (yield* provider(u.provider)).messages,
           (message) =>
-            message.body.reply_parent_message_id === `all-${command}`,
+            !!(message.body.reply_parent_message_id === `all-${command}`),
         ),
       ).toHaveLength(1);
     }
@@ -877,11 +909,16 @@ export function registerTenantTests({
 
       const observed = yield* provider(u.provider);
       expect(
-        observed.logs.some((entry) => /interaction|webhook/.test(entry)),
+        EffectArray.some(
+          observed.logs,
+          (entry) => !!/interaction|webhook/.test(entry),
+        ),
       ).toBeFalse();
-      expect(JSON.stringify(observed.logs)).not.toContain(
-        "CANARY-INTERACTION-TOKEN",
-      );
+      expect(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          observed.logs,
+        ).pipe(Effect.orDie),
+      ).not.toContain("CANARY-INTERACTION-TOKEN");
     }),
     { timeout: 90000 },
   );
@@ -1026,13 +1063,21 @@ export function registerTenantTests({
       outcome: "sent",
     });
     expect(
-      (yield* provider(u.provider)).messages.find(
-        (message) => message.body.reply_parent_message_id === "native-alarm",
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          (yield* provider(u.provider)).messages,
+          (message) =>
+            !!(message.body.reply_parent_message_id === "native-alarm"),
+        ),
       )?.body.message,
     ).toBe("Sensors can be sold for 10 coins each");
     expect(completed.alarmRuns).toBeGreaterThan(0);
     expect(completed.alarm).toBe(input.receivedAt + 610000);
-    expect(JSON.stringify(completed.state)).not.toContain("parent");
+    expect(
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        completed.state,
+      ).pipe(Effect.orDie),
+    ).not.toContain("parent");
     yield* Effect.sleep(Math.max(0, input.receivedAt + 10_100 - Date.now()));
     yield* post(`${u.tenant}/accept`, {
       key,
@@ -1046,8 +1091,10 @@ export function registerTenantTests({
     expect(immutableWork(replayedWork)).toEqual(immutableWork(original));
 
     expect(
-      (yield* provider(u.provider)).messages.filter(
-        (message) => message.body.reply_parent_message_id === "native-alarm",
+      EffectArray.filter(
+        (yield* provider(u.provider)).messages,
+        (message) =>
+          !!(message.body.reply_parent_message_id === "native-alarm"),
       ),
     ).toHaveLength(1);
   });
@@ -1089,13 +1136,17 @@ export function registerTenantTests({
     });
     expect(completed.lostAccountResponseAt).toBeNumber();
     expect(
-      (yield* provider(u.provider)).messages.filter(
-        (message) => message.body.reply_parent_message_id === "lost-rpc",
+      EffectArray.filter(
+        (yield* provider(u.provider)).messages,
+        (message) => !!(message.body.reply_parent_message_id === "lost-rpc"),
       ),
     ).toHaveLength(1);
     expect(
-      (yield* provider(u.provider)).messages.find(
-        (message) => message.body.reply_parent_message_id === "lost-rpc",
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          (yield* provider(u.provider)).messages,
+          (message) => !!(message.body.reply_parent_message_id === "lost-rpc"),
+        ),
       )?.body.message,
     ).toBe("Sensors can be sold for 10 coins each");
     expect(completed.alarm).toBe(input.receivedAt + 610000);
@@ -1111,7 +1162,9 @@ export function registerTenantTests({
     const u = yield* urls;
     const key = "slow-account-send";
     yield* sourceControl(u.source, "/items?id=slowparts&minimal=true", {
-      data: [{ id: "slowparts", name: "x".repeat(650), value: 10 }],
+      data: [
+        { id: "slowparts", name: EffectString.repeat(650)("x"), value: 10 },
+      ],
     });
     yield* withProviderControl(
       u.provider,
@@ -1132,8 +1185,9 @@ export function registerTenantTests({
         ).toBe(204);
         const first = yield* waitMessages(u.provider, key);
         expect(
-          first.messages.filter(
-            (message) => message.body.reply_parent_message_id === key,
+          EffectArray.filter(
+            first.messages,
+            (message) => !!(message.body.reply_parent_message_id === key),
           ),
         ).toHaveLength(1);
         const sending = yield* snapshot(u.tenant, key);
@@ -1178,8 +1232,9 @@ export function registerTenantTests({
         });
         expect(terminal.alarm).toBe(input.receivedAt + 610000);
         expect(
-          (yield* provider(u.provider)).messages.filter(
-            (message) => message.body.reply_parent_message_id === key,
+          EffectArray.filter(
+            (yield* provider(u.provider)).messages,
+            (message) => !!(message.body.reply_parent_message_id === key),
           ),
         ).toHaveLength(2);
       }),
@@ -1202,7 +1257,7 @@ export function registerTenantTests({
           const input = {
             id: "interrupt",
             guildId: "native-guild",
-            fingerprint: "a".repeat(64),
+            fingerprint: EffectString.repeat(64)("a"),
             receivedAt: Date.now(),
             invocation: { command: "sell", input: "interrupt" },
             token: "CANARY-INTERACTION-TOKEN",
@@ -1217,7 +1272,10 @@ export function registerTenantTests({
               if (Exit.isFailure(exit))
                 return Effect.logInfo("discord-interruption-request", {
                   kind: "fiber-failure",
-                  reasons: exit.cause.reasons.map((reason) => reason._tag),
+                  reasons: EffectArray.map(
+                    exit.cause.reasons,
+                    (reason) => reason._tag,
+                  ),
                 });
               const result = exit.value;
 
@@ -1268,14 +1326,17 @@ export function registerTenantTests({
                 ? null
                 : {
                     generation: admitted.state.generation,
-                    works: Object.values(admitted.state.works).map((work) => ({
-                      id: work.id,
-                      kind: work.kind,
-                      transport: work.transport,
-                      receivedAt: work.receivedAt,
-                      deadline: work.deadline,
-                      claim: "claim" in work ? work.claim : null,
-                    })),
+                    works: EffectArray.map(
+                      EffectRecord.values(admitted.state.works),
+                      (work) => ({
+                        id: work.id,
+                        kind: work.kind,
+                        transport: work.transport,
+                        receivedAt: work.receivedAt,
+                        deadline: work.deadline,
+                        claim: "claim" in work ? work.claim : null,
+                      }),
+                    ),
                   },
           });
           expect(admitted.state?.works.interrupt?.kind).toBe("computing");
@@ -1329,8 +1390,16 @@ export function registerTenantTests({
             deadline: input.receivedAt + 3000,
           });
           expect(terminal.alarm).toBe(input.receivedAt + 603000);
-          expect(JSON.stringify(terminal.state)).not.toContain("CANARY");
-          expect(JSON.stringify(terminal.state)).not.toContain("invocation");
+          expect(
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+              terminal.state,
+            ).pipe(Effect.orDie),
+          ).not.toContain("CANARY");
+          expect(
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+              terminal.state,
+            ).pipe(Effect.orDie),
+          ).not.toContain("invocation");
           yield* control.release;
           const interrupted = yield* Fiber.join(original);
 
@@ -1369,7 +1438,7 @@ export function registerTenantTests({
     });
     const u = yield* urls;
     yield* sourceControl(u.source, "/items?id=long&minimal=true", {
-      data: [{ id: "long", name: "x".repeat(1200), value: 10 }],
+      data: [{ id: "long", name: EffectString.repeat(1200)("x"), value: 10 }],
     });
     yield* withProviderControl(
       u.provider,
@@ -1393,27 +1462,41 @@ export function registerTenantTests({
         ).toBe(204);
         const sent = yield* waitMessages(u.provider, "ambiguous-parts");
         expect(
-          sent.messages.filter(
+          EffectArray.filter(
+            sent.messages,
             (message) =>
-              message.body.reply_parent_message_id === "ambiguous-parts",
+              !!(message.body.reply_parent_message_id === "ambiguous-parts"),
           ),
         ).toHaveLength(1);
         expect(
-          sent.messages
-            .find(
-              (message) =>
-                message.body.reply_parent_message_id === "ambiguous-parts",
-            )
-            ?.body.message.startsWith("[1/3]: "),
+          EffectOption.getOrUndefined(
+            EffectOption.map(
+              EffectOption.fromNullishOr(
+                EffectOption.getOrUndefined(
+                  EffectArray.findFirst(
+                    sent.messages,
+                    (message) =>
+                      !!(
+                        message.body.reply_parent_message_id ===
+                        "ambiguous-parts"
+                      ),
+                  ),
+                )?.body.message,
+              ),
+              (effectNativeValue1) =>
+                EffectString.startsWith("[1/3]: ")(effectNativeValue1),
+            ),
+          ),
         ).toBeTrue();
         expect(
           (yield* signedTwitch(u.bot, event, "ambiguous-replay")).status,
         ).toBe(204);
         yield* Effect.sleep(Math.max(0, started + 10500 - Date.now()));
         expect(
-          (yield* provider(u.provider)).messages.filter(
+          EffectArray.filter(
+            (yield* provider(u.provider)).messages,
             (message) =>
-              message.body.reply_parent_message_id === "ambiguous-parts",
+              !!(message.body.reply_parent_message_id === "ambiguous-parts"),
           ),
         ).toHaveLength(1);
       }),
@@ -1440,8 +1523,9 @@ export function registerTenantTests({
     ).toBe(204);
     const revoked = yield* status(u.bot);
     expect(
-      revoked.channels.some(
-        (entry) => entry.id === remote.condition.broadcaster_user_id,
+      EffectArray.some(
+        revoked.channels,
+        (entry) => !!(entry.id === remote.condition.broadcaster_user_id),
       ),
     ).toBeFalse();
     expect(revoked.sender?.authorized).toBeTrue();

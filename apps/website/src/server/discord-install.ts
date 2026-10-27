@@ -29,7 +29,8 @@ const unavailable = () =>
 
 export const discordInstallResponse = discordInstallHttp(
   Effect.tryPromise({
-    try: () => import("cloudflare:workers"),
+    try: (): Promise<Pick<typeof import("cloudflare:workers"), "env">> =>
+      import("cloudflare:workers"),
     catch: () => new WebsiteUnavailable(),
   }).pipe(
     Effect.map(({ env }) => env.DISCORD_APPLICATION_ID),

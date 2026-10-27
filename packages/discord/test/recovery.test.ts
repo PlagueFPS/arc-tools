@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import {
@@ -21,6 +22,8 @@ import {
   Layer,
   Redacted,
   Stream,
+  Array as EffectArray,
+  Schema as EffectSchema,
 } from "effect";
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import { TestClock } from "effect/testing";
@@ -109,7 +112,9 @@ const fixture = Effect.fnUntraced(function* () {
       const body =
         reply?.kind === "http"
           ? reply.body
-          : JSON.stringify(
+          : yield* EffectSchema.encodeEffect(
+              EffectSchema.fromJsonString(EffectSchema.Unknown),
+            )(
               health
                 ? {
                     status: "ready",
@@ -118,7 +123,7 @@ const fixture = Effect.fnUntraced(function* () {
                     manifestHash: hash,
                   }
                 : control.remote,
-            );
+            ).pipe(Effect.orDie);
 
       const response = HttpClientResponse.fromWeb(
         request,
@@ -199,7 +204,9 @@ for (const operation of ["health", "read"] as const)
         expect((yield* f.finish(syncCommands(f.release))).changed).toBeTrue();
         expect(f.control.writes).toBe(1);
         expect(f.logs).toHaveLength(1);
-        expect(f.logs.join()).not.toContain("canary");
+        expect(
+          EffectArray.join(EffectArray.map(f.logs, String), ","),
+        ).not.toContain("canary");
       }).pipe(Effect.provide(TestClock.layer())),
     );
 
@@ -221,14 +228,19 @@ for (const reply of [
         code: reply.kind === "http" ? "provider" : "network",
       });
       expect(
-        f.requests
-          .filter(({ path }) => path !== "/health")
-          .map(({ time }) => time),
+        EffectArray.map(
+          EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+          ({ time }) => time,
+        ),
       ).toEqual([0, 250, 750, 1750]);
       expect(f.control.writes).toBe(0);
       expect(f.logs).toHaveLength(3);
       expect(
-        JSON.stringify({ logs: f.logs, diagnostic: syncDiagnostic(error) }),
+        yield* EffectSchema.encodeEffect(
+          EffectSchema.fromJsonString(EffectSchema.Unknown),
+        )({ logs: f.logs, diagnostic: syncDiagnostic(error) }).pipe(
+          Effect.orDie,
+        ),
       ).not.toContain("canary");
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -270,9 +282,9 @@ test(
   Effect.gen(function* () {
     const f = yield* fixture();
     yield* f.finish(preflightCommands(f.release));
-    expect(f.requests.map(({ method, path }) => [method, path])).toEqual([
-      ["GET", "/api/v10/applications/fixture/commands"],
-    ]);
+    expect(
+      EffectArray.map(f.requests, ({ method, path }) => [method, path]),
+    ).toEqual([["GET", "/api/v10/applications/fixture/commands"]]);
     expect(f.control.writes).toBe(0);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -307,9 +319,10 @@ test(
     expect((yield* f.finish(syncCommands(f.release))).changed).toBeTrue();
     expect(f.control.writes).toBe(1);
     expect(
-      f.requests
-        .filter(({ path }) => path !== "/health")
-        .map(({ method }) => method),
+      EffectArray.map(
+        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+        ({ method }) => method,
+      ),
     ).toEqual(["GET", "PUT", "GET"]);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -326,9 +339,10 @@ test(
     });
     yield* f.finish(syncCommands(f.release));
     expect(
-      f.requests
-        .filter(({ path }) => path !== "/health")
-        .map(({ method }) => method),
+      EffectArray.map(
+        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+        ({ method }) => method,
+      ),
     ).toEqual(["GET", "PUT", "GET", "PUT", "GET"]);
     expect(f.control.remote).toEqual(commandManifest);
   }).pipe(Effect.provide(TestClock.layer())),
@@ -348,9 +362,10 @@ test(
       attempt: 2,
     });
     expect(
-      f.requests
-        .filter(({ path }) => path !== "/health")
-        .map(({ method }) => method),
+      EffectArray.map(
+        EffectArray.filter(f.requests, ({ path }) => !!(path !== "/health")),
+        ({ method }) => method,
+      ),
     ).toEqual(["GET", "PUT"]);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -366,7 +381,9 @@ test(
     );
     yield* f.finish(syncCommands(f.release));
     expect(f.control.writes).toBe(1);
-    expect(f.logs.join()).toContain('"operation":"readback"');
+    expect(EffectArray.join(EffectArray.map(f.logs, String), ",")).toContain(
+      '"operation":"readback"',
+    );
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
@@ -385,7 +402,11 @@ test(
     );
 
     expect(syncDiagnostic(error).discordCode).toBeNull();
-    expect(JSON.stringify(syncDiagnostic(error))).not.toContain("canary");
+    expect(
+      yield* EffectSchema.encodeEffect(
+        EffectSchema.fromJsonString(EffectSchema.Unknown),
+      )(syncDiagnostic(error)).pipe(Effect.orDie),
+    ).not.toContain("canary");
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
@@ -411,7 +432,9 @@ test(
       phase: "after",
       attempt: 2,
     });
-    expect(f.requests.every(({ time }) => time < 30_000)).toBeTrue();
+    expect(
+      EffectArray.every(f.requests, ({ time }) => !!(time < 30_000)),
+    ).toBeTrue();
     expect(f.control.writes).toBe(1);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -446,14 +469,16 @@ for (const seconds of [5, 60])
       f.replies.health.push({
         kind: "http",
         status: 429,
-        body: JSON.stringify({ retry_after: seconds }),
+        body: yield* EffectSchema.encodeEffect(
+          EffectSchema.fromJsonString(EffectSchema.Unknown),
+        )({ retry_after: seconds }).pipe(Effect.orDie),
       });
 
       const result = yield* f.finish(
         waitForRelease(f.release, true).pipe(Effect.result),
       );
 
-      expect(f.requests.map(({ time }) => time)).toEqual(
+      expect(EffectArray.map(f.requests, ({ time }) => time)).toEqual(
         seconds === 5 ? [0, 5000] : [0],
       );
       expect(Result.isSuccess(result)).toBe(seconds === 5);
@@ -474,8 +499,14 @@ test(
     f.replies.read.push({ kind: "stream-failure" });
     yield* f.finish(syncCommands(f.release));
     expect(f.control.writes).toBe(1);
-    expect(f.logs.join()).toContain('"code":"network"');
-    expect(f.logs.join()).toContain('"status":200');
-    expect(f.logs.join()).not.toContain("canary");
+    expect(EffectArray.join(EffectArray.map(f.logs, String), ",")).toContain(
+      '"code":"network"',
+    );
+    expect(EffectArray.join(EffectArray.map(f.logs, String), ",")).toContain(
+      '"status":200',
+    );
+    expect(
+      EffectArray.join(EffectArray.map(f.logs, String), ","),
+    ).not.toContain("canary");
   }).pipe(Effect.provide(TestClock.layer())),
 );

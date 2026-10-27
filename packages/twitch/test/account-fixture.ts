@@ -1,3 +1,6 @@
+/* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import {
   type AccountStorage,
   accountStorageLayer,
@@ -11,8 +14,7 @@ import {
 } from "@arctools/twitch/server";
 import {
   senderScopes,
-  AccountService,
-  accountServiceLayer,
+  makeAccount,
   type Provider,
   type SendResult,
   type Subscription,
@@ -25,7 +27,18 @@ import {
   nextAlarm,
 } from "@arctools/twitch/testing";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Clock, Deferred, Effect, Exit, Schema, Semaphore } from "effect";
+import {
+  Clock,
+  Deferred,
+  Effect,
+  Exit,
+  Schema,
+  Semaphore,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+  Option as EffectOption,
+} from "effect";
 
 export const initial = 1_000_000_000_000;
 
@@ -67,9 +80,10 @@ export const keyedStorage = Effect.fnUntraced(function* (
 
         return structuredClone(
           new Map(
-            [...values]
-              .filter(([key]) => key.startsWith(prefix))
-              .sort(([a], [b]) => a.localeCompare(b)),
+            EffectArray.filter(
+              [...values],
+              ([key]) => !!EffectString.startsWith(prefix)(key),
+            ).sort(([a], [b]) => EffectString.localeCompare(b)(a)),
           ),
         );
       }),
@@ -103,7 +117,7 @@ export const keyedStorage = Effect.fnUntraced(function* (
         }
 
         return exit.value;
-      }).pipe(mutex.withPermit),
+      }).pipe((effect) => mutex.withPermit(effect)),
     getAlarm: () => Effect.sync(() => nativeAlarm),
     setAlarm: (value) =>
       Effect.sync(() => {
@@ -152,7 +166,7 @@ export const keyedStorage = Effect.fnUntraced(function* (
           Schema.encodeSync(ChannelRecord)(record),
         );
 
-      for (const [id, tombstone] of Object.entries(directory.revoked))
+      for (const [id, tombstone] of EffectRecord.toEntries(directory.revoked))
         values.set(
           "account:tombstone:v1/" + encodeURIComponent(id),
           Schema.encodeSync(AccountState.fields.revoked.value)(tombstone),
@@ -183,12 +197,11 @@ export const harness = Effect.fnUntraced(function* (
 
   const store = yield* AccountStore.pipe(
     Effect.provide(accountStorageLayer(storage)),
-  ).pipe(
     Effect.provideService(RuntimeContext, {
       Type: "test",
       id: "account-storage",
       env: {},
-      get: () => Effect.succeed(undefined),
+      get: () => Effect.as(Effect.void, undefined),
       set: (key) => Effect.succeed(key),
     }),
   );
@@ -261,7 +274,7 @@ export const harness = Effect.fnUntraced(function* (
   };
 
   const provider: Provider = {
-    mint: Effect.fnUntraced(function* () {
+    mint: Effect.gen(function* () {
       control.mints++;
 
       if (control.mintStarted)
@@ -341,7 +354,7 @@ export const harness = Effect.fnUntraced(function* (
 
       if (failure) return yield* new AccountError({ code: failure });
 
-      return logins.map((login) => ({
+      return EffectArray.map(logins, (login) => ({
         login,
         id:
           control.userIds.get(login) ??
@@ -422,7 +435,10 @@ export const harness = Effect.fnUntraced(function* (
         yield* Effect.sync(() => {
           control.removes++;
 
-          control.remote = control.remote.filter((sub) => sub.id !== id);
+          control.remote = EffectArray.filter(
+            control.remote,
+            (sub) => !!(sub.id !== id),
+          );
         });
       }),
     send: Effect.fnUntraced(function* (_token, _sender, input) {
@@ -458,18 +474,14 @@ export const harness = Effect.fnUntraced(function* (
   ) => {
     control.binding = subscriptionBinding;
 
-    return AccountService.pipe(
-      Effect.provide(
-        accountServiceLayer({
-          identity: configuredIdentity,
-          webhookReady,
-          subscriptionBinding,
-          revision,
-          callback: `${webhookOrigin}/webhooks/twitch`,
-          redirect: `${oauthOrigin}/oauth/twitch/callback`,
-        }),
-      ),
-    ).pipe(
+    return makeAccount({
+      identity: configuredIdentity,
+      webhookReady,
+      subscriptionBinding,
+      revision,
+      callback: `${webhookOrigin}/webhooks/twitch`,
+      redirect: `${oauthOrigin}/oauth/twitch/callback`,
+    }).pipe(
       Effect.provideService(AccountStore, store),
       Effect.provideService(TwitchProvider, provider),
     );
@@ -497,9 +509,7 @@ export const harness = Effect.fnUntraced(function* (
       Effect.runSync(store.update((state) => structuredClone(state))),
     restoreRaw: (value: typeof AccountState.Encoded) => {
       memory.restore(
-        Schema.decodeUnknownSync(AccountState, { onExcessProperty: "error" })(
-          value,
-        ),
+        Schema.decodeSync(AccountState, { onExcessProperty: "error" })(value),
       );
     },
     restore: memory.restore,
@@ -534,7 +544,14 @@ export const harness = Effect.fnUntraced(function* (
 
         control.grantUser = user;
         control.grantLogin = authorization.login;
-        control.grantScopes = url.searchParams.get("scope")?.split(" ") ?? [];
+        control.grantScopes =
+          EffectOption.getOrUndefined(
+            EffectOption.map(
+              EffectOption.fromNullishOr(url.searchParams.get("scope")),
+              (effectNativeValue0) =>
+                EffectString.split(effectNativeValue0, " "),
+            ),
+          ) ?? [];
         yield* target.completeOAuth({
           state: url.searchParams.get("state") ?? "",
           code: "canary-code",
@@ -545,7 +562,7 @@ export const harness = Effect.fnUntraced(function* (
       return yield* target.setup("operator-digest");
     }),
     send: (attemptId: string, channel = "200", deadline = time + 10_000) =>
-      Schema.decodeUnknownSync(Dispatch)({
+      Schema.decodeSync(Dispatch)({
         attemptId,
         broadcasterId: channel,
         source: (() => {

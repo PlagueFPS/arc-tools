@@ -1,7 +1,8 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect, test } from "bun:test";
 
 import { EnrollmentSession } from "@arctools/twitch/server";
-import { Effect, Redacted } from "effect";
+import { Effect, Redacted, String as EffectString } from "effect";
 
 import { botOperations } from "../src/rpc.js";
 
@@ -16,7 +17,7 @@ for (const [label, operation] of [
     "begin nonce",
     operations
       .enrollmentBegin({
-        session: EnrollmentSession.make("a".repeat(64)),
+        session: EnrollmentSession.make(EffectString.repeat(64)("a")),
         previousSession: null,
         state: "malformed",
       })
@@ -26,7 +27,7 @@ for (const [label, operation] of [
     "completion nonce",
     operations
       .enrollmentComplete({
-        session: EnrollmentSession.make("a".repeat(64)),
+        session: EnrollmentSession.make(EffectString.repeat(64)("a")),
         state: "malformed",
         outcome: { kind: "denied" },
       })

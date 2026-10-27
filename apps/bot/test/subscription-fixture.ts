@@ -1,3 +1,8 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
+/* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { makeAccountStorage } from "@arctools/twitch/cloudflare";
 import type { AccountConfig } from "@arctools/twitch/server";
 import {
@@ -7,8 +12,7 @@ import {
   type SetupResult,
 } from "@arctools/twitch/server";
 import {
-  AccountService,
-  accountServiceLayer,
+  makeAccount,
   type Subscription,
   TwitchProvider,
   providerLayer,
@@ -17,13 +21,22 @@ import {
 import { keyedStorage } from "@arctools/twitch/testing/fixtures";
 import { providerTransport } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Match, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  Match,
+  Effect,
+  Layer,
+  Redacted,
+  Schema,
+  Array as EffectArray,
+  Option as EffectOption,
+  String as EffectString,
+} from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
 
 export const callback = "https://fixture.invalid/webhooks/twitch";
 
-export const identity = Schema.decodeUnknownSync(EnvironmentConfig)({
+export const identity = Schema.decodeSync(EnvironmentConfig)({
   kind: "test",
   stage: "test-proof-0123456789ab",
   applicationStage: "test-proof-0123456789ab",
@@ -62,7 +75,7 @@ export const fixture = Effect.fnUntraced(function* () {
       Type: "test",
       id: "subscription-storage",
       env: {},
-      get: () => Effect.succeed(undefined),
+      get: () => Effect.as(Effect.void, undefined),
       set: (key) => Effect.succeed(key),
     }),
   );
@@ -136,7 +149,12 @@ export const fixture = Effect.fnUntraced(function* () {
       }
 
       if (url.pathname === "/validate") {
-        const token = request.headers.get("Authorization")?.slice(6);
+        const token = EffectOption.getOrUndefined(
+          EffectOption.map(
+            EffectOption.fromNullishOr(request.headers.get("Authorization")),
+            (effectNativeValue0) => EffectString.slice(6)(effectNativeValue0),
+          ),
+        );
 
         if (token === "app-token")
           return Response.json({
@@ -160,7 +178,7 @@ export const fixture = Effect.fnUntraced(function* () {
 
       if (url.pathname === "/users")
         return Response.json({
-          data: url.searchParams.getAll("login").map((login) => ({
+          data: EffectArray.map(url.searchParams.getAll("login"), (login) => ({
             login,
             id: Match.value(login).pipe(
               Match.when("fixture_channel", () => "200"),
@@ -234,14 +252,17 @@ export const fixture = Effect.fnUntraced(function* () {
       }
 
       if (
-        [...control.remote.values()].some(
+        EffectArray.some(
+          [...control.remote.values()],
           (sub) =>
-            sub.type === input.type &&
-            sub.version === input.version &&
-            sub.transport.method === input.transport.method &&
-            sub.condition.broadcaster_user_id ===
-              input.condition.broadcaster_user_id &&
-            sub.condition.user_id === input.condition.user_id,
+            !!(
+              sub.type === input.type &&
+              sub.version === input.version &&
+              sub.transport.method === input.transport.method &&
+              sub.condition.broadcaster_user_id ===
+                input.condition.broadcaster_user_id &&
+              sub.condition.user_id === input.condition.user_id
+            ),
         )
       ) {
         control.calls.conflict++;
@@ -257,7 +278,7 @@ export const fixture = Effect.fnUntraced(function* () {
       }
 
       if (control.disconnect) {
-        server.stop(true);
+        await server.stop(true);
 
         return new Response(null);
       }
@@ -272,7 +293,7 @@ export const fixture = Effect.fnUntraced(function* () {
     },
   });
 
-  yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
+  yield* Effect.addFinalizer(() => Effect.promise(() => server.stop(true)));
   const base = `http://127.0.0.1:${server.port}`;
 
   const construct = Effect.fnUntraced(function* (
@@ -310,9 +331,7 @@ export const fixture = Effect.fnUntraced(function* () {
       ),
     );
 
-    const account = yield* AccountService.pipe(
-      Effect.provide(accountServiceLayer(config)),
-    ).pipe(
+    const account = yield* makeAccount(config).pipe(
       Effect.provideService(AccountStore, store),
       Effect.provideService(TwitchProvider, provider),
     );
@@ -329,15 +348,24 @@ export const fixture = Effect.fnUntraced(function* () {
       yield* account.completeOAuth({
         state: params.get("state") ?? "",
         operator: "operator",
-        code: JSON.stringify({
-          user: Match.value(grant.login).pipe(
-            Match.when("fixture_channel", () => "200"),
-            Match.when("fixture_sender", () => control.senderId),
-            Match.orElse(() => "101"),
-          ),
-          login: grant.login,
-          scopes: params.get("scope")?.split(" ") ?? [],
-        }),
+        code: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          {
+            user: Match.value(grant.login).pipe(
+              Match.when("fixture_channel", () => "200"),
+              Match.when("fixture_sender", () => control.senderId),
+              Match.orElse(() => "101"),
+            ),
+            login: grant.login,
+            scopes:
+              EffectOption.getOrUndefined(
+                EffectOption.map(
+                  EffectOption.fromNullishOr(params.get("scope")),
+                  (effectNativeValue1) =>
+                    EffectString.split(effectNativeValue1, " "),
+                ),
+              ) ?? [],
+          },
+        ).pipe(Effect.orDie),
       });
     }
   });
@@ -351,7 +379,7 @@ export const fixture = Effect.fnUntraced(function* () {
 
   const send = (account: Account, attemptId: string) =>
     account.dispatch(
-      Schema.decodeUnknownSync(Dispatch)({
+      Schema.decodeSync(Dispatch)({
         attemptId,
         broadcasterId: "200",
         source: Effect.runSync(

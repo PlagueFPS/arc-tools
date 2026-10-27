@@ -1,7 +1,8 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Match, Effect, Layer, Option } from "effect";
+import { Match, Effect, Layer, Option, String as EffectString } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
 import {
@@ -43,7 +44,10 @@ const mockLayer = layerUncached.pipe(
     Layer.succeed(
       HttpClient.HttpClient,
       HttpClient.make((request) => {
-        const resource = new URL(request.url).pathname.split("/").at(-1);
+        const resource = EffectString.split(
+          new URL(request.url).pathname,
+          "/",
+        ).at(-1);
 
         const data = Match.value(resource).pipe(
           Match.when("items", () => fixture.items),

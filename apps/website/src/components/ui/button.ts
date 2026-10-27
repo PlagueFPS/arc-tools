@@ -1,5 +1,6 @@
 import { Button as FoldkitButton } from "@foldkit/ui";
 import { cva, type VariantProps } from "cva";
+import { Array as EffectArray } from "effect";
 import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
 
 const buttonBase =
@@ -74,7 +75,7 @@ export const button = <M>(
             h.DataAttribute("slot", "button"),
             ...(config.attributes ?? []),
           ],
-          Array.isArray(label) ? label : [label],
+          EffectArray.isArray<typeof label>(label) ? label : [label],
         ),
     },
     h,

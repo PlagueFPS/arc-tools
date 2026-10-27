@@ -1,3 +1,5 @@
+import { String as EffectString } from "effect";
+
 export const httpsOrigin = (value: string) => {
   const url = new URL(value);
 
@@ -15,11 +17,11 @@ export const httpsOrigin = (value: string) => {
 };
 
 export function botOrigin(stage: string, actual: string, configured: string) {
-  if (stage.startsWith("local-")) return httpsOrigin(configured);
+  if (EffectString.startsWith("local-")(stage)) return httpsOrigin(configured);
   const url = new URL(actual);
 
   const localTest =
-    stage.startsWith("test-") &&
+    EffectString.startsWith("test-")(stage) &&
     url.protocol === "http:" &&
     url.hostname === "localhost" &&
     !url.username &&

@@ -6,7 +6,12 @@ import { TwitchAccount } from "@arctools/twitch/server";
 import { Stack } from "alchemy";
 import type { HttpEffect } from "alchemy/Http";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
-import { Effect, Layer } from "effect";
+import {
+  Effect,
+  Layer,
+  String as EffectString,
+  Clock as EffectClock,
+} from "effect";
 import {
   HttpMiddleware,
   HttpRouter,
@@ -53,7 +58,8 @@ export default Bot.make(
     const origin = yield* bindBotOrigin;
 
     const testComposition =
-      identity.kind === "test" && identity.stage.startsWith("test-tenant-")
+      identity.kind === "test" &&
+      EffectString.startsWith("test-tenant-")(identity.stage)
         ? yield* Effect.promise(
             () => import("../../../tests/cloud/bot-composition.js"),
           )
@@ -65,13 +71,17 @@ export default Bot.make(
 
     const revision = yield* buildRevision;
     const hash = yield* manifestHash;
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
     yield* ArcCacheDO.pipe(Effect.provide(bindings));
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
     const client = yield* bindAccount.pipe(Effect.provide(bindings));
 
     const enrollmentClient = yield* bindEnrollment.pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
       Effect.provide(bindings),
     );
 
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
     const tenantClient = yield* bindTenants.pipe(Effect.provide(bindings));
 
     return {
@@ -81,7 +91,7 @@ export default Bot.make(
         operatorSecret,
       }),
       fetch: Effect.gen(function* () {
-        const receivedAt = Date.now();
+        const receivedAt = yield* EffectClock.currentTimeMillis;
         const observation = testComposition?.botRequestObservation(identity);
 
         const response = yield* Effect.gen(function* () {
@@ -143,6 +153,7 @@ export default Bot.make(
             HttpServerResponse.setHeader(
               response,
               "x-arc-ingress-ms",
+              // oxlint-disable-next-line effecttsgo/global-date -- Ingress duration compares host wall time with the original host receipt timestamp.
               String(Date.now() - receivedAt),
             ),
           ),

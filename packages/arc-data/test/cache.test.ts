@@ -1,13 +1,25 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Predicate, Deferred, Effect, Fiber, Layer, Option } from "effect";
+import {
+  Predicate,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Option,
+  Array as EffectArray,
+  String as EffectString,
+  Schema as EffectSchema,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { dataFromReader } from "../src/cache.js";
 import { getItem } from "../src/items.js";
+import { ItemAPIResponse } from "../src/schema.js";
 import { cacheKey, cachePolicy } from "../src/source.js";
-import { makeFixture } from "./cache-fixture.js";
+import { makeFixture, SourceFailure } from "./cache-fixture.js";
 
 const { test: effectTest } = Test.make({ providers: Layer.empty });
 
@@ -40,7 +52,12 @@ describe("persistent cache policy", () => {
         freshness: "fresh",
         fetchedAt: day,
       });
-      expect(JSON.parse(refresh.body).data[0]).toEqual({
+      expect(
+        (yield* EffectSchema.decodeEffect(
+          EffectSchema.fromJsonString(EffectSchema.toEncoded(ItemAPIResponse)),
+          { onExcessProperty: "error" },
+        )(refresh.body).pipe(Effect.orDie)).data[0],
+      ).toEqual({
         id: "sensors",
         name: "New sensors",
         value: 20,
@@ -106,10 +123,7 @@ describe("persistent cache policy", () => {
     Effect.gen(function* () {
       const fixture = yield* makeFixture();
       fixture.respond(() =>
-        Effect.tryPromise({
-          try: () => Promise.reject(new Error("fixture disconnect")),
-          catch: () => new Error("fixture disconnect"),
-        }),
+        Effect.fail(new SourceFailure({ message: "fixture disconnect" })),
       );
       const result = yield* fixture.cache.read(itemQuery).pipe(Effect.result);
       expect(result._tag).toBe("Failure");
@@ -208,7 +222,9 @@ describe("persistent cache policy", () => {
         { resource: "arcs", params: { id: "sensors", includeLoot: false } },
       ] as const;
 
-      expect(new Set(queries.map(cacheKey)).size).toBe(queries.length);
+      expect(new Set(EffectArray.map(queries, cacheKey)).size).toBe(
+        queries.length,
+      );
       expect(cacheKey(itemQuery)).toBe("v1:json:/items?id=sensors");
       expect(
         cacheKey({
@@ -237,7 +253,10 @@ describe("persistent cache policy", () => {
       const original = yield* fixture.cache.read(itemQuery);
       expect(
         (yield* fixture.cache
-          .read({ resource: "items", params: { id: "x".repeat(257) } })
+          .read({
+            resource: "items",
+            params: { id: EffectString.repeat(257)("x") },
+          })
           .pipe(Effect.result))._tag,
       ).toBe("Failure");
       expect(
@@ -253,7 +272,9 @@ describe("persistent cache policy", () => {
       expect(fixture.calls).toHaveLength(1);
       yield* TestClock.setTime(day);
       fixture.body({
-        data: [{ id: "sensors", name: "x".repeat(300), value: 10 }],
+        data: [
+          { id: "sensors", name: EffectString.repeat(300)("x"), value: 10 },
+        ],
       });
       const fallback = yield* fixture.cache.read(itemQuery);
       expect(fallback.body).toBe(original.body);
@@ -261,7 +282,7 @@ describe("persistent cache policy", () => {
       fixture.body(changed);
       yield* TestClock.setTime(7 * day + 1);
       yield* fixture.cache.read({ resource: "items", params: { id: "other" } });
-      expect((yield* fixture.storage.entries()).size).toBe(1);
+      expect((yield* fixture.storage.entries).size).toBe(1);
     }),
   );
 
@@ -334,7 +355,12 @@ describe("persistent cache policy", () => {
       if (Predicate.isTagged(late, "Failure"))
         expect(late.failure.reason).toBe("superseded");
       expect(yield* reconstructed.read(itemQuery)).toEqual(newer);
-      expect(JSON.parse(newer.body).data[0].name).toBe("New sensors");
+      expect(
+        (yield* EffectSchema.decodeEffect(
+          EffectSchema.fromJsonString(EffectSchema.toEncoded(ItemAPIResponse)),
+          { onExcessProperty: "error" },
+        )(newer.body).pipe(Effect.orDie)).data[0]?.name,
+      ).toBe("New sensors");
     }),
   );
 
@@ -347,17 +373,17 @@ describe("persistent cache policy", () => {
           { name: "Harvester", map: "Dam", startTime: 0, endTime: 120_000 },
         ],
       });
-      const original = yield* fixture.data.events();
+      const original = yield* fixture.data.events;
       yield* TestClock.setTime(59_999);
-      expect(yield* fixture.data.events()).toEqual(original);
+      expect(yield* fixture.data.events).toEqual(original);
       fixture.body({ error: "offline" }, 503);
       yield* TestClock.setTime(60_000);
-      expect((yield* fixture.data.events().pipe(Effect.result))._tag).toBe(
+      expect((yield* fixture.data.events.pipe(Effect.result))._tag).toBe(
         "Failure",
       );
       const reconstructed = dataFromReader((yield* fixture.reconstruct).read);
       yield* TestClock.setTime(60_001);
-      expect((yield* reconstructed.events().pipe(Effect.result))._tag).toBe(
+      expect((yield* reconstructed.events.pipe(Effect.result))._tag).toBe(
         "Failure",
       );
       expect(fixture.calls).toHaveLength(2);
@@ -374,7 +400,7 @@ describe("persistent cache policy", () => {
       yield* TestClock.setTime(day);
       fixture.body({
         data: [{ id: "sensors", name: "Changed", value: 20 }],
-        unused: "x".repeat(300),
+        unused: EffectString.repeat(300)("x"),
       });
       const stale = yield* fixture.cache.read(itemQuery);
       expect(stale.body).toBe(original.body);
@@ -433,7 +459,12 @@ describe("persistent cache policy", () => {
       fixture.body(changed);
       yield* TestClock.setTime(cachePolicy.sourceTimeoutMs + 1_000);
       const newer = yield* reconstructed.read(itemQuery);
-      expect(JSON.parse(newer.body).data[0].name).toBe("New sensors");
+      expect(
+        (yield* EffectSchema.decodeEffect(
+          EffectSchema.fromJsonString(EffectSchema.toEncoded(ItemAPIResponse)),
+          { onExcessProperty: "error" },
+        )(newer.body).pipe(Effect.orDie)).data[0]?.name,
+      ).toBe("New sensors");
       expect(yield* reconstructed.read(itemQuery)).toEqual(newer);
     }),
   );

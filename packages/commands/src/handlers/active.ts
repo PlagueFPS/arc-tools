@@ -1,6 +1,6 @@
 import { getEvents } from "@arctools/arc-data";
 import { formatMinutes } from "@arctools/utils";
-import { Clock, Effect } from "effect";
+import { Clock, Effect, Array as EffectArray } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 
@@ -8,18 +8,24 @@ export const activeHandler = Effect.fn("Command.activeHandler")(
   function* (_input: string) {
     const events = yield* getEvents();
     const now = yield* Clock.currentTimeMillis;
-    const active = events.filter((e) => e.startTime <= now && now <= e.endTime);
+
+    const active = EffectArray.filter(
+      events,
+      (e) => !!(e.startTime <= now && now <= e.endTime),
+    );
 
     if (active.length === 0) {
       return yield* Effect.succeed("No active events");
     }
 
-    const response = active
-      .map(
+    const response = EffectArray.join(
+      EffectArray.map(
+        active,
         (e) =>
           `${e.name} on ${e.map} (ends in ${formatMinutes(e.endTime - now)})`,
-      )
-      .join(", ");
+      ),
+      ", ",
+    );
 
     return yield* Effect.succeed(response);
   },

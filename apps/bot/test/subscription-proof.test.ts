@@ -1,10 +1,21 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 import { expect } from "bun:test";
 
 import type { AccountConfig } from "@arctools/twitch/server";
 import { subscriptionBinding } from "@arctools/twitch/server";
 import type { Subscription } from "@arctools/twitch/testing";
 import * as Test from "alchemy/Test/Bun";
-import { Match, Effect, Fiber, Layer, Redacted, Schema } from "effect";
+import {
+  Match,
+  Effect,
+  Fiber,
+  Layer,
+  Redacted,
+  Schema,
+  Array as EffectArray,
+  String as EffectString,
+} from "effect";
 
 import { EnvironmentConfig } from "../src/config.js";
 import {
@@ -51,7 +62,9 @@ test(
       send: 0,
     });
     expect(
-      [...f.control.remote.keys()].map((id) => f.control.secrets.get(id)),
+      EffectArray.map([...f.control.remote.keys()], (id) =>
+        f.control.secrets.get(id),
+      ),
     ).toEqual(["secret-C"]);
     expect(f.snapshot().subscriptions["200"]?.binding).toBe(
       c.config.subscriptionBinding,
@@ -75,13 +88,13 @@ test(
     yield* a.service.setup("operator");
     const b = yield* f.construct("secret-B");
     yield* f.grants(b.service);
-    const status = yield* b.service.status();
+    const status = yield* b.service.status;
     const outcome = yield* f.send(b.service, "after-grants");
     expect({
       setup: status.setup,
       outcome: outcome.kind,
       sends: f.control.calls.send,
-      remote: [...f.control.remote.keys()].map((id) =>
+      remote: EffectArray.map([...f.control.remote.keys()], (id) =>
         f.control.secrets.get(id),
       ),
     }).toEqual({
@@ -117,7 +130,9 @@ test(
     expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
     expect(f.control.calls.post).toBe(4);
     expect(
-      [...f.control.remote.keys()].map((id) => f.control.secrets.get(id)),
+      EffectArray.map([...f.control.remote.keys()], (id) =>
+        f.control.secrets.get(id),
+      ),
     ).toEqual(["secret-A"]);
   }),
 );
@@ -184,7 +199,9 @@ test(
       "ready",
     );
     expect(
-      [...f.control.remote.keys()].map((id) => f.control.secrets.get(id)),
+      EffectArray.map([...f.control.remote.keys()], (id) =>
+        f.control.secrets.get(id),
+      ),
     ).toEqual(["secret-C"]);
     expect(f.control.calls).toEqual({
       get: 4,
@@ -229,7 +246,9 @@ test(
       send: 0,
     });
     expect(
-      [...f.control.remote.keys()].map((id) => f.control.secrets.get(id)),
+      EffectArray.map([...f.control.remote.keys()], (id) =>
+        f.control.secrets.get(id),
+      ),
     ).toEqual(["secret-D"]);
   }),
 );
@@ -259,7 +278,7 @@ for (const change of ["sender", "callback", "binding", "ingress"]) {
       );
 
       yield* f.grants(b.service);
-      expect((yield* b.service.status()).setup).toBe(
+      expect((yield* b.service.status).setup).toBe(
         change === "ingress" ? "ingress-required" : "pending",
       );
       expect(yield* f.send(b.service, `rotated-${change}`)).toEqual({
@@ -303,7 +322,7 @@ test(
         "webhook_callback_verification_pending",
       ),
     );
-    expect((yield* a.service.status()).setup).toBe("pending");
+    expect((yield* a.service.status).setup).toBe("pending");
 
     const oldBinding = {
       ...observation(a.config, "created-1", "enabled"),
@@ -315,7 +334,7 @@ test(
       ...observation(a.config, "created-1", "enabled"),
       callback: "https://old.invalid/webhooks/twitch",
     });
-    expect((yield* a.service.status()).setup).toBe("pending");
+    expect((yield* a.service.status).setup).toBe("pending");
     expect(yield* f.send(a.service, "pending-proof")).toEqual({
       kind: "rejected",
     });
@@ -365,7 +384,7 @@ test(
       observation(a.config, "created-1", "enabled"),
     );
     expect(f.snapshot().subscriptions).toEqual({});
-    expect((yield* a.service.status()).sender?.authorized).toBeTrue();
+    expect((yield* a.service.status).sender?.authorized).toBeTrue();
     expect(yield* f.send(a.service, "revoked-before-receipt")).toEqual({
       kind: "rejected",
     });
@@ -612,8 +631,8 @@ test(
       },
       { data: [{ ...receipt, transport: { method: "webhook" } }] },
       { data: [{ ...receipt, status: "authorization_revoked" }] },
-      { data: [{ ...receipt, id: "x".repeat(129) }] },
-      { data: [receipt], padding: "x".repeat(256 * 1024) },
+      { data: [{ ...receipt, id: EffectString.repeat(129)("x") }] },
+      { data: [receipt], padding: EffectString.repeat(256 * 1024)("x") },
     ];
 
     for (const body of malformed) {
@@ -630,7 +649,11 @@ test(
       kind: "unknown",
     });
     expect(f.control.calls.post).toBe(17);
-    expect(JSON.stringify(created)).not.toContain("secret-A");
+    expect(
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        created,
+      ).pipe(Effect.orDie),
+    ).not.toContain("secret-A");
     expect(f.control.calls.send).toBe(0);
   }),
 );
@@ -689,10 +712,10 @@ test(
     expect((yield* a.service.setup("operator").pipe(Effect.flip)).code).toBe(
       "client",
     );
-    expect((yield* a.service.status()).credential).toBe("absent");
+    expect((yield* a.service.status).credential).toBe("absent");
     f.control.response = { status: 500, body: {} };
     expect((yield* a.service.setup("operator")).status.setup).toBe("pending");
-    expect((yield* a.service.status()).credential).toBe("valid");
+    expect((yield* a.service.status).credential).toBe("valid");
     expect(f.control.calls).toEqual({
       get: 2,
       post: 2,
@@ -729,7 +752,9 @@ test(
     );
     expect(f.snapshot().subscriptions["200"]?.id).toBe("created-4");
     expect(
-      [...f.control.remote.keys()].map((id) => f.control.secrets.get(id)),
+      EffectArray.map([...f.control.remote.keys()], (id) =>
+        f.control.secrets.get(id),
+      ),
     ).toEqual(["secret-C"]);
     expect(f.control.calls).toEqual({
       get: 4,
@@ -747,7 +772,7 @@ test(
     const f = yield* fixture();
 
     const a = yield* f.construct("secret-A", {
-      identity: Schema.decodeUnknownSync(EnvironmentConfig)({
+      identity: yield* Schema.decodeUnknownEffect(EnvironmentConfig)({
         ...identity,
         channelLogins: ["fixture_channel", "fixture_other"],
       }),
@@ -778,7 +803,9 @@ test(
       send: 0,
     });
     expect(
-      [...f.control.remote.keys()].map((id) => f.control.secrets.get(id)),
+      EffectArray.map([...f.control.remote.keys()], (id) =>
+        f.control.secrets.get(id),
+      ),
     ).toEqual(["secret-A", "secret-A"]);
   }),
 );
@@ -803,14 +830,14 @@ test(
         deleteDue: null,
       };
     });
-    yield* a.service.status();
+    yield* a.service.status;
     expect(f.snapshot().revoked).toEqual({});
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "enabled"),
     );
     expect(f.snapshot().subscriptions["200"]).toBeUndefined();
     expect(f.snapshot().lifecycle["200"]?.kind).toBe("removed");
-    expect((yield* a.service.status()).channels).toEqual([]);
+    expect((yield* a.service.status).channels).toEqual([]);
     yield* f.grants(a.service);
     expect((yield* a.service.setup("operator")).status.setup).toBe("ready");
     expect(f.snapshot().subscriptions["200"]?.id).toBe("created-2");
@@ -847,9 +874,10 @@ test(
     expect(result.retryAt).toBeGreaterThanOrEqual(due);
     expect(f.snapshot().apiBlockedUntil).toBeGreaterThanOrEqual(due);
 
-    const posts = f.control.requests.filter(
+    const posts = EffectArray.filter(
+      f.control.requests,
       (entry) =>
-        entry.method === "POST" && entry.path === "/eventsub/subscriptions",
+        !!(entry.method === "POST" && entry.path === "/eventsub/subscriptions"),
     ).length;
 
     yield* f.store.update((state) => {
@@ -859,11 +887,14 @@ test(
         state.lifecycle["200"] = { ...life, recovery: { due: 0, stage: 0 } };
     });
     const reconstructed = yield* f.construct("secret-A");
-    yield* reconstructed.credentialAlarm();
+    yield* reconstructed.credentialAlarm;
     expect(
-      f.control.requests.filter(
+      EffectArray.filter(
+        f.control.requests,
         (entry) =>
-          entry.method === "POST" && entry.path === "/eventsub/subscriptions",
+          !!(
+            entry.method === "POST" && entry.path === "/eventsub/subscriptions"
+          ),
       ),
     ).toHaveLength(posts);
     expect(f.snapshot().lifecycle["200"]).toMatchObject({
@@ -918,8 +949,10 @@ test(
       "rejected",
     );
     expect(
-      f.control.requests.filter(
-        (entry) => entry.method === "POST" && entry.path === "/chat/messages",
+      EffectArray.filter(
+        f.control.requests,
+        (entry) =>
+          !!(entry.method === "POST" && entry.path === "/chat/messages"),
       ),
     ).toHaveLength(1);
     yield* Effect.logInfo("Controlled removal gate latency").pipe(
@@ -955,7 +988,7 @@ test(
       "GET /eventsub/subscriptions",
       () => new Response(null, { status: 401 }),
     );
-    yield* a.credentialAlarm();
+    yield* a.credentialAlarm;
     expect(f.snapshot().session).toBeNull();
     expect(f.snapshot().grants).toEqual(before.grants);
     expect(f.snapshot().lifecycle["200"]?.kind).toBe("installed");
@@ -987,7 +1020,7 @@ test(
       "DELETE /eventsub/subscriptions",
       () => new Response(null, { status: 401 }),
     );
-    yield* a.credentialAlarm();
+    yield* a.credentialAlarm;
     expect(f.snapshot().session).toBeNull();
     expect(f.snapshot().grants["100"]).toEqual(sender);
     expect(f.snapshot().revoked["created-1"]?.deleteDue).toBeGreaterThan(
@@ -1014,7 +1047,7 @@ test(
     });
     const gate = responseGate();
     f.control.deleteGate = gate;
-    const deleting = yield* a.credentialAlarm().pipe(Effect.forkChild);
+    const deleting = yield* a.credentialAlarm.pipe(Effect.forkChild);
     yield* Effect.promise(() => gate.entered.promise);
     yield* f.store.update((state) => {
       const entry = state.revoked["created-1"];
@@ -1032,7 +1065,7 @@ test(
     gate.release.resolve();
     yield* Fiber.join(deleting);
     expect(f.snapshot().revoked["created-1"]).toEqual(newer);
-    yield* a.credentialAlarm();
+    yield* a.credentialAlarm;
     expect(f.snapshot().revoked["created-1"]?.deleteDue).toBeNull();
     expect(f.control.calls.delete).toBe(2);
   }),

@@ -13,7 +13,6 @@ import {
   Redacted,
   Schema,
   SchemaGetter,
-  Option,
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
@@ -108,7 +107,7 @@ export type SendResult = (
 ) & { readonly blockedUntil?: number };
 
 export interface Provider {
-  readonly mint: () => Effect.Effect<typeof Token.Type, AccountError>;
+  readonly mint: Effect.Effect<typeof Token.Type, AccountError>;
   readonly validate: (
     token: string,
   ) => Effect.Effect<typeof Validation.Type, AccountError>;
@@ -167,9 +166,7 @@ const RateLimitHeaders = Schema.Struct({
     },
   ),
   Schema.catchDecoding(() =>
-    Effect.succeed(
-      Option.some({ exhausted: false, reset: ResetTimestamp.make(0) }),
-    ),
+    Effect.succeedSome({ exhausted: false, reset: ResetTimestamp.make(0) }),
   ),
 );
 
@@ -283,7 +280,7 @@ export const makeProvider = Effect.fnUntraced(function* (
   );
 
   return TwitchProvider.of({
-    mint: () => token({ grant_type: "client_credentials" }),
+    mint: token({ grant_type: "client_credentials" }),
     exchange: (code) =>
       token({
         grant_type: "authorization_code",
@@ -547,7 +544,7 @@ export const makeProvider = Effect.fnUntraced(function* (
       },
       (effect) =>
         effect.pipe(
-          Effect.catch(() => Effect.succeed<SendResult>({ kind: "ambiguous" })),
+          Effect.orElseSucceed((): SendResult => ({ kind: "ambiguous" })),
         ),
     ),
   });

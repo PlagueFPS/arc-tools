@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/prefer-effect-array, effecttsgo/prefer-effect-string -- This browser utility entry must not import the Effect runtime; browser.test.ts verifies the bundle boundary. */
 export const BASE_API_URL = "https://metaforge.app/api/arc-raiders";
 
 /**

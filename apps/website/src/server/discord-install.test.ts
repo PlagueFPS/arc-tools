@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+import { Effect, Record as EffectRecord } from "effect";
 import { expect, test } from "vitest";
 
 import { discordInstallHttp } from "./discord-install";
@@ -14,7 +15,7 @@ test("Discord installation redirects to the configured application's guild insta
   expect(location.origin + location.pathname).toBe(
     "https://discord.com/oauth2/authorize",
   );
-  expect(Object.fromEntries(location.searchParams)).toEqual({
+  expect(EffectRecord.fromEntries(location.searchParams)).toEqual({
     client_id: "123456789012345678",
     scope: "bot applications.commands",
     integration_type: "0",

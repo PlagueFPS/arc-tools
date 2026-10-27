@@ -1,3 +1,8 @@
+/* oxlint-disable effecttsgo/global-console -- This host boundary writes native CLI output or captures console output in tests. */
+/* oxlint-disable effecttsgo/global-console-in-effect -- The fixture captures native console output at a synchronous host callback boundary. */
+/* oxlint-disable effecttsgo/process-env -- Host environment snapshots are parsed at the CLI or subprocess boundary. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { parseArgs } from "node:util";
 
 import {
@@ -7,7 +12,7 @@ import {
   waitForRelease,
 } from "@arctools/discord/server";
 import { providerTransport } from "@arctools/utils/http";
-import { Effect, Redacted, Schema } from "effect";
+import { Effect, Redacted, Schema, Console as EffectConsole } from "effect";
 
 import { Stage } from "../apps/bot/src/config.js";
 
@@ -55,12 +60,12 @@ try {
     Effect.gen(function* () {
       if (values.preflight) {
         yield* preflightCommands({ applicationId, token });
-        console.info(
-          JSON.stringify({
+        yield* EffectConsole.info(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
             event: "discord-preflight-success",
             stage,
             revision,
-          }),
+          }).pipe(Effect.orDie),
         );
 
         return;
@@ -79,14 +84,25 @@ try {
         token,
       });
 
-      console.info(JSON.stringify({ stage, revision, ...result }));
+      yield* EffectConsole.info(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+          stage,
+          revision,
+          ...result,
+        }).pipe(Effect.orDie),
+      );
     }).pipe(
       Effect.catchTag("SyncError", (error) =>
         Effect.sync(() => {
-          console.error(JSON.stringify(syncDiagnostic(error)));
+          console.error(
+            Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(
+              syncDiagnostic(error),
+            ),
+          );
           process.exitCode = 1;
         }),
       ),
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This CLI or deployment entry point owns the composed layer scope.
       Effect.provide(providerTransport),
     ),
   );

@@ -153,6 +153,7 @@ export const bindBotOrigin = Effect.gen(function* () {
 
   const self = yield* Cloudflare.Worker.URL;
 
+  // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
   return Effect.gen(function* () {
     const actual = yield* self;
 

@@ -1,5 +1,5 @@
 import { digest } from "@arctools/utils/http";
-import { Effect, Redacted } from "effect";
+import { Effect, Redacted, Schema as EffectSchema } from "effect";
 
 export const subscriptionBinding = Effect.fnUntraced(function* (config: {
   readonly callback: string;
@@ -7,10 +7,12 @@ export const subscriptionBinding = Effect.fnUntraced(function* (config: {
   readonly signingSecret: Redacted.Redacted<string>;
 }) {
   return yield* digest(
-    JSON.stringify([
+    yield* EffectSchema.encodeEffect(
+      EffectSchema.fromJsonString(EffectSchema.Unknown),
+    )([
       config.callback,
       config.clientId,
       Redacted.value(config.signingSecret),
-    ]),
+    ]).pipe(Effect.orDie),
   );
 });

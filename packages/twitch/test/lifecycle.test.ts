@@ -6,9 +6,21 @@ import {
   type EnrollmentBegin,
 } from "@arctools/twitch/server";
 import { policy, ChannelRecord } from "@arctools/twitch/testing";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { digest } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
-import { Clock, Deferred, Effect, Fiber, Layer, Schema } from "effect";
+import {
+  Clock,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Schema,
+  Option as EffectOption,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 
 import { fixtureConfig, harness } from "./account-fixture.js";
 
@@ -20,8 +32,8 @@ type Harness = Effect.Success<ReturnType<typeof harness>>;
 
 const intent = Effect.fnUntraced(function* () {
   return {
-    session: EnrollmentSession.make(yield* digest(crypto.randomUUID())),
-    state: `enroll.${yield* digest(crypto.randomUUID())}`,
+    session: EnrollmentSession.make(yield* digest(yield* secureRandomUUID)),
+    state: `enroll.${yield* digest(yield* secureRandomUUID)}`,
     previousSession: null,
   } satisfies EnrollmentBegin;
 });
@@ -47,7 +59,7 @@ const enroll = Effect.fnUntraced(function* (
 
 const ready = Effect.fnUntraced(function* (h: Harness) {
   h.time(h.now() + 1);
-  yield* h.alarm();
+  yield* h.alarm;
 });
 
 const observe = Effect.fnUntraced(function* (
@@ -66,10 +78,7 @@ const observe = Effect.fnUntraced(function* (
   });
 });
 
-const run = (
-  name: string,
-  body: (h: Harness) => Effect.Effect<void, unknown>,
-) =>
+const run = <E>(name: string, body: (h: Harness) => Effect.Effect<void, E>) =>
   test(
     name,
     Effect.gen(function* () {
@@ -94,7 +103,7 @@ run(
       .pipe(Effect.forkChild);
 
     yield* Deferred.await(h.control.listStarted);
-    yield* h.alarm();
+    yield* h.alarm;
     yield* Deferred.succeed(h.control.listGate, undefined);
 
     expect((yield* Fiber.join(setup)).status.setup).toBe("ready");
@@ -108,9 +117,12 @@ run(
     yield* ready(h);
     const old = h.send("old-work", "400");
 
-    const expiry = h
-      .snapshot()
-      .enrollments.find((entry) => entry.session === input.session)?.expiresAt;
+    const expiry = EffectOption.getOrUndefined(
+      EffectArray.findFirst(
+        h.snapshot().enrollments,
+        (entry) => !!(entry.session === input.session),
+      ),
+    )?.expiresAt;
 
     const expected = { kind: "left", login: "public_channel" } as const;
     expect(yield* h.enrollment.leave(input.session)).toEqual(expected);
@@ -120,8 +132,12 @@ run(
     expect(yield* restored.enrollment.status(input.session)).toEqual(expected);
     expect(h.snapshot().publicRevocationGeneration).toBe(sequence);
     expect(
-      h.snapshot().enrollments.find((entry) => entry.session === input.session)
-        ?.expiresAt,
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          h.snapshot().enrollments,
+          (entry) => !!(entry.session === input.session),
+        ),
+      )?.expiresAt,
     ).toBe(expiry);
     const next = yield* enroll(h);
     yield* ready(h);
@@ -237,7 +253,7 @@ run(
     yield* h.enrollment.leave(input.session);
     yield* h.account.setup("operator");
     expect(
-      (yield* h.account.status()).channels.map((entry) => entry.id),
+      EffectArray.map((yield* h.account.status).channels, (entry) => entry.id),
     ).not.toContain(BroadcasterId.make("200"));
     expect(h.snapshot().lifecycle["200"]?.kind).toBe("removed");
     const fresh = yield* enroll(h, "200", "fixture_channel");
@@ -247,7 +263,7 @@ run(
       login: "fixture_channel",
     });
     expect(
-      (yield* h.account.status()).channels.map((entry) => entry.id),
+      EffectArray.map((yield* h.account.status).channels, (entry) => entry.id),
     ).toContain(BroadcasterId.make("300"));
   }),
 );
@@ -261,7 +277,16 @@ run(
     yield* h.enrollment.leave(input.session);
     const after = h.snapshot();
     expect(after.grants["100"]).toEqual(
-      before.grants["100"]?.filter((scope) => scope !== "channel:bot"),
+      EffectOption.getOrUndefined(
+        EffectOption.map(
+          EffectOption.fromNullishOr(before.grants["100"]),
+          (effectNativeValue0) =>
+            EffectArray.filter(
+              effectNativeValue0,
+              (scope) => !!(scope !== "channel:bot"),
+            ),
+        ),
+      ),
     );
     expect(after.sender).toEqual(before.sender);
     expect(after.session).toEqual(before.session);
@@ -288,13 +313,19 @@ run(
     expect(h.snapshot().revoked[newer]?.deleteDue).not.toBeNull();
     h.time(h.now() + 60_001);
     const restored = yield* h.construct();
-    yield* restored.credentialAlarm();
-    expect(h.control.remote.map((entry) => entry.id)).toContain(old);
+    yield* restored.credentialAlarm;
+    expect(EffectArray.map(h.control.remote, (entry) => entry.id)).toContain(
+      old,
+    );
     h.control.failRemove = false;
     h.time(h.now() + 60_001);
-    yield* restored.credentialAlarm();
-    expect(h.control.remote.map((entry) => entry.id)).not.toContain(old);
-    expect(h.control.remote.map((entry) => entry.id)).not.toContain(newer);
+    yield* restored.credentialAlarm;
+    expect(
+      EffectArray.map(h.control.remote, (entry) => entry.id),
+    ).not.toContain(old);
+    expect(
+      EffectArray.map(h.control.remote, (entry) => entry.id),
+    ).not.toContain(newer);
     expect(h.snapshot().revoked[old]?.deleteDue).toBeNull();
     expect(h.snapshot().revoked[newer]?.deleteDue).toBeNull();
   }),
@@ -307,26 +338,35 @@ run(
     h.control.failCreate = true;
     yield* ready(h);
 
-    const unknown = h.control.remote.find(
-      (entry) => entry.condition.broadcaster_user_id === "400",
+    const unknown = EffectOption.getOrUndefined(
+      EffectArray.findFirst(
+        h.control.remote,
+        (entry) => !!(entry.condition.broadcaster_user_id === "400"),
+      ),
     );
 
     if (!unknown) return yield* Effect.die("Missing uncertain remote success");
-    h.control.remote = h.control.remote.filter((entry) => entry !== unknown);
+    h.control.remote = EffectArray.filter(
+      h.control.remote,
+      (entry) => !!(entry !== unknown),
+    );
     yield* h.enrollment.leave(input.session);
     h.time(h.snapshot().sweepAt ?? 0);
     const restored = yield* h.construct();
-    yield* restored.credentialAlarm();
+    yield* restored.credentialAlarm;
     const nextSweep = h.snapshot().sweepAt ?? 0;
     expect(nextSweep).toBeGreaterThan(h.now());
     h.control.remote.push(unknown);
     h.time(nextSweep + policy.revocationMs);
-    yield* restored.credentialAlarm();
+    yield* restored.credentialAlarm;
     expect(h.snapshot().revoked[unknown.id]?.deleteDue).not.toBeNull();
     h.time(h.now() + 1);
-    yield* restored.credentialAlarm();
+    yield* restored.credentialAlarm;
     expect(
-      h.control.remote.some((entry) => entry.id === unknown.id),
+      EffectArray.some(
+        h.control.remote,
+        (entry) => !!(entry.id === unknown.id),
+      ),
     ).toBeFalse();
     expect(h.snapshot().lifecycle["400"]?.kind).toBe("removed");
   }),
@@ -362,7 +402,7 @@ run(
       login: "public_channel",
     });
     expect(h.now() - before).toBeLessThanOrEqual(16_001);
-    expect(Object.keys(h.snapshot().revoked)).toHaveLength(32);
+    expect(EffectRecord.keys(h.snapshot().revoked)).toHaveLength(32);
   }),
 );
 
@@ -376,11 +416,11 @@ run(
       state.sweepLease = null;
     });
     h.consumeAlarm();
-    yield* h.alarm();
+    yield* h.alarm;
     expect(h.snapshot().sweepAt).toBe(blocked);
     expect(h.nativeAlarmAt() ?? 0).toBeGreaterThan(h.now());
     const restored = yield* h.construct();
-    yield* restored.credentialAlarm();
+    yield* restored.credentialAlarm;
     expect(h.snapshot().sweepAt).toBe(blocked);
   }),
 );
@@ -396,7 +436,7 @@ run(
     h.control.removeRetryAt = h.now() + 3_600_000;
     const lists = h.control.lists;
 
-    yield* h.alarm();
+    yield* h.alarm;
     expect(h.control.lists).toBe(lists);
     expect(h.snapshot().sweepAt ?? 0).toBeGreaterThanOrEqual(
       h.control.removeRetryAt,
@@ -415,7 +455,7 @@ run(
     h.control.removeRetryAt = h.now() + 3_600_000;
     const creates = h.control.creates;
 
-    yield* h.alarm();
+    yield* h.alarm;
     expect(h.control.creates).toBe(creates);
     expect(h.snapshot().apiBlockedUntil).toBe(h.control.removeRetryAt);
     const life = h.snapshot().lifecycle["400"];
@@ -442,7 +482,7 @@ run(
     });
     const creates = h.control.creates;
 
-    yield* h.alarm();
+    yield* h.alarm;
     expect(h.control.creates).toBe(creates);
 
     for (const id of ["400", "500"])
@@ -512,8 +552,12 @@ run(
     yield* ready(h);
 
     const expiry =
-      h.snapshot().enrollments.find((entry) => entry.session === input.session)
-        ?.expiresAt ?? 0;
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          h.snapshot().enrollments,
+          (entry) => !!(entry.session === input.session),
+        ),
+      )?.expiresAt ?? 0;
 
     h.time(expiry);
     expect(
@@ -527,7 +571,7 @@ run(
   "legacy keyed installs gain one stable opaque identity and keep their exact proof across reconstruction",
   Effect.fnUntraced(function* (h) {
     const raw = h.memory.values.get("account:channel:v1/200");
-    const row = Schema.decodeUnknownSync(ChannelRecord)(raw);
+    const row = yield* Schema.decodeUnknownEffect(ChannelRecord)(raw);
     const { lifecycle: _lifecycle, ...legacy } = row;
     h.memory.values.set("account:channel:v1/200", legacy);
     yield* h.store.shared((state) => {
@@ -633,7 +677,9 @@ run(
           sequence: 0,
         };
       state.enrollments = Array.from({ length: 45 }, (_, index) => ({
-        session: EnrollmentSession.make(index.toString(16).padStart(64, "0")),
+        session: EnrollmentSession.make(
+          EffectString.padStart(64, "0")(index.toString(16)),
+        ),
         nonce: seed.state,
         revision: "revision-one",
         generation: state.authGeneration,
@@ -647,8 +693,9 @@ run(
       }));
     });
     expect(
-      [...h.memory.values.keys()].filter((key) =>
-        key.startsWith("account:left:v1/"),
+      EffectArray.filter(
+        [...h.memory.values.keys()],
+        (key) => !!EffectString.startsWith("account:left:v1/")(key),
       ),
     ).toHaveLength(45);
     const fresh = yield* enroll(h);
@@ -658,7 +705,9 @@ run(
       login: "public_channel",
     });
     expect(
-      yield* h.enrollment.leave(EnrollmentSession.make("0".repeat(64))),
+      yield* h.enrollment.leave(
+        EnrollmentSession.make(EffectString.repeat(64)("0")),
+      ),
     ).toEqual({ kind: "left", login: "retired" });
   }),
 );
@@ -670,8 +719,12 @@ run(
     yield* ready(h);
 
     const expiry =
-      h.snapshot().enrollments.find((entry) => entry.session === input.session)
-        ?.expiresAt ?? 0;
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          h.snapshot().enrollments,
+          (entry) => !!(entry.session === input.session),
+        ),
+      )?.expiresAt ?? 0;
 
     yield* h.enrollment.leave(input.session);
     const revised = yield* h.construct("new-config-revision");
@@ -684,8 +737,12 @@ run(
       login: "public_channel",
     });
     expect(
-      h.snapshot().enrollments.find((entry) => entry.session === input.session)
-        ?.expiresAt,
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          h.snapshot().enrollments,
+          (entry) => !!(entry.session === input.session),
+        ),
+      )?.expiresAt,
     ).toBe(expiry);
     h.time(expiry);
     expect(

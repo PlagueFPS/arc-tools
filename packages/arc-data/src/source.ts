@@ -8,6 +8,9 @@ import {
   Schema,
   SchemaIssue,
   Stream,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
 } from "effect";
 import {
   HttpClient,
@@ -47,9 +50,10 @@ export function canonicalRequest(query: ResourceQuery) {
   const params = new URLSearchParams();
 
   if (query.resource === "items" || query.resource === "arcs") {
-    for (const [key, value] of Object.entries(query.params).sort(([a], [b]) =>
-      a.localeCompare(b),
-    )) {
+    for (const [key, value] of EffectRecord.toEntries<
+      string,
+      string | number | boolean | undefined
+    >(query.params).sort(([a], [b]) => EffectString.localeCompare(b)(a))) {
       if (Predicate.isNotUndefined(value)) params.set(key, String(value));
     }
   }
@@ -95,16 +99,17 @@ export const makeSource = Effect.fnUntraced(function* (
         Stream.mkUint8Array,
       );
 
-      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(
+      return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(
         new TextDecoder().decode(bytes),
       ).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("Metaforge schema failure").pipe(
             Effect.annotateLogs({
               resource: query.resource,
-              paths: SchemaIssue.makeFormatterStandardSchemaV1()(
-                error.issue,
-              ).issues.map((issue) => issue.path),
+              paths: EffectArray.map(
+                SchemaIssue.makeFormatterStandardSchemaV1()(error.issue).issues,
+                (issue) => issue.path,
+              ),
             }),
           ),
         ),
@@ -159,12 +164,12 @@ export const makeUncachedData = Effect.gen(function* () {
 
       return { ...result, value: result.value.data };
     }),
-    traders: Effect.fnUntraced(function* () {
+    traders: Effect.gen(function* () {
       const result = yield* read({ resource: "traders" }, TradersAPIResponse);
 
       return { ...result, value: result.value.data };
     }),
-    events: Effect.fnUntraced(function* () {
+    events: Effect.gen(function* () {
       const result = yield* read(
         { resource: "events-schedule" },
         EventAPIResponse,

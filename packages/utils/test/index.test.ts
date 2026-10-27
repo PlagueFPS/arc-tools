@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { Array as EffectArray } from "effect";
+
 import {
   formatMinutes,
   normalize,
@@ -154,7 +156,7 @@ describe("sortByDesc", () => {
     ];
 
     const sorted = sortByDesc(items, (i) => i.v);
-    expect(sorted.map((i) => i.id)).toEqual(["a", "b", "c"]);
+    expect(EffectArray.map(sorted, (i) => i.id)).toEqual(["a", "b", "c"]);
   });
 
   it("handles empty array", () => {

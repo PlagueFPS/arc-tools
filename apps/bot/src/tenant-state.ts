@@ -5,7 +5,14 @@ import {
   Dispatch,
   ReplyId,
 } from "@arctools/twitch/server";
-import { Context, Effect, Match, Schema } from "effect";
+import {
+  Context,
+  Effect,
+  Match,
+  Schema,
+  Array as EffectArray,
+  Record as EffectRecord,
+} from "effect";
 
 import { WorkId } from "./contracts.js";
 import { DiscordResponse, encodedBytes } from "./presentation.js";
@@ -26,7 +33,7 @@ export const tenantPolicy = {
 const Claim = Schema.Struct({
   generation: Schema.Int,
   activation: Schema.String,
-  until: Schema.Number,
+  until: Schema.Finite,
 });
 
 export type Claim = typeof Claim.Type;
@@ -34,9 +41,9 @@ export type Claim = typeof Claim.Type;
 const common = {
   id: WorkId,
   fingerprint: Schema.String,
-  receivedAt: Schema.Number,
+  receivedAt: Schema.Finite,
   deadline: Deadline,
-  retainUntil: Schema.Number,
+  retainUntil: Schema.Finite,
 };
 
 const twitch = {
@@ -81,7 +88,7 @@ const TwitchWork = Schema.Union([
     ...twitch,
     kind: Schema.Literal("ready"),
     ...plan,
-    retryAt: Schema.Number,
+    retryAt: Schema.Finite,
   }),
   Schema.Struct({
     ...twitch,
@@ -122,6 +129,7 @@ export const TenantState = Schema.Struct({
   works: Schema.Record(Schema.String, Work),
 });
 
+// oxlint-disable-next-line effecttsgo/unnecessary-typeof-type -- This captures the schema type before the public mapped alias; using that alias here is circular.
 type Persisted = typeof TenantState.Type;
 
 export type TenantState = {
@@ -142,21 +150,22 @@ export const sameClaim = (a: Claim, b: Claim) =>
   a.until === b.until;
 
 export function reclaim(state: TenantState, now: number) {
-  for (const [id, work] of Object.entries(state.works))
+  for (const [id, work] of EffectRecord.toEntries(state.works))
     if (work.retainUntil <= now) delete state.works[id];
 }
 
 export function fits(state: TenantState) {
-  const works = Object.values(state.works);
+  const works = EffectRecord.values(state.works);
 
   const reserved =
-    works.filter(
-      (work) => work.kind === "computing" || work.kind === "accepted",
+    EffectArray.filter(
+      works,
+      (work) => !!(work.kind === "computing" || work.kind === "accepted"),
     ).length * tenantPolicy.reservation;
 
   return (
     works.length <= tenantPolicy.retained &&
-    works.filter((work) => work.kind !== "terminal").length <=
+    EffectArray.filter(works, (work) => !!(work.kind !== "terminal")).length <=
       tenantPolicy.active &&
     encodedBytes(state) + reserved <= tenantPolicy.bytes
   );
@@ -165,7 +174,7 @@ export function fits(state: TenantState) {
 export function nextAlarm(state: TenantState): number | null {
   let next = Infinity;
 
-  for (const work of Object.values(state.works)) {
+  for (const work of EffectRecord.values(state.works)) {
     next = Math.min(next, work.retainUntil);
 
     if (work.transport !== "twitch" || work.kind === "terminal") continue;

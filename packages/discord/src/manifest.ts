@@ -1,6 +1,11 @@
 import { commandCatalog } from "@arctools/commands/catalog";
 import { digest } from "@arctools/utils/http";
-import { Schema } from "effect";
+import {
+  Schema,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 
 const locales = Schema.NullOr(Schema.Record(Schema.String, Schema.String));
 
@@ -16,13 +21,13 @@ const Option = Schema.Struct({
     Schema.Array(
       Schema.Struct({
         name: Schema.String,
-        value: Schema.Union([Schema.String, Schema.Number]),
+        value: Schema.Union([Schema.String, Schema.Finite]),
         name_localizations: Schema.optional(locales),
       }),
     ),
   ),
-  min_length: Schema.optional(Schema.Number),
-  max_length: Schema.optional(Schema.Number),
+  min_length: Schema.optional(Schema.Finite),
+  max_length: Schema.optional(Schema.Finite),
 });
 
 export const RemoteCommands = Schema.Array(
@@ -45,48 +50,50 @@ export type RemoteCommands = typeof RemoteCommands.Type;
 const localizations = (
   value: Readonly<Record<string, string>> | null | undefined,
 ) =>
-  value && Object.keys(value).length
-    ? Object.fromEntries(
-        Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
+  value && EffectRecord.keys(value).length
+    ? EffectRecord.fromEntries(
+        EffectRecord.toEntries(value).sort(([a], [b]) =>
+          EffectString.localeCompare(b)(a),
+        ),
       )
     : null;
 
 export function normalizeManifest(input: RemoteCommands) {
-  return input
-    .map((command) => ({
-      type: command.type ?? 1,
-      name: command.name,
-      description: command.description ?? "",
-      name_localizations: localizations(command.name_localizations),
+  return EffectArray.map(input, (command) => ({
+    type: command.type ?? 1,
+    name: command.name,
+    description: command.description ?? "",
+    name_localizations: localizations(command.name_localizations),
+    description_localizations: localizations(command.description_localizations),
+    options: EffectArray.map(command.options ?? [], (option) => ({
+      type: option.type,
+      name: option.name,
+      description: option.description ?? "",
+      required: option.required ?? false,
+      autocomplete: option.autocomplete ?? false,
+      name_localizations: localizations(option.name_localizations),
       description_localizations: localizations(
-        command.description_localizations,
+        option.description_localizations,
       ),
-      options: (command.options ?? []).map((option) => ({
-        type: option.type,
-        name: option.name,
-        description: option.description ?? "",
-        required: option.required ?? false,
-        autocomplete: option.autocomplete ?? false,
-        name_localizations: localizations(option.name_localizations),
-        description_localizations: localizations(
-          option.description_localizations,
-        ),
-        choices: (option.choices ?? []).map((choice) => ({
-          ...choice,
-          name_localizations: localizations(choice.name_localizations),
-        })),
-        min_length: option.min_length ?? null,
-        max_length: option.max_length ?? null,
+      choices: EffectArray.map(option.choices ?? [], (choice) => ({
+        ...choice,
+        name_localizations: localizations(choice.name_localizations),
       })),
-      integration_types: [...(command.integration_types ?? [0])].sort(),
-      contexts: [...(command.contexts ?? [0, 1, 2])].sort(),
-      default_member_permissions: command.default_member_permissions ?? null,
-      nsfw: command.nsfw ?? false,
-    }))
-    .sort((a, b) => a.type - b.type || a.name.localeCompare(b.name));
+      min_length: option.min_length ?? null,
+      max_length: option.max_length ?? null,
+    })),
+    integration_types: [...(command.integration_types ?? [0])].sort(
+      (a, b) => a - b,
+    ),
+    contexts: [...(command.contexts ?? [0, 1, 2])].sort((a, b) => a - b),
+    default_member_permissions: command.default_member_permissions ?? null,
+    nsfw: command.nsfw ?? false,
+  })).sort(
+    (a, b) => a.type - b.type || EffectString.localeCompare(b.name)(a.name),
+  );
 }
 
-export const commandManifest = commandCatalog.map((command) => ({
+export const commandManifest = EffectArray.map(commandCatalog, (command) => ({
   type: 1,
   name: command.name,
   description: command.description,
@@ -96,7 +103,7 @@ export const commandManifest = commandCatalog.map((command) => ({
   nsfw: false,
   name_localizations: null,
   description_localizations: null,
-  options: command.slashOptions.map((option) => ({
+  options: EffectArray.map(command.slashOptions, (option) => ({
     type: 3,
     name: option.name,
     description: option.description,

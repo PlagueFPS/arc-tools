@@ -1,4 +1,10 @@
-import { Schema } from "effect";
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
+import {
+  Schema,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 
 import { TestStage } from "../apps/bot/src/config.js";
 
@@ -6,7 +12,11 @@ export const CloudSettings = Schema.Struct({
   stage: TestStage,
   run: Schema.String.check(Schema.isPattern(/^[a-f0-9]{12}$/)),
   profile: Schema.NonEmptyString,
-}).check(Schema.makeFilter((value) => value.stage.endsWith(`-${value.run}`)));
+}).check(
+  Schema.makeFilter((value) =>
+    EffectString.endsWith(`-${value.run}`)(value.stage),
+  ),
+);
 
 export type CloudSettings = typeof CloudSettings.Type;
 
@@ -43,8 +53,9 @@ export function syntheticEnvironment(
   settings: CloudSettings,
 ): NodeJS.ProcessEnv {
   const env = {
-    ...Object.fromEntries(
-      Object.entries(inherited).filter(
+    ...EffectRecord.fromEntries(
+      EffectArray.filter(
+        EffectRecord.toEntries(inherited),
         ([key]) => !/^(TWITCH_|DISCORD_|ARC_|OPERATOR_)/.test(key),
       ),
     ),

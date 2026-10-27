@@ -1,7 +1,12 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/global-console -- This host boundary writes native CLI output or captures console output in tests. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/process-env -- Host environment snapshots are parsed at the CLI or subprocess boundary. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { Effect, Redacted, Schema } from "effect";
+import { Effect, Redacted, Schema, Record as EffectRecord } from "effect";
 import { FetchHttpClient } from "effect/http";
 
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
@@ -114,7 +119,7 @@ async function main() {
           }),
         };
 
-  for (const [key, label] of Object.entries({
+  for (const [key, label] of EffectRecord.toEntries({
     CLOUDFLARE_ACCOUNT_ID: "repository variable CLOUDFLARE_TEST_ACCOUNT_ID",
     CLOUDFLARE_API_TOKEN: "repository secret CLOUDFLARE_TEST_API_TOKEN",
     GITHUB_TOKEN: "GITHUB_TOKEN with pull-requests: write",
@@ -122,7 +127,7 @@ async function main() {
     if (!process.env[key]) throw new Error(`Configure ${label}`);
   }
 
-  const settings = Schema.decodeUnknownSync(CloudSettings)({
+  const settings = Schema.decodeSync(CloudSettings)({
     stage: preview.stage,
     run: preview.run,
     profile: process.env.ALCHEMY_PROFILE ?? "default",
@@ -162,6 +167,7 @@ async function main() {
       preview,
       token: Redacted.make(process.env.GITHUB_TOKEN ?? ""),
     }).pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This CLI or deployment entry point owns the composed layer scope.
       Effect.provide(FetchHttpClient.layer),
       Effect.provideService(FetchHttpClient.RequestInit, {
         redirect: "follow",

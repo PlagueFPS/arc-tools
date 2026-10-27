@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
 import { expect, test } from "bun:test";
 
 import { commandCatalog } from "@arctools/commands/catalog";
@@ -5,12 +6,35 @@ import {
   CommandExecution,
   CommandName as CommandNameSchema,
 } from "@arctools/commands/schemas";
-import { Schema } from "effect";
+import {
+  Schema,
+  Option as EffectOption,
+  Array as EffectArray,
+  Record as EffectRecord,
+  String as EffectString,
+} from "effect";
 
 test("usage shows provider syntax for item, event and argument-free commands", () => {
-  const sell = commandCatalog.find((command) => command.name === "sell");
-  const event = commandCatalog.find((command) => command.name === "event");
-  const active = commandCatalog.find((command) => command.name === "active");
+  const sell = EffectOption.getOrUndefined(
+    EffectArray.findFirst(
+      commandCatalog,
+      (command) => !!(command.name === "sell"),
+    ),
+  );
+
+  const event = EffectOption.getOrUndefined(
+    EffectArray.findFirst(
+      commandCatalog,
+      (command) => !!(command.name === "event"),
+    ),
+  );
+
+  const active = EffectOption.getOrUndefined(
+    EffectArray.findFirst(
+      commandCatalog,
+      (command) => !!(command.name === "active"),
+    ),
+  );
 
   expect(sell?.exampleArguments).toEqual({ item: "sensors" });
   expect(sell?.usage).toEqual({
@@ -34,7 +58,7 @@ test("usage shows provider syntax for item, event and argument-free commands", (
 });
 
 test("catalog names drive runtime recognition and every example fills its options", () => {
-  const names = commandCatalog.map((command) => command.name);
+  const names = EffectArray.map(commandCatalog, (command) => command.name);
 
   expect(new Set(names).size).toBe(names.length);
 
@@ -47,12 +71,15 @@ test("catalog names drive runtime recognition and every example fills its option
         deadline: 0,
       }),
     ).toBe(true);
-    expect(Object.keys(command.exampleArguments).sort()).toEqual(
-      command.slashOptions.map((option) => option.name).sort(),
+    expect(
+      EffectRecord.keys<string, string>(command.exampleArguments).sort(),
+    ).toEqual(
+      EffectArray.map(command.slashOptions, (option) => option.name).sort(),
     );
     expect(
-      Object.values(command.exampleArguments).every(
-        (value) => value.length > 0,
+      EffectArray.every(
+        EffectRecord.values<string, string>(command.exampleArguments),
+        (value) => !!(value.length > 0),
       ),
     ).toBe(true);
   }
@@ -64,7 +91,7 @@ test("catalog names drive runtime recognition and every example fills its option
   expect(
     Schema.is(CommandExecution)({
       command: "sell",
-      input: "x".repeat(257),
+      input: EffectString.repeat(257)("x"),
       deadline: 0,
     }),
   ).toBe(false);
@@ -97,10 +124,12 @@ test("the public catalog builds for browsers without server or runtime dependenc
     new URL("../src/catalog.ts", import.meta.url).pathname,
   );
   expect(
-    inputs.some((path) =>
-      /node_modules|handlers|arc-data|execute|schemas|config|alchemy/.test(
-        path,
-      ),
+    EffectArray.some(
+      inputs,
+      (path) =>
+        !!/node_modules|handlers|arc-data|execute|schemas|config|alchemy/.test(
+          path,
+        ),
     ),
   ).toBe(false);
   expect(inputs.length).toBeGreaterThan(0);

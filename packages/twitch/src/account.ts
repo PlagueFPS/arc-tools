@@ -1,3 +1,4 @@
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { digest } from "@arctools/utils/http";
 import {
   Context,
@@ -9,6 +10,9 @@ import {
   Predicate,
   Schema,
   Semaphore,
+  Array as EffectArray,
+  Option as EffectOption,
+  Record as EffectRecord,
 } from "effect";
 
 import {
@@ -68,7 +72,7 @@ const granted = (
   state: Pick<AccountState, "grants">,
   id: string,
   scopes: readonly string[],
-) => scopes.every((scope) => state.grants[id]?.includes(scope));
+) => EffectArray.every(scopes, (scope) => !!state.grants[id]?.includes(scope));
 
 const CallbackUrl = Schema.String.check(
   Schema.isMaxLength(512),
@@ -100,7 +104,7 @@ const liveSubscription = (status: string) =>
 
 const lifecycleSnapshot = (state: Pick<AccountState, "lifecycle">) =>
   JSON.stringify(
-    Object.entries(state.lifecycle).map(([id, life]) => [
+    EffectArray.map(EffectRecord.toEntries(state.lifecycle), ([id, life]) => [
       id,
       life.kind === "installed" ? { ...life, recovery: null } : life,
     ]),
@@ -127,7 +131,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     entry.users++;
 
     return yield* operation.pipe(
-      entry.lock.withPermit,
+      (effect) => entry.lock.withPermit(effect),
       Effect.ensuring(
         Effect.sync(() => {
           entry.users--;
@@ -142,11 +146,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     ids: readonly string[],
     operation: Effect.Effect<A, E, R>,
   ) =>
-    [...new Set(ids)]
-      .sort()
-      .reduceRight((next, id) => gated(id, next), operation);
+    EffectArray.reduceRight([...new Set(ids)].sort(), operation, (next, id) =>
+      gated(id, next),
+    );
 
-  const instance = crypto.randomUUID();
+  const instance = yield* secureRandomUUID;
   let validatedGeneration = "";
 
   const current = (state: Pick<AccountState, "revision">) =>
@@ -160,8 +164,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     record: AccountState["subscriptions"][string],
   ) =>
     current(state) &&
-    desiredChannels(state, config.identity.senderKind).some(
-      (channel) => channel.id === record.broadcasterId,
+    EffectArray.some(
+      desiredChannels(state, config.identity.senderKind),
+      (channel) => !!(channel.id === record.broadcasterId),
     ) &&
     state.sender?.id === record.senderId &&
     record.callback === config.callback &&
@@ -187,8 +192,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     if (
       !current(state) ||
       !state.sender ||
-      !desiredChannels(state, config.identity.senderKind).some(
-        (channel) => channel.id === id,
+      !EffectArray.some(
+        desiredChannels(state, config.identity.senderKind),
+        (channel) => !!(channel.id === id),
       )
     )
       kind = "unresolved";
@@ -257,26 +263,41 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     delete state.subscriptions[id];
 
     const login =
-      desiredChannels(state, config.identity.senderKind).find(
-        (member) => member.id === id,
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          desiredChannels(state, config.identity.senderKind),
+          (member) => !!(member.id === id),
+        ),
       )?.login ??
-      state.publicMembers.find((member) => member.id === id)?.login ??
-      state.channels.find((member) => member.id === id)?.login ??
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          state.publicMembers,
+          (member) => !!(member.id === id),
+        ),
+      )?.login ??
+      EffectOption.getOrUndefined(
+        EffectArray.findFirst(state.channels, (member) => !!(member.id === id)),
+      )?.login ??
       "channel";
 
-    state.channels = state.channels.filter((member) => member.id !== id);
-    state.publicMembers = state.publicMembers.filter(
-      (member) => member.id !== id,
+    state.channels = EffectArray.filter(
+      state.channels,
+      (member) => !!(member.id !== id),
+    );
+    state.publicMembers = EffectArray.filter(
+      state.publicMembers,
+      (member) => !!(member.id !== id),
     );
 
-    const scopes = (state.grants[id] ?? []).filter(
-      (scope) => scope !== "channel:bot",
+    const scopes = EffectArray.filter(
+      state.grants[id] ?? [],
+      (scope) => !!(scope !== "channel:bot"),
     );
 
     if (scopes.length) state.grants[id] = scopes;
     else delete state.grants[id];
 
-    for (const [key, attempt] of Object.entries(state.attempts))
+    for (const [key, attempt] of EffectRecord.toEntries(state.attempts))
       if (attempt.channel === id && attempt.kind === "waiting")
         state.attempts[key] = {
           ...attempt,
@@ -284,9 +305,12 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           outcome: { kind: "rejected" },
           privateCode: "removed",
         };
-    state.oauth = state.oauth.filter((entry) => entry.userId !== id);
+    state.oauth = EffectArray.filter(
+      state.oauth,
+      (entry) => !!(entry.userId !== id),
+    );
     state.setupLease = null;
-    state.enrollments = state.enrollments.map((entry) =>
+    state.enrollments = EffectArray.map(state.enrollments, (entry) =>
       entry.phase.kind === "member" && entry.phase.broadcasterId === id
         ? {
             ...entry,
@@ -319,12 +343,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
     if (isAuthorizationLoss(observation.status)) {
       const login =
-        desiredChannels(state, config.identity.senderKind).find(
-          (member) => member.id === observation.broadcasterId,
+        EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            desiredChannels(state, config.identity.senderKind),
+            (member) => !!(member.id === observation.broadcasterId),
+          ),
         )?.login ?? "channel";
 
       removeChannel(state, observation.broadcasterId, now);
-      state.enrollments = state.enrollments.map((entry) =>
+      state.enrollments = EffectArray.map(state.enrollments, (entry) =>
         entry.phase.kind === "left" &&
         entry.phase.broadcasterId === observation.broadcasterId
           ? { ...entry, phase: { ...entry.phase, login } }
@@ -355,7 +382,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         state.channels = [];
         state.grants = {};
         state.oauth = [];
-        state.enrollments = state.enrollments.map((entry) =>
+        state.enrollments = EffectArray.map(state.enrollments, (entry) =>
           entry.phase.kind === "left"
             ? entry
             : {
@@ -386,6 +413,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         if (!state.lifecycle[channel.id])
           state.lifecycle[channel.id] = {
             kind: "installed",
+            // oxlint-disable-next-line effecttsgo/crypto-random-uuid -- The atomic state-update callback allocates a fresh secure ID synchronously for each new installation.
             id: InstallationId.make(crypto.randomUUID()),
             negative: null,
             sequence: 0,
@@ -402,7 +430,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
       if (state.sender) state.sweepAt ??= startedMigrationAt + policy.sweepMs;
 
-      for (const record of Object.values(state.subscriptions))
+      for (const record of EffectRecord.values(state.subscriptions))
         if (
           isAuthorizationLoss(record.status) &&
           !granted(state, record.broadcasterId, broadcasterScopes)
@@ -425,7 +453,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   const appToken = Effect.fn("TwitchAccount.token")(
     function* () {
       const now = yield* Clock.currentTimeMillis;
-      const owner = crypto.randomUUID();
+      const owner = yield* secureRandomUUID;
 
       const claim = yield* store.shared((state) => {
         if (!current(state)) return { kind: "stale" } as const;
@@ -466,7 +494,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
               let token = claim.session?.token;
 
               if (!claim.session || claim.session.expiresAt <= now + 5_000)
-                token = (yield* provider.mint()).access_token;
+                token = (yield* provider.mint).access_token;
 
               if (!token) return yield* new AccountError({ code: "provider" });
               const validation = yield* provider.validate(token);
@@ -534,7 +562,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         }),
       );
     },
-    (effect) => effect.pipe(tokenLock.withPermit),
+    (effect) => effect.pipe((effect) => tokenLock.withPermit(effect)),
   );
 
   const startedAt = yield* Clock.currentTimeMillis;
@@ -547,69 +575,76 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       state.nextCredentialCheck = startedAt + 1;
   });
 
-  const status = Effect.fn("TwitchAccount.status")(
-    function* (): Effect.fn.Return<AccountStatus, AccountError> {
-      const now = yield* Clock.currentTimeMillis;
+  const status = Effect.gen(function* (): Effect.fn.Return<
+    AccountStatus,
+    AccountError
+  > {
+    const now = yield* Clock.currentTimeMillis;
 
-      const result = yield* store.update((state) => {
-        reclaim(state, now);
+    const result = yield* store.update((state) => {
+      reclaim(state, now);
 
-        const decisions = desiredChannels(
-          state,
-          config.identity.senderKind,
-        ).map((channel) => decideChannel(state, channel.id));
+      const decisions = EffectArray.map(
+        desiredChannels(state, config.identity.senderKind),
+        (channel) => decideChannel(state, channel.id),
+      );
 
-        const channels = desiredChannels(state, config.identity.senderKind).map(
-          (channel, index) => ({
-            ...channel,
-            authorized: granted(state, channel.id, broadcasterScopes),
-            subscription: decisions[index]?.subscription ?? "missing",
-          }),
-        );
+      const channels = EffectArray.map(
+        desiredChannels(state, config.identity.senderKind),
+        (channel, index) => ({
+          ...channel,
+          authorized: granted(state, channel.id, broadcasterScopes),
+          subscription: decisions[index]?.subscription ?? "missing",
+        }),
+      );
 
-        const sender = state.sender && {
-          ...state.sender,
-          authorized: granted(state, state.sender.id, senderScopes),
-        };
+      const sender = state.sender && {
+        ...state.sender,
+        authorized: granted(state, state.sender.id, senderScopes),
+      };
 
-        const setup: AccountStatus["setup"] = !sender
-          ? "unresolved"
-          : ((
+      const setup: AccountStatus["setup"] = !sender
+        ? "unresolved"
+        : (EffectOption.getOrUndefined(
+            EffectArray.findFirst(
               [
                 "unresolved",
                 "repair-required",
                 "authorization-required",
                 "ingress-required",
                 "pending",
-              ] satisfies AccountStatus["setup"][]
-            ).find((kind) =>
-              decisions.some((decision) => decision.kind === kind),
-            ) ?? "ready");
+              ] satisfies AccountStatus["setup"][],
+              (kind) =>
+                !!EffectArray.some(
+                  decisions,
+                  (decision) => !!(decision.kind === kind),
+                ),
+            ),
+          ) ?? "ready");
 
-        return {
-          stage: config.identity.stage,
-          revision: state.revision,
-          setup,
-          sender,
-          channels,
-          credential: Predicate.isNull(state.session)
-            ? "absent"
-            : validatedGeneration === state.session.generation &&
-                state.session.expiresAt > now &&
-                state.session.validatedAt + policy.hourlyMs > now
-              ? "valid"
-              : "validation-required",
-          attempts: Object.keys(state.attempts).length,
-          credentialCheckAt: state.session?.validatedAt ?? null,
-        } satisfies AccountStatus;
-      });
+      return {
+        stage: config.identity.stage,
+        revision: state.revision,
+        setup,
+        sender,
+        channels,
+        credential: Predicate.isNull(state.session)
+          ? "absent"
+          : validatedGeneration === state.session.generation &&
+              state.session.expiresAt > now &&
+              state.session.validatedAt + policy.hourlyMs > now
+            ? "valid"
+            : "validation-required",
+        attempts: EffectRecord.keys(state.attempts).length,
+        credentialCheckAt: state.session?.validatedAt ?? null,
+      } satisfies AccountStatus;
+    });
 
-      if (result.revision !== config.revision)
-        return yield* new AccountError({ code: "stale" });
+    if (result.revision !== config.revision)
+      return yield* new AccountError({ code: "stale" });
 
-      return result;
-    },
-  );
+    return result;
+  });
 
   const deleteObligation = Effect.fnUntraced(function* (
     token: string,
@@ -617,7 +652,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   ) {
     const now = yield* Clock.currentTimeMillis;
 
-    const owner = crypto.randomUUID();
+    const owner = yield* secureRandomUUID;
 
     const claim = yield* store.update((state) => {
       const entry = state.revoked[id];
@@ -626,11 +661,14 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         !entry ||
         entry.deleteDue === null ||
         state.apiBlockedUntil > now ||
-        Object.values(state.subscriptions).some(
+        EffectArray.some(
+          EffectRecord.values(state.subscriptions),
           (record) =>
-            record.id === id &&
-            liveSubscription(record.status) &&
-            matchesTarget(state, record),
+            !!(
+              record.id === id &&
+              liveSubscription(record.status) &&
+              matchesTarget(state, record)
+            ),
         )
       )
         return null;
@@ -700,7 +738,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     )
       return;
 
-    const sweepOwner = crypto.randomUUID();
+    const sweepOwner = yield* secureRandomUUID;
 
     const work = yield* store.update((state) => {
       const sweep =
@@ -723,13 +761,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         );
 
       return {
-        ids: Object.entries(state.revoked)
-          .filter(
-            ([, entry]) => entry.deleteDue !== null && entry.deleteDue <= now,
+        ids: EffectArray.map(
+          EffectArray.filter(
+            EffectRecord.toEntries(state.revoked),
+            ([, entry]) =>
+              !!(entry.deleteDue !== null && entry.deleteDue <= now),
           )
-          .sort((a, b) => (a[1].deleteDue ?? 0) - (b[1].deleteDue ?? 0))
-          .slice(0, 4)
-          .map(([id]) => id),
+            .sort((a, b) => (a[1].deleteDue ?? 0) - (b[1].deleteDue ?? 0))
+            .slice(0, 4),
+          ([id]) => id,
+        ),
         sweep,
         versions: lifecycleSnapshot(state),
       };
@@ -814,11 +855,14 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
                 return false;
 
               if (
-                Object.values(state.subscriptions).some(
+                EffectArray.some(
+                  EffectRecord.values(state.subscriptions),
                   (local) =>
-                    local.id === record.id &&
-                    liveSubscription(local.status) &&
-                    matchesTarget(state, local),
+                    !!(
+                      local.id === record.id &&
+                      liveSubscription(local.status) &&
+                      matchesTarget(state, local)
+                    ),
                 )
               )
                 return false;
@@ -888,10 +932,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
       const broadcaster = yield* store.update(
         (state) =>
-          Object.values(state.subscriptions).find((record) => record.id === id)
-            ?.broadcasterId ??
-          remote.find((record) => record.id === id)?.condition
-            .broadcaster_user_id ??
+          EffectOption.getOrUndefined(
+            EffectArray.findFirst(
+              EffectRecord.values(state.subscriptions),
+              (record) => !!(record.id === id),
+            ),
+          )?.broadcasterId ??
+          EffectOption.getOrUndefined(
+            EffectArray.findFirst(remote, (record) => !!(record.id === id)),
+          )?.condition.broadcaster_user_id ??
           id,
       );
 
@@ -903,7 +952,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           if (!ownsSetup(state, owner, generation, now)) return false;
           retireId(state, id, now);
 
-          for (const [channel, record] of Object.entries(state.subscriptions))
+          for (const [channel, record] of EffectRecord.toEntries(
+            state.subscriptions,
+          ))
             if (record.id === id) {
               const life = state.lifecycle[channel];
 
@@ -935,7 +986,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
     const snapshot = yield* store.update((state) => ({
       versions: lifecycleSnapshot(state),
-      channels: Object.keys(state.lifecycle),
+      channels: EffectRecord.keys(state.lifecycle),
     }));
 
     const versions = snapshot.versions;
@@ -945,7 +996,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const cleanup = yield* gatedChannels(
       [
         ...snapshot.channels,
-        ...remote.flatMap((record) =>
+        ...EffectArray.flatMap(remote, (record) =>
           record.condition.broadcaster_user_id
             ? [record.condition.broadcaster_user_id]
             : [],
@@ -976,8 +1027,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
           const owned =
             state.revoked[subscription.id]?.deleteDue != null ||
-            Object.values(state.subscriptions).some((local) =>
-              sameRemote(local, subscription),
+            EffectArray.some(
+              EffectRecord.values(state.subscriptions),
+              (local) => !!sameRemote(local, subscription),
             );
 
           const currentBinding =
@@ -1014,12 +1066,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           } else ids.add(subscription.id);
         }
 
-        for (const record of Object.values(state.subscriptions)) {
+        for (const record of EffectRecord.values(state.subscriptions)) {
           if (
             !matchesTarget(state, record) ||
             !liveSubscription(record.status) ||
             state.revoked[record.id] ||
-            !remote.some((subscription) => sameRemote(record, subscription))
+            !EffectArray.some(
+              remote,
+              (subscription) => !!sameRemote(record, subscription),
+            )
           )
             ids.add(record.id);
         }
@@ -1043,8 +1098,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           !state.sender ||
           !granted(state, state.sender.id, senderScopes) ||
           !granted(state, channel, broadcasterScopes) ||
-          !desiredChannels(state, config.identity.senderKind).some(
-            (entry) => entry.id === channel,
+          !EffectArray.some(
+            desiredChannels(state, config.identity.senderKind),
+            (entry) => !!(entry.id === channel),
           )
         )
           return "keep";
@@ -1067,8 +1123,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
               !ownsSetup(state, owner, generation, started) ||
               state.apiBlockedUntil > started ||
               life?.kind !== "installed" ||
-              !desiredChannels(state, config.identity.senderKind).some(
-                (entry) => entry.id === channel,
+              !EffectArray.some(
+                desiredChannels(state, config.identity.senderKind),
+                (entry) => !!(entry.id === channel),
               )
             )
               return null;
@@ -1167,7 +1224,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     )
       return yield* new AccountError({ code: "configuration" });
     const now = yield* Clock.currentTimeMillis;
-    const owner = crypto.randomUUID();
+    const owner = yield* secureRandomUUID;
 
     const claimed = yield* store.update((state) => {
       reclaim(state, now);
@@ -1211,15 +1268,20 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
       const users = yield* authenticated(provider.users(session.token, logins));
 
-      const sender = users.find(
-        (user) => user.login === config.identity.senderLogin,
+      const sender = EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          users,
+          (user) => !!(user.login === config.identity.senderLogin),
+        ),
       );
 
-      const channels = config.identity.channelLogins.map((login) =>
-        users.find((user) => user.login === login),
+      const channels = EffectArray.map(config.identity.channelLogins, (login) =>
+        EffectOption.getOrUndefined(
+          EffectArray.findFirst(users, (user) => !!(user.login === login)),
+        ),
       );
 
-      if (!sender || channels.some((channel) => !channel))
+      if (!sender || EffectArray.some(channels, (channel) => !channel))
         return yield* new AccountError({ code: "identity" });
 
       const resolved = yield* Effect.forEach(channels, (channel) =>
@@ -1247,14 +1309,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         )
           return "capacity";
         state.sender = sender;
-        state.channels = resolved.filter(
-          (channel) => state.lifecycle[channel.id]?.kind !== "removed",
+        state.channels = EffectArray.filter(
+          resolved,
+          (channel) => !!(state.lifecycle[channel.id]?.kind !== "removed"),
         );
 
         for (const channel of resolved)
           if (!state.lifecycle[channel.id])
             state.lifecycle[channel.id] = {
               kind: "installed",
+              // oxlint-disable-next-line effecttsgo/crypto-random-uuid -- The atomic state-update callback allocates a fresh secure ID synchronously for each new installation.
               id: InstallationId.make(crypto.randomUUID()),
               negative: null,
               sequence: 0,
@@ -1284,7 +1348,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           scopes.push(...senderScopes);
         }
 
-        if (resolved.some((channel) => channel.id === user.id)) {
+        if (
+          EffectArray.some(resolved, (channel) => !!(channel.id === user.id))
+        ) {
           roles.push("broadcaster");
           scopes.push(...broadcasterScopes);
         }
@@ -1296,7 +1362,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         );
 
         if (!needed) continue;
-        const nonce = `${crypto.randomUUID()}${crypto.randomUUID()}`;
+        const nonce = `${yield* secureRandomUUID}${yield* secureRandomUUID}`;
         const hash = yield* digest(nonce);
         states.push({
           digest: hash,
@@ -1317,7 +1383,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           client_id: config.identity.twitchClientId,
           redirect_uri: config.redirect,
           response_type: "code",
-          scope: scopes.join(" "),
+          scope: EffectArray.join(scopes, " "),
           state: nonce,
           force_verify: "true",
         });
@@ -1335,20 +1401,27 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         if (!ownsSetup(state, owner, generation, allocatedAt)) return "stale";
         reclaim(state, allocatedAt);
 
-        state.oauth = state.oauth.filter(
+        state.oauth = EffectArray.filter(
+          state.oauth,
           (entry) => !granted(state, entry.userId, entry.scopes),
         );
 
         const retained =
           state.oauth.length + states.length <= policy.maxOAuth
             ? state.oauth
-            : state.oauth.filter(
+            : EffectArray.filter(
+                state.oauth,
                 (entry) =>
-                  entry.operator === operator &&
-                  entry.revision === config.revision &&
-                  entry.generation === generation &&
-                  !granted(state, entry.userId, entry.scopes) &&
-                  !states.some((next) => next.userId === entry.userId),
+                  !!(
+                    entry.operator === operator &&
+                    entry.revision === config.revision &&
+                    entry.generation === generation &&
+                    !granted(state, entry.userId, entry.scopes) &&
+                    !EffectArray.some(
+                      states,
+                      (next) => !!(next.userId === entry.userId),
+                    )
+                  ),
               );
 
         if (retained.length + states.length > policy.maxOAuth)
@@ -1367,25 +1440,29 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
             session.token,
             sender.id,
             yield* store.update((state) =>
-              desiredChannels(state, config.identity.senderKind)
-                .filter((channel) => {
-                  const decision = decideChannel(state, channel.id);
+              EffectArray.map(
+                EffectArray.filter(
+                  desiredChannels(state, config.identity.senderKind),
+                  (channel) => {
+                    const decision = decideChannel(state, channel.id);
 
-                  return (
-                    decision.kind === "pending" ||
-                    decision.kind === "ready" ||
-                    (decision.kind === "repair-required" &&
-                      granted(state, channel.id, broadcasterScopes))
-                  );
-                })
-                .map((channel) => channel.id),
+                    return (
+                      decision.kind === "pending" ||
+                      decision.kind === "ready" ||
+                      (decision.kind === "repair-required" &&
+                        granted(state, channel.id, broadcasterScopes))
+                    );
+                  },
+                ),
+                (channel) => channel.id,
+              ),
             ),
             generation,
           ),
         );
       }
 
-      return { status: yield* status(), authorizations };
+      return { status: yield* status, authorizations };
     });
 
     return yield* run().pipe(
@@ -1401,17 +1478,24 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   const completeOAuth = Effect.fn("TwitchAccount.oauth")(function* (
     input: OAuthCompletion,
   ) {
-    const valid = yield* Schema.decodeUnknownEffect(OAuthCompletion)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(OAuthCompletion)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     const now = yield* Clock.currentTimeMillis;
     const hash = yield* digest(valid.state);
 
     const state = yield* store.update((account) => {
-      const found = account.oauth.find((entry) => entry.digest === hash);
-      account.oauth = account.oauth.filter(
-        (entry) => entry.digest !== hash && entry.expiresAt > now,
+      const found = EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          account.oauth,
+          (entry) => !!(entry.digest === hash),
+        ),
+      );
+
+      account.oauth = EffectArray.filter(
+        account.oauth,
+        (entry) => !!(entry.digest !== hash && entry.expiresAt > now),
       );
 
       return found;
@@ -1437,7 +1521,12 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     )
       return yield* new AccountError({ code: "identity" });
 
-    if (!state.scopes.every((scope) => grant.scopes?.includes(scope)))
+    if (
+      !EffectArray.every(
+        state.scopes,
+        (scope) => !!grant.scopes?.includes(scope),
+      )
+    )
       return yield* new AccountError({ code: "scopes" });
     const completed = yield* Clock.currentTimeMillis;
 
@@ -1455,6 +1544,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       if (priorLife?.kind === "removed" && state.roles.includes("broadcaster"))
         account.lifecycle[state.userId] = {
           kind: "installed",
+          // oxlint-disable-next-line effecttsgo/crypto-random-uuid -- The atomic state-update callback allocates a fresh secure ID synchronously for each new installation.
           id: InstallationId.make(crypto.randomUUID()),
           negative: null,
           sequence: priorLife.sequence,
@@ -1481,10 +1571,13 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       }
 
       if (priorLife?.kind === "removed" && state.roles.includes("broadcaster"))
-        account.enrollments = account.enrollments.filter(
+        account.enrollments = EffectArray.filter(
+          account.enrollments,
           (entry) =>
-            (entry.phase.kind !== "member" && entry.phase.kind !== "left") ||
-            entry.phase.broadcasterId !== state.userId,
+            !!(
+              (entry.phase.kind !== "member" && entry.phase.kind !== "left") ||
+              entry.phase.broadcasterId !== state.userId
+            ),
         );
 
       account.grants[state.userId] = [...state.scopes];
@@ -1494,20 +1587,25 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
     if (!saved) return yield* new AccountError({ code: "state" });
 
-    return yield* status();
+    return yield* status;
   });
 
   const enrollmentStatus = Effect.fnUntraced(function* (
     session: typeof EnrollmentSession.Type,
   ): Effect.fn.Return<EnrollmentStatus, AccountError> {
-    const valid = yield* Schema.decodeUnknownEffect(EnrollmentSession)(
-      session,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(EnrollmentSession)(session).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     const now = yield* Clock.currentTimeMillis;
 
     return yield* store.update((state): EnrollmentStatus => {
-      const entry = state.enrollments.find((entry) => entry.session === valid);
+      const entry = EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          state.enrollments,
+          (entry) => !!(entry.session === valid),
+        ),
+      );
 
       if (config.identity.senderKind !== "bot")
         return { kind: "failed", reason: "unavailable" };
@@ -1540,10 +1638,12 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         case "member": {
           const id = entry.phase.broadcasterId;
 
-          const member = desiredChannels(
-            state,
-            config.identity.senderKind,
-          ).find((channel) => channel.id === id);
+          const member = EffectOption.getOrUndefined(
+            EffectArray.findFirst(
+              desiredChannels(state, config.identity.senderKind),
+              (channel) => !!(channel.id === id),
+            ),
+          );
 
           if (!member)
             return { kind: "failed", reason: "authorization-required" };
@@ -1598,9 +1698,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   });
 
   const beginEnrollment = Effect.fnUntraced(function* (input: EnrollmentBegin) {
-    const valid = yield* Schema.decodeUnknownEffect(EnrollmentBegin)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(EnrollmentBegin)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     if (
       config.identity.senderKind !== "bot" ||
@@ -1620,30 +1720,42 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       )
         return "configuration";
 
-      const retained = state.enrollments.filter(
+      const retained = EffectArray.filter(
+        state.enrollments,
         (entry) =>
-          entry.expiresAt > now && entry.session !== valid.previousSession,
+          !!(entry.expiresAt > now && entry.session !== valid.previousSession),
       );
 
       if (
-        retained.filter(
+        EffectArray.filter(
+          retained,
           (entry) =>
-            entry.phase.kind === "pending" || entry.phase.kind === "exchanging",
+            !!(
+              entry.phase.kind === "pending" ||
+              entry.phase.kind === "exchanging"
+            ),
         ).length >= policy.maxEnrollmentIntents
       )
         return "capacity";
-      const left = retained.filter((entry) => entry.phase.kind === "left");
 
-      const active = retained.filter(
-        (entry) => entry.phase.kind !== "failed" && entry.phase.kind !== "left",
+      const left = EffectArray.filter(
+        retained,
+        (entry) => !!(entry.phase.kind === "left"),
+      );
+
+      const active = EffectArray.filter(
+        retained,
+        (entry) =>
+          !!(entry.phase.kind !== "failed" && entry.phase.kind !== "left"),
       );
 
       const failureSlots =
         policy.maxChannels + policy.maxEnrollmentIntents - active.length - 1;
 
-      const failures = retained
-        .filter((entry) => entry.phase.kind === "failed")
-        .slice(0, failureSlots);
+      const failures = EffectArray.filter(
+        retained,
+        (entry) => !!(entry.phase.kind === "failed"),
+      ).slice(0, failureSlots);
 
       state.enrollments = [
         ...active,
@@ -1669,7 +1781,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       client_id: config.identity.twitchClientId,
       redirect_uri: config.redirect,
       response_type: "code",
-      scope: broadcasterScopes.join(" "),
+      scope: EffectArray.join(broadcasterScopes, " "),
       state: valid.state,
       force_verify: "true",
     });
@@ -1680,21 +1792,25 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   const completeEnrollment = Effect.fnUntraced(function* (
     input: EnrollmentCompletion,
   ) {
-    const valid = yield* Schema.decodeUnknownEffect(EnrollmentCompletion)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(EnrollmentCompletion)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     if (config.identity.senderKind !== "bot")
       return yield* new AccountError({ code: "configuration" });
     const clock = yield* Clock.Clock;
     const nonce = yield* digest(valid.state);
-    const owner = crypto.randomUUID();
+    const owner = yield* secureRandomUUID;
 
     const claimed = yield* store.update((state) => {
       const now = clock.currentTimeMillisUnsafe();
 
-      const entry = state.enrollments.find(
-        (entry) => entry.session === valid.session && entry.nonce === nonce,
+      const entry = EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          state.enrollments,
+          (entry) =>
+            !!(entry.session === valid.session && entry.nonce === nonce),
+        ),
       );
 
       if (
@@ -1706,7 +1822,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         entry.expiresAt <= now
       )
         return null;
-      state.enrollments = state.enrollments.map((candidate) =>
+      state.enrollments = EffectArray.map(state.enrollments, (candidate) =>
         candidate === entry
           ? {
               ...candidate,
@@ -1760,18 +1876,32 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         Effect.mapError(() => new AccountError({ code: "identity" })),
       );
 
-      if (!broadcasterScopes.every((scope) => grant.scopes?.includes(scope)))
+      if (
+        !EffectArray.every(
+          broadcasterScopes,
+          (scope) => !!grant.scopes?.includes(scope),
+        )
+      )
         return yield* new AccountError({ code: "scopes" });
       const users = yield* provider.users(token.access_token, [login]);
 
-      if (!users.some((user) => user.id === userId && user.login === login))
+      if (
+        !EffectArray.some(
+          users,
+          (user) => !!(user.id === userId && user.login === login),
+        )
+      )
         return yield* new AccountError({ code: "identity" });
 
       const result = yield* store.update((state) => {
         const completed = clock.currentTimeMillisUnsafe();
 
-        const entry = state.enrollments.find(
-          (entry) => entry.session === valid.session && entry.nonce === nonce,
+        const entry = EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            state.enrollments,
+            (entry) =>
+              !!(entry.session === valid.session && entry.nonce === nonce),
+          ),
         );
 
         if (
@@ -1786,8 +1916,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         )
           return "state";
 
-        const member = state.publicMembers.find(
-          (member) => member.id === userId,
+        const member = EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            state.publicMembers,
+            (member) => !!(member.id === userId),
+          ),
         );
 
         if (
@@ -1798,17 +1931,19 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         )
           return "state";
 
-        const existing = desiredChannels(
-          state,
-          config.identity.senderKind,
-        ).find((channel) => channel.id === userId);
+        const existing = EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            desiredChannels(state, config.identity.senderKind),
+            (channel) => !!(channel.id === userId),
+          ),
+        );
 
         if (
           !existing &&
           desiredChannels(state, config.identity.senderKind).length >=
             policy.maxChannels
         ) {
-          state.enrollments = state.enrollments.map((candidate) =>
+          state.enrollments = EffectArray.map(state.enrollments, (candidate) =>
             candidate === entry
               ? { ...candidate, phase: { kind: "failed", reason: "capacity" } }
               : candidate,
@@ -1817,8 +1952,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           return "capacity";
         }
 
-        const configured = state.channels.find(
-          (channel) => channel.id === userId,
+        const configured = EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            state.channels,
+            (channel) => !!(channel.id === userId),
+          ),
         );
 
         if (configured && configured.login !== login) return "identity";
@@ -1829,10 +1967,12 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
             { id: userId, login, revocationGeneration: 0, cleanupAfter: null },
           ];
         else
-          state.publicMembers = state.publicMembers.map((member) =>
-            member.id === userId
-              ? { ...member, login, cleanupAfter: null }
-              : member,
+          state.publicMembers = EffectArray.map(
+            state.publicMembers,
+            (member) =>
+              member.id === userId
+                ? { ...member, login, cleanupAfter: null }
+                : member,
           );
         const previousLife = state.lifecycle[userId];
         const previousRecord = state.subscriptions[userId];
@@ -1845,7 +1985,8 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
           id:
             previousLife?.kind === "installed"
               ? previousLife.id
-              : InstallationId.make(crypto.randomUUID()),
+              : // oxlint-disable-next-line effecttsgo/crypto-random-uuid -- The atomic state-update callback allocates a fresh secure ID synchronously for each new installation.
+                InstallationId.make(crypto.randomUUID()),
           sequence: previousLife?.sequence ?? 0,
           version:
             previousLife?.kind === "installed" ? previousLife.version + 1 : 0,
@@ -1855,15 +1996,18 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         state.grants[userId] = [
           ...new Set([...(state.grants[userId] ?? []), ...broadcasterScopes]),
         ];
-        state.enrollments = state.enrollments
-          .filter(
+        state.enrollments = EffectArray.map(
+          EffectArray.filter(
+            state.enrollments,
             (candidate) =>
-              candidate === entry ||
-              (candidate.phase.kind !== "member" &&
-                candidate.phase.kind !== "left") ||
-              candidate.phase.broadcasterId !== userId,
-          )
-          .map((candidate) =>
+              !!(
+                candidate === entry ||
+                (candidate.phase.kind !== "member" &&
+                  candidate.phase.kind !== "left") ||
+                candidate.phase.broadcasterId !== userId
+              ),
+          ),
+          (candidate) =>
             candidate === entry
               ? {
                   ...candidate,
@@ -1871,7 +2015,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
                   phase: { kind: "member", broadcasterId: userId },
                 }
               : candidate,
-          );
+        );
 
         return "saved";
       });
@@ -1888,7 +2032,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       }),
       Effect.tapError(() =>
         store.update((state) => {
-          state.enrollments = state.enrollments.map((entry) =>
+          state.enrollments = EffectArray.map(state.enrollments, (entry) =>
             entry.session === valid.session &&
             entry.nonce === nonce &&
             entry.phase.kind === "exchanging" &&
@@ -1915,14 +2059,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       return;
 
     const due = yield* store.update((state) =>
-      Object.entries(state.lifecycle)
-        .filter(
+      EffectArray.map(
+        EffectArray.filter(
+          EffectRecord.toEntries(state.lifecycle),
           (entry) =>
-            entry[1].kind === "installed" &&
-            entry[1].recovery &&
-            entry[1].recovery.due <= now,
-        )
-        .sort(
+            !!(
+              entry[1].kind === "installed" &&
+              entry[1].recovery &&
+              entry[1].recovery.due <= now
+            ),
+        ).sort(
           (a, b) =>
             (a[1].kind === "installed"
               ? (a[1].recovery?.due ?? Infinity)
@@ -1930,13 +2076,14 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
             (b[1].kind === "installed"
               ? (b[1].recovery?.due ?? Infinity)
               : Infinity),
-        )
-        .map(([id]) => id),
+        ),
+        ([id]) => id,
+      ),
     );
 
     for (const id of due) {
       const started = yield* Clock.currentTimeMillis;
-      const owner = crypto.randomUUID();
+      const owner = yield* secureRandomUUID;
 
       const claim = yield* store.update((state) => {
         const life = state.lifecycle[id];
@@ -2058,8 +2205,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const clock = yield* Clock.Clock;
 
     const id = yield* store.update((state) => {
-      const entry = state.enrollments.find(
-        (entry) => entry.session === session && entry.expiresAt > now,
+      const entry = EffectOption.getOrUndefined(
+        EffectArray.findFirst(
+          state.enrollments,
+          (entry) => !!(entry.session === session && entry.expiresAt > now),
+        ),
       );
 
       return entry &&
@@ -2073,10 +2223,15 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const result = yield* gated(
       id,
       store.update((state) => {
-        const entry = state.enrollments.find(
-          (entry) =>
-            entry.session === session &&
-            entry.expiresAt > clock.currentTimeMillisUnsafe(),
+        const entry = EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            state.enrollments,
+            (entry) =>
+              !!(
+                entry.session === session &&
+                entry.expiresAt > clock.currentTimeMillisUnsafe()
+              ),
+          ),
         );
 
         if (!entry) return null;
@@ -2090,14 +2245,17 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
         if (entry.phase.kind !== "member") return null;
 
-        const member = desiredChannels(state, config.identity.senderKind).find(
-          (member) => member.id === id,
+        const member = EffectOption.getOrUndefined(
+          EffectArray.findFirst(
+            desiredChannels(state, config.identity.senderKind),
+            (member) => !!(member.id === id),
+          ),
         );
 
         if (!member) return null;
         const login = member.login;
         removeChannel(state, id, clock.currentTimeMillisUnsafe());
-        state.enrollments = state.enrollments.map((candidate) =>
+        state.enrollments = EffectArray.map(state.enrollments, (candidate) =>
           candidate.session === session
             ? {
                 ...candidate,
@@ -2117,7 +2275,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
   const observeSubscription = Effect.fn("TwitchAccount.subscription")(
     function* (input: SubscriptionObservation) {
-      const valid = yield* Schema.decodeUnknownEffect(SubscriptionObservation)(
+      const valid = yield* Schema.decodeEffect(SubscriptionObservation)(
         input,
       ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
 
@@ -2134,8 +2292,9 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
             valid.binding !== config.subscriptionBinding ||
             valid.callback !== config.callback ||
             state.sender?.id !== valid.senderId ||
-            !desiredChannels(state, config.identity.senderKind).some(
-              (channel) => channel.id === valid.broadcasterId,
+            !EffectArray.some(
+              desiredChannels(state, config.identity.senderKind),
+              (channel) => !!(channel.id === valid.broadcasterId),
             )
           )
             return null;
@@ -2204,11 +2363,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
   const dispatch = Effect.fn("TwitchAccount.dispatch")(function* (
     input: Dispatch,
   ): Effect.fn.Return<DispatchOutcome, AccountError> {
-    const valid = yield* Schema.decodeUnknownEffect(Dispatch)(input).pipe(
+    const valid = yield* Schema.decodeEffect(Dispatch)(input).pipe(
       Effect.mapError(() => new AccountError({ code: "input" })),
     );
 
-    const fingerprint = yield* digest(JSON.stringify(valid));
+    const fingerprint = yield* digest(
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        valid,
+      ).pipe(Effect.orDie),
+    );
+
     const first = yield* Clock.currentTimeMillis;
 
     const read = yield* store.sendAttempt((state) => {
@@ -2264,7 +2428,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
     const usable = yield* store.channelDispatch(
       valid.broadcasterId,
       (state) => {
-        for (const [id, entry] of Object.entries(state.revoked))
+        for (const [id, entry] of EffectRecord.toEntries(state.revoked))
           if (entry.until <= first && entry.deleteDue === null)
             delete state.revoked[id];
         const life = state.lifecycle[valid.broadcasterId];
@@ -2300,9 +2464,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
         return { kind: "rejected" };
       });
 
-    const session = yield* appToken().pipe(
-      Effect.catch(() => Effect.succeed(null)),
-    );
+    const session = yield* appToken().pipe(Effect.orElseSucceed(() => null));
 
     if (!session) {
       const now = yield* Clock.currentTimeMillis;
@@ -2316,14 +2478,16 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       valid.broadcasterId,
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
-        const owner = crypto.randomUUID();
+        const owner = yield* secureRandomUUID;
 
         const claimed = yield* store.channelDispatch(
           valid.broadcasterId,
           (state) => {
             reclaimSend(state, now);
 
-            for (const [key, tombstone] of Object.entries(state.revoked))
+            for (const [key, tombstone] of EffectRecord.toEntries(
+              state.revoked,
+            ))
               if (tombstone.until <= now && tombstone.deleteDue === null)
                 delete state.revoked[key];
             const prior = state.attempts[valid.attemptId];
@@ -2352,10 +2516,11 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
 
             if (
               !prior &&
-              Object.keys(state.attempts).length >= policy.maxAttempts
+              EffectRecord.keys(state.attempts).length >= policy.maxAttempts
             ) {
               const availableAt = Math.min(
-                ...Object.values(state.attempts).map(
+                ...EffectArray.map(
+                  EffectRecord.values(state.attempts),
                   (attempt) => attempt.retainUntil,
                 ),
               );
@@ -2372,10 +2537,12 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
               return { kind: "outcome", outcome: { kind: "expired" } } as const;
             }
 
-            const channel = desiredChannels(
-              state,
-              config.identity.senderKind,
-            ).find((channel) => channel.id === valid.broadcasterId);
+            const channel = EffectOption.getOrUndefined(
+              EffectArray.findFirst(
+                desiredChannels(state, config.identity.senderKind),
+                (channel) => !!(channel.id === valid.broadcasterId),
+              ),
+            );
 
             const sender = state.sender;
             const life = state.lifecycle[valid.broadcasterId];
@@ -2630,7 +2797,7 @@ export const makeAccount = Effect.fnUntraced(function* (config: AccountConfig) {
       completeOAuth,
       observeSubscription,
     }),
-    credentialAlarm: () => alarm,
+    credentialAlarm: alarm,
   };
 });
 

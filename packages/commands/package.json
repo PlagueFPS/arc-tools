@@ -4,10 +4,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsrs -p tsconfig.build.json",
     "test": "bun test ./test",
-    "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "dev": "tsrs --watch",
+    "typecheck": "tsrs --noEmit"
   },
   "exports": {
     ".": "./src/index.ts",
