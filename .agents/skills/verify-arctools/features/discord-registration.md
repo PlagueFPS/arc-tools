@@ -6,6 +6,8 @@ An operator publishes all ten guild slash commands and checks the remote manifes
 
 - `sync` overwrites and reads back the global manifest when drift exists.
 - `fence` rejects a mismatched stage, revision, unready worker, or manifest hash.
+- `preflight` checks authenticated application access without a Worker health requirement or registration.
+- `recovery` repairs an exact deployed revision through Release with `operation=sync`, under the application lock and without deployment.
 - `drift` checks remote definitions without registering commands.
 - `client` exposes commands in an installed guild after Discord propagation.
 
@@ -20,7 +22,8 @@ Preconditions: a separate nonproduction Discord application, its public key and 
 - **Synchronize.** With `.env.local` configured and `bun run dev:local` running, execute `bun run sync:discord:local`. Capture redacted output and exit status. Require readiness waiting, complete manifest comparison, and read-back agreement.
 - **Check drift.** Run `bun run status:local`. Require no Discord command drift for that exact revision. Repeat synchronization and verify the already-matching state remains correct.
 - **Client.** Open an installed test guild and verify all ten commands are offered. Execute `/sell` with `item` set to `sensors` and capture its public response. Use another guild member to observe visibility.
-- **Controlled integration.** Run `bun run test:cloud` for controlled Discord REST convergence, complete localization comparison, and stale/partial release rejection. Require test and cleanup success. A deliberately stale revision must stop before remote command mutation.
+- **Controlled registration.** Run `bun --no-env-file test packages/discord/test scripts/preview-workflows.test.ts`. Require CLI preflight, sanitized diagnostics, bounded retries, read-before-repeat after uncertain overwrites, stale revision rejection, and workflow recovery guards to pass. These fixtures make no live Discord calls.
+- **Recovery.** In a configured nonproduction stage, dispatch Release with `operation=sync`, the application ID, and the exact deployed SHA. Require deployment to be skipped and command synchronization to pass. Confirm `/health` still reports that SHA. Production recovery requires dispatch from main and a revision in main history.
 
 ## Gotchas
 

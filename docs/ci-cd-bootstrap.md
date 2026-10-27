@@ -121,7 +121,7 @@ Website has the stable name `arc-tools-website-prod`. In the existing `plague.wo
 
 Preserve the exact working `ARC_BOT_URL`. The first production deployment failed at runtime until that URL was set and the release was rerun. A blank value is not a verified production configuration. Copy the existing origin from the operator's known working configuration, and confirm that it matches the deployed stack's `url` output. Configure Website independently using `websiteUrl`. Do not derive a replacement Bot URL from an account subdomain or change the existing Bot callback to accommodate this bootstrap.
 
-After reviewing the workflow changes and completing these inputs, use the repository's release workflow to deploy. The bootstrap itself never triggers a workflow. A failed Discord sync after a successful Worker deployment needs a release rerun of that deployed revision, as described in the [operator guide](operator-guide.md).
+After reviewing the workflow changes and completing these inputs, use the repository's release workflow to deploy. The bootstrap itself never triggers a workflow. If Discord sync fails after a successful Worker deployment, select `operation=sync` and its exact deployed revision in Release. This repairs registration without deployment, as described in the [operator guide](operator-guide.md#repair-command-registration-without-deployment).
 
 ## Rerun or recover the bootstrap
 

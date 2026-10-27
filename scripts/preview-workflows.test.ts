@@ -81,7 +81,7 @@ const trigger = Schema.Struct({
 function enabled(
   expression: string | undefined,
   github: GithubContext,
-  inputs: { stage?: string } = {},
+  inputs: { stage?: string; operation?: string } = {},
 ) {
   if (!expression) return true;
 
@@ -169,12 +169,20 @@ async function runGuard(
   ref = "refs/heads/main",
   currentHead = revision,
   observed: { apiCalls: number; logs: string[] } = { apiCalls: 0, logs: [] },
+  comparison = "ahead",
 ) {
   const script = Schema.decodeUnknownSync(Schema.String)(guard.with?.script);
   const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
   await new AsyncFunction("github", "context", "process", "console", script)(
     {
       rest: {
+        repos: {
+          compareCommits: async () => {
+            observed.apiCalls++;
+
+            return { data: { status: comparison } };
+          },
+        },
         git: {
           getRef: async () => {
             observed.apiCalls++;
@@ -193,6 +201,7 @@ async function runGuard(
     {
       env: {
         ...fixtureSecrets,
+        RELEASE_OPERATION: "release",
         ARC_STAGE: "prod",
         ARC_BUILD_REVISION: revision,
         RELEASE_APPLICATION_ID: app,
@@ -550,5 +559,93 @@ describe("executed release origin and revision guard", () => {
       await expect(runGuard({ ARC_BOT_URL: origin })).rejects.toThrow();
       await expect(runGuard({ ARC_WEBSITE_URL: origin })).rejects.toThrow();
     }
+  });
+});
+
+describe("Discord release preflight and sync-only recovery", () => {
+  test("preflight gates deployment and sync-only skips all deployment mutations", () => {
+    const steps = job(release, "release").steps ?? [];
+
+    const preflight = step(
+      release,
+      "release",
+      "Validate Discord application access before deployment",
+    );
+
+    const deploy = step(release, "release", "Deploy selected stage");
+
+    const sync = step(
+      release,
+      "release",
+      "Synchronize this release's global commands",
+    );
+
+    expect(steps.indexOf(preflight)).toBeLessThan(steps.indexOf(deploy));
+    expect(steps.indexOf(deploy)).toBeLessThan(steps.indexOf(sync));
+    expect(preflight.run).toContain("--preflight");
+
+    for (const operation of ["release", "sync", undefined]) {
+      expect(
+        enabled(deploy.if, context("workflow_dispatch"), { operation }),
+      ).toBe(operation !== "sync");
+      expect(
+        enabled(preflight.if, context("workflow_dispatch"), { operation }),
+      ).toBe(operation !== "sync");
+      expect(
+        enabled(sync.if, context("workflow_dispatch"), { operation }),
+      ).toBeTrue();
+    }
+
+    expect(sync.run).toContain('--revision "$ARC_BUILD_REVISION" --wait');
+  });
+
+  test("production recovery accepts only main-history revisions and needs no deployment secrets or Website configuration", async () => {
+    const overrides = {
+      RELEASE_OPERATION: "sync",
+      ARC_BUILD_REVISION: "b".repeat(40),
+      TWITCH_CLIENT_SECRET: undefined,
+      TWITCH_SIGNING_SECRET: undefined,
+      CLOUDFLARE_API_TOKEN: undefined,
+      OPERATOR_SECRET: undefined,
+      ARC_WEBSITE_URL: undefined,
+    };
+
+    for (const comparison of ["ahead", "identical"]) {
+      const observed = { apiCalls: 0, logs: [] };
+      await runGuard(
+        overrides,
+        "workflow_dispatch",
+        "refs/heads/main",
+        revision,
+        observed,
+        comparison,
+      );
+      expect(observed.apiCalls).toBe(1);
+      expect(observed.logs).toEqual([]);
+    }
+
+    for (const comparison of ["behind", "diverged"])
+      await expect(
+        runGuard(
+          overrides,
+          "workflow_dispatch",
+          "refs/heads/main",
+          revision,
+          { apiCalls: 0, logs: [] },
+          comparison,
+        ),
+      ).rejects.toThrow("main history");
+    await expect(
+      runGuard(overrides, "workflow_dispatch", "refs/heads/repair"),
+    ).rejects.toThrow("main");
+    await expect(runGuard(overrides, "push")).rejects.toThrow(
+      "manual dispatch",
+    );
+    await expect(
+      runGuard({ ...overrides, DISCORD_BOT_TOKEN: "" }, "workflow_dispatch"),
+    ).rejects.toThrow("DISCORD_BOT_TOKEN");
+    await expect(runGuard({ RELEASE_OPERATION: "other" })).rejects.toThrow(
+      "operation",
+    );
   });
 });

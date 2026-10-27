@@ -125,7 +125,7 @@ bun run deploy --stage staging --profile default --env-file .env.staging --yes
 
 Keep `ARC_BOT_URL` equal to the exact working deployed origin. Do not guess a workers.dev hostname or overwrite the existing production value. Missing `ARC_BOT_URL` caused the first production runtime failure. Setting the exact URL and redeploying repaired it. For a new cloud service, read the actual stack output, configure that exact origin, and redeploy before registration. Inspect `/health` and compare stage, revision, and manifest hash.
 
-The Release workflow accepts only explicit `staging` or `prod` and an application ID. Successful CI on a `main` push calls the same workflow with the exact checked SHA and repository variable `PROD_DISCORD_APPLICATION_ID`. Manual production dispatch must select `main`; staging dispatch uses its existing environment. Both paths serialize by application ID and require the environment's `DISCORD_APPLICATION_ID` to match the input. Automatic releases recheck the current main head after acquiring the lock and immediately before deployment. The workflow checks out the exact revision, deploys it, and registers the global manifest. Registration checks the deployed stage, revision, ready status, and hash before and after operations. It compares all global commands with full localization dictionaries and reads back an overwrite. A partial release leaves the deployment running and reports incomplete registration. Repair through the same Release workflow at the intended branch revision.
+The Release workflow accepts only explicit `staging` or `prod` and an application ID. Successful CI on a `main` push calls the same workflow with the exact checked SHA and repository variable `PROD_DISCORD_APPLICATION_ID`. Manual production dispatch must select `main`; staging dispatch uses its existing environment. Both paths serialize by application ID and require the environment's `DISCORD_APPLICATION_ID` to match the input. Automatic releases recheck the current main head after acquiring the lock and immediately before deployment. The workflow checks out the exact revision, deploys it, and registers the global manifest. Registration checks the deployed stage, revision, ready status, and hash before and after operations. It compares all global commands with full localization dictionaries and reads back an overwrite. Before deployment, an authenticated read verifies Discord application access. A partial release leaves the deployment running and reports incomplete registration. Use sync-only recovery below to repair commands without redeploying.
 
 Follow [the CI/CD bootstrap guide](ci-cd-bootstrap.md) before enabling automatic releases. Populate the existing bot application variables and secrets privately in `prod` and `staging`. Preserve the current portal callbacks and Twitch grants. Remote CI/CD activation remains UNVERIFIED until bootstrap, environment configuration, and real workflow runs succeed. See [the CI/CD verification record](verification/alchemy-cicd.md) for local evidence and rollout limits.
 
@@ -139,7 +139,29 @@ export ARC_BUILD_REVISION="$(git rev-parse HEAD)"
 bun --env-file=.env.staging run sync:discord --stage staging --endpoint "$ARC_BOT_URL" --revision "$ARC_BUILD_REVISION" --wait
 ```
 
-The shell must already export `ARC_BOT_URL` and `ARC_BUILD_REVISION` for those argument expansions. Alternatively replace the two arguments with the actual public origin and exact commit. Bun loads the script's application ID and bot token from the protected file or environment. `--wait` bounds readiness polling to 60 attempts; it does not bypass the revision fence. Serialize manual registration with releases for the same application.
+The shell must already export `ARC_BOT_URL` and `ARC_BUILD_REVISION` for those argument expansions. Alternatively replace the two arguments with the actual public origin and exact commit. Bun loads the script's application ID and bot token from the protected file or environment. `--wait` bounds readiness polling to 60 attempts over at most 60 seconds; it does not bypass the revision fence. Serialize manual registration with releases for the same application.
+
+### Repair command registration without deployment
+
+Read the selected Worker's `/health` response and record its exact full revision. In the **Release** workflow, select the stage and application ID, set **operation** to `sync`, and supply that revision. For production, dispatch from `main`. The revision must belong to main history. Recovery uses the same application lock as full releases and checks out the requested revision.
+
+```bash
+gh workflow run release.yml --ref main \
+  -f stage=prod -f application_id='<production application ID>' \
+  -f operation=sync -f revision='<full deployed SHA>'
+```
+
+Recovery skips deployment and requires only the Discord bot token among the release secrets. It verifies the deployed stage, revision, and manifest before changing commands. A mismatch fails recovery. Recovery executes the sync implementation from the selected revision, so older revisions retain their original diagnostics and retry behavior.
+
+For a full release, leave **operation** at `release` and leave the manual revision input empty. Automatic releases continue to deploy the checked main SHA.
+
+### Diagnose synchronization failures
+
+The CLI reports a JSON diagnostic with `code`, `operation`, `phase`, `attempt`, `retryCount`, `status`, and numeric `discordCode`. Network failures have no HTTP status. Body decoding errors and request deadlines have distinct codes. Provider response text, request objects, and credentials are omitted.
+
+For a revision containing the current sync implementation, transient network failures and HTTP 500, 502, 503, and 504 responses retry up to four reconciliation attempts within 30 seconds. Individual requests have a four-second deadline. Each retry checks release health and reads current commands before another overwrite. A lost PUT response therefore does not cause another write when the manifest already matches. A stale release or readback disagreement fails immediately. HTTP 400, 401, and 403 responses fail immediately; correct the payload or application access before retrying. Rate limits honor Discord's `retry_after` within the same retry budget.
+
+Use `sync:discord` with `--preflight` and the usual stage, endpoint, and revision arguments for an authenticated read of the application's commands. Preflight does not require the new revision to be deployed and never registers commands. Full releases run it before deployment.
 
 Discord uses raw REST API requests for global command synchronization. Install the application in guilds with command permissions, and configure the interactions URL. Guild IDs come from signed interactions. There is no guild enrollment, guild allowlist, DM command mode, or Discord prefix bot.
 
