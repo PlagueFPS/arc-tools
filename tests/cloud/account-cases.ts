@@ -309,6 +309,7 @@ export function registerAccountTests({
 
       const statusResponse = yield* Effect.promise(() =>
         fetch(`${u.bot}/ops/status`, {
+          keepalive: false,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ stage: "wrong" }),
@@ -316,9 +317,13 @@ export function registerAccountTests({
       );
 
       expect(statusResponse.status).toBe(401);
+      expect(yield* Effect.promise(() => statusResponse.json())).toEqual({
+        error: "unauthorized",
+      });
 
       const authenticated = yield* Effect.promise(() =>
         fetch(`${u.bot}/ops/status`, {
+          keepalive: false,
           method: "POST",
           headers: {
             Authorization: "Bearer fixture-operator",

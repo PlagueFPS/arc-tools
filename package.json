@@ -5,7 +5,7 @@
     "apps/*",
     "packages/*"
   ],
-  "packageManager": "bun@1.4.3",
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test && bun --no-env-file test ./tests/cloud/fixture-http.test.ts ./tests/cloud/fixture-journey.test.ts ./tests/cloud/fixture-routing.test.ts ./tests/cloud/fixture-timing.test.ts ./tests/cloud/fixture-response.test.ts ./tests/cloud/discord-failure.test.ts ./tests/cloud/alarm-attribution.test.ts ./scripts/local.test.ts ./scripts/local-infrastructure.test.ts ./scripts/preview.test.ts ./scripts/preview-workflows.test.ts ./tests/website/enrollment.test.ts",
