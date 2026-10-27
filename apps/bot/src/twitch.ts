@@ -72,7 +72,9 @@ export const bindEnrollment = Effect.gen(function* () {
   const objects = yield* TwitchAccountDO;
 
   // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
-  return makeEnrollmentClient(objects.getByName("environment"));
+  return Effect.suspend(() =>
+    makeEnrollmentClient(objects.getByName("environment")),
+  );
 });
 
 export const accountRevision = Effect.fnUntraced(function* (
