@@ -13,15 +13,18 @@ const ApplicationId = Schema.String.check(
 
 const InstallInput = Schema.Struct({ applicationId: ApplicationId });
 
-export class DiscordInstallError extends Schema.TaggedError<DiscordInstallError>()(
-  "DiscordInstallError",
-  { message: Schema.String, cause: Schema.Defect() },
-) {}
+export class DiscordInstallError extends Schema.TaggedError<
+  DiscordInstallError,
+  { readonly brand: unique symbol }
+>()("DiscordInstallError", {
+  message: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 export const guildInstallUrl = Effect.fnUntraced(function* (
   input: typeof InstallInput.Encoded,
 ) {
-  const { applicationId } = yield* Schema.decodeUnknownEffect(InstallInput)(
+  const { applicationId } = yield* Schema.decodeEffect(InstallInput)(
     input,
   ).pipe(
     Effect.catchTag(

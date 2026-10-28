@@ -1,9 +1,12 @@
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { writeFile } from "node:fs/promises";
 
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
 import * as Core from "alchemy/Test/Core";
-import { Effect, Schema, Stream } from "effect";
+import { Effect, Schema, Stream, Array as Arr } from "effect";
 
 import Stack from "../alchemy.run.js";
 import { CloudResourceEvidence, cloudSettings } from "./cloud-settings.js";
@@ -11,7 +14,7 @@ import { PreviewOutput, PreviewStage } from "./preview-identity.js";
 
 const settings = cloudSettings(process.env);
 
-Schema.decodeUnknownSync(PreviewStage)(settings.stage);
+Schema.decodeSync(PreviewStage)(settings.stage);
 
 const directory = new URL(
   `../.cloud-tests/${settings.stage}/`,
@@ -45,11 +48,13 @@ await Core.run(
       ),
     );
 
-    const output = yield* Schema.decodeUnknownEffect(PreviewOutput)(deployed);
+    const output = yield* Schema.decodeEffect(PreviewOutput)(deployed);
     yield* Effect.promise(() =>
       writeFile(
         new URL("preview-output.json", directory),
-        JSON.stringify(output, null, 2),
+        Schema.encodeSync(Schema.fromJsonString(Schema.Unknown, { space: 2 }))(
+          output,
+        ),
       ),
     );
 
@@ -78,15 +83,21 @@ await Core.run(
     const evidence = yield* Schema.decodeUnknownEffect(CloudResourceEvidence)({
       stage: settings.stage,
       workers,
-      namespaces: namespaces
-        .filter((namespace) => workers.includes(namespace.script ?? ""))
-        .map((namespace) => namespace.id),
+      namespaces: Arr.map(
+        Arr.filter(
+          namespaces,
+          (namespace) => !!workers.includes(namespace.script ?? ""),
+        ),
+        (namespace) => namespace.id,
+      ),
     });
 
     yield* Effect.promise(() =>
       writeFile(
         new URL("resources.json", directory),
-        JSON.stringify(evidence, null, 2),
+        Schema.encodeSync(Schema.fromJsonString(Schema.Unknown, { space: 2 }))(
+          evidence,
+        ),
       ),
     );
   }),

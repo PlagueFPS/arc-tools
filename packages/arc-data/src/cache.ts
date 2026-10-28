@@ -32,7 +32,7 @@ export interface CacheStorage {
   readonly get: (key: string) => Effect.Effect<unknown>;
   readonly put: (key: string, value: CacheRow | number) => Effect.Effect<void>;
   readonly remove: (key: string) => Effect.Effect<void>;
-  readonly entries: () => Effect.Effect<Map<string, unknown>>;
+  readonly entries: Effect.Effect<Map<string, unknown>>;
   readonly transaction: <A, E>(
     effect: Effect.Effect<A, E>,
   ) => Effect.Effect<A, E>;
@@ -40,16 +40,16 @@ export interface CacheStorage {
 
 const Value = Schema.Struct({
   body: Schema.String,
-  bytes: Schema.Number,
-  fetchedAt: Schema.Number,
+  bytes: Schema.Finite,
+  fetchedAt: Schema.Finite,
 });
 
 export const CacheRow = Schema.Struct({
-  generation: Schema.Number,
+  generation: Schema.Finite,
   schedule: Schema.Boolean,
   value: Schema.NullOr(Value),
-  retryAt: Schema.Number,
-  leaseUntil: Schema.Number,
+  retryAt: Schema.Finite,
+  leaseUntil: Schema.Finite,
 });
 
 type CacheRow = typeof CacheRow.Type;
@@ -98,7 +98,7 @@ export const makeCache = Effect.fnUntraced(function* (
   } = {},
 ) {
   const policy = options.policy ?? cachePolicy;
-  const source = yield* Source.pipe(Effect.provide(sourceLayer(options)));
+  const source = yield* Source;
 
   const locks = new Map<
     string,
@@ -118,7 +118,9 @@ export const makeCache = Effect.fnUntraced(function* (
       ),
     );
 
-    return JSON.stringify(encoded);
+    return yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+      encoded,
+    ).pipe(Effect.orDie);
   });
 
   const fetch = (query: ResourceQuery) => {
@@ -135,7 +137,7 @@ export const makeCache = Effect.fnUntraced(function* (
   };
 
   const read = Effect.fn("ArcCache.read")(function* (input: ResourceQuery) {
-    const query = yield* Schema.decodeUnknownEffect(ResourceQuery)(input).pipe(
+    const query = yield* Schema.decodeEffect(ResourceQuery)(input).pipe(
       Effect.mapError(
         () =>
           new DataUnavailable({ resource: input.resource, reason: "query" }),
@@ -210,7 +212,7 @@ export const makeCache = Effect.fnUntraced(function* (
                   });
                 }
 
-                const entries = yield* storage.entries();
+                const entries = yield* storage.entries;
                 let count = entries.size;
 
                 for (const [entryKey, raw] of entries) {
@@ -237,7 +239,7 @@ export const makeCache = Effect.fnUntraced(function* (
                 const previous = yield* storage.get("generation");
 
                 const generation =
-                  (yield* Schema.decodeUnknownEffect(Schema.Number)(
+                  (yield* Schema.decodeUnknownEffect(Schema.Finite)(
                     previous ?? 0,
                   ).pipe(Effect.orDie)) + 1;
 
@@ -279,7 +281,7 @@ export const makeCache = Effect.fnUntraced(function* (
 
                 if (Predicate.isNotUndefined(body)) {
                   const bytes = new TextEncoder().encode(body).byteLength;
-                  const entries = yield* storage.entries();
+                  const entries = yield* storage.entries;
                   let total = bytes;
 
                   for (const [entryKey, raw] of entries) {
@@ -325,7 +327,8 @@ export const makeCache = Effect.fnUntraced(function* (
               }),
             );
 
-            if (completion instanceof DataUnavailable) return yield* completion;
+            if (Schema.is(DataUnavailable)(completion))
+              return yield* completion;
 
             return completion;
           }),
@@ -341,7 +344,7 @@ export const makeCache = Effect.fnUntraced(function* (
 
   const reset = storage.transaction(
     Effect.gen(function* () {
-      for (const key of (yield* storage.entries()).keys())
+      for (const key of (yield* storage.entries).keys())
         yield* storage.remove(key);
     }),
   );
@@ -358,9 +361,9 @@ export const dataFromReader = (
   ) {
     const result = yield* read(query);
 
-    const value = yield* Schema.decodeUnknownEffect(
-      Schema.fromJsonString(schema),
-    )(result.body).pipe(
+    const value = yield* Schema.decodeEffect(Schema.fromJsonString(schema))(
+      result.body,
+    ).pipe(
       Effect.mapError(
         () =>
           new DataUnavailable({ resource: query.resource, reason: "source" }),
@@ -387,12 +390,12 @@ export const dataFromReader = (
 
       return { ...result, value: result.value.data };
     }),
-    traders: Effect.fnUntraced(function* () {
+    traders: Effect.gen(function* () {
       const result = yield* decode({ resource: "traders" }, TradersAPIResponse);
 
       return { ...result, value: result.value.data };
     }),
-    events: Effect.fnUntraced(function* () {
+    events: Effect.gen(function* () {
       const result = yield* decode(
         { resource: "events-schedule" },
         EventAPIResponse,
@@ -411,4 +414,7 @@ export class Cache extends Context.Service<
 export const cacheLayer = (
   storage: CacheStorage,
   options: Parameters<typeof makeCache>[1] = {},
-) => Layer.effect(Cache, makeCache(storage, options));
+) =>
+  Layer.effect(Cache, makeCache(storage, options)).pipe(
+    Layer.provide(sourceLayer(options)),
+  );

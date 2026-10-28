@@ -39,10 +39,12 @@ export const Admission = Schema.Struct({
 
 export type Admission = typeof Admission.Type;
 
-export class TenantError extends Schema.TaggedError<TenantError>()(
-  "TenantError",
-  { code: Schema.Literals(["input", "conflict", "capacity", "unavailable"]) },
-) {}
+export class TenantError extends Schema.TaggedError<
+  TenantError,
+  { readonly brand: unique symbol }
+>()("TenantError", {
+  code: Schema.Literals(["input", "conflict", "capacity", "unavailable"]),
+}) {}
 
 export interface TenantService {
   readonly acceptTwitch: (

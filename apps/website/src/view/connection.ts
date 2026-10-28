@@ -64,10 +64,7 @@ const failure = (error: CheckError, h: HtmlBuilder<Message>) =>
       ),
   });
 
-const enrollment = (
-  status: typeof EnrollmentStatus.Type,
-  h: HtmlBuilder<Message>,
-): Html =>
+const enrollment = (status: EnrollmentStatus, h: HtmlBuilder<Message>): Html =>
   Match.value(status).pipe(
     Match.discriminatorsExhaustive("kind")({
       pending: () =>

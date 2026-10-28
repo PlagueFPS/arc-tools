@@ -1,3 +1,6 @@
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import {
@@ -24,6 +27,9 @@ import {
   Match,
   Redacted,
   Schema,
+  Array as Arr,
+  String as Str,
+  Option,
 } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
@@ -181,7 +187,15 @@ const fixture = Effect.fnUntraced(function* (
     const response = yield* request("/oauth/twitch/enroll", previous);
     expect(response.status).toBe(302);
     const location = new URL(response.headers.get("location") ?? "");
-    const cookie = response.headers.get("set-cookie")?.split(";")[0] ?? "";
+
+    const cookie =
+      Option.getOrUndefined(
+        Option.map(
+          Option.fromNullishOr(response.headers.get("set-cookie")),
+          (effectNativeValue0) => Str.split(effectNativeValue0, ";"),
+        ),
+      )?.[0] ?? "";
+
     const state = location.searchParams.get("state") ?? "";
 
     return { response, location, cookie, state };
@@ -233,7 +247,7 @@ test(
     const f = yield* fixture();
     yield* Effect.gen(function* () {
       yield* f.h.authorize(f.account.service);
-      const before = Schema.decodeUnknownSync(AccountState)(f.h.snapshot());
+      const before = yield* Schema.decodeEffect(AccountState)(f.h.snapshot());
       const begun = yield* f.begin();
       privateHeaders(begun.response);
       expect(begun.location.origin).toBe("https://id.twitch.tv");
@@ -243,7 +257,7 @@ test(
       expect(begun.location.searchParams.get("scope")).toBe("channel:bot");
       expect(begun.state).toMatch(/^enroll\.[a-f0-9]{64}$/);
       expect(begun.cookie).toMatch(/^__Host-arctools-enrollment=[a-f0-9]{64}$/);
-      const browserCredential = begun.cookie.split("=")[1];
+      const browserCredential = Str.split(begun.cookie, "=")[1];
       expect(begun.state).not.toBe(`enroll.${browserCredential}`);
       expect(begun.response.headers.get("set-cookie")).toContain(
         "Path=/; Secure; HttpOnly; SameSite=Lax",
@@ -257,7 +271,7 @@ test(
       expect(yield* Effect.promise(() => completed.text())).toBe("");
       expect(f.h.nativeAlarmAt()).toBe(initial + 1);
       expect(
-        Schema.decodeUnknownSync(AccountState)(f.h.snapshot()).sender,
+        (yield* Schema.decodeEffect(AccountState)(f.h.snapshot())).sender,
       ).toEqual(before.sender);
       f.h.control.subscriptionStatus = "webhook_callback_verification_pending";
 
@@ -270,13 +284,13 @@ test(
 
       f.h.time(initial + 1);
       f.h.consumeAlarm();
-      yield* recovered.credentialAlarm();
+      yield* recovered.credentialAlarm;
       expect(yield* f.status(begun.cookie)).toEqual({
         kind: "recovering",
         login: "public_channel",
       });
 
-      const record = Schema.decodeUnknownSync(AccountState)(f.h.snapshot())
+      const record = (yield* Schema.decodeEffect(AccountState)(f.h.snapshot()))
         .subscriptions["400"];
 
       if (!record)
@@ -299,13 +313,13 @@ test(
       };
 
       const challengeBody = new TextEncoder().encode(
-        JSON.stringify({
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
           subscription: {
             ...notification.subscription,
             status: "webhook_callback_verification_pending",
           },
           challenge: "controlled-challenge",
-        }),
+        }).pipe(Effect.orDie),
       );
 
       const challengeHeaders = yield* signTwitch(
@@ -335,7 +349,11 @@ test(
       });
       expect(f.admissions).toEqual([]);
 
-      const body = new TextEncoder().encode(JSON.stringify(notification));
+      const body = new TextEncoder().encode(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          notification,
+        ).pipe(Effect.orDie),
+      );
 
       const signed = yield* signTwitch(
         body,
@@ -362,14 +380,14 @@ test(
       });
 
       const selfBody = new TextEncoder().encode(
-        JSON.stringify({
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
           ...notification,
           event: {
             ...notification.event,
             message_id: "self-command",
             chatter_user_id: "100",
           },
-        }),
+        }).pipe(Effect.orDie),
       );
 
       const selfHeaders = yield* signTwitch(
@@ -396,7 +414,11 @@ test(
       const exchanges = f.h.control.exchanges;
       expect((yield* f.complete(begun.state, begun.cookie)).status).toBe(400);
       expect(f.h.control.exchanges).toBe(exchanges);
-      const snapshot = JSON.stringify(f.h.snapshot());
+
+      const snapshot = yield* Schema.encodeEffect(
+        Schema.fromJsonString(Schema.Unknown),
+      )(f.h.snapshot()).pipe(Effect.orDie);
+
       expect(snapshot).not.toContain("canary-user-token");
       expect(snapshot).not.toContain(begun.state);
       expect(snapshot).not.toContain(
@@ -416,23 +438,22 @@ test(
       const other = yield* f.begin();
       const exchanges = f.h.control.exchanges;
 
-      const pending = Schema.decodeUnknownSync(AccountState)(
-        f.h.snapshot(),
-      ).enrollments;
+      const pending = (yield* Schema.decodeEffect(AccountState)(f.h.snapshot()))
+        .enrollments;
 
       const denial = `/oauth/twitch/callback?state=${begun.state}&error=access_denied`;
 
       for (const [path, cookie] of [
         [denial, ""],
         [
-          `/oauth/twitch/callback?state=${begun.state.slice(7)}&code=controlled`,
+          `/oauth/twitch/callback?state=${Str.slice(7)(begun.state)}&code=controlled`,
           begun.cookie,
         ],
         [denial, other.cookie],
         [`${denial}&state=${other.state}`, begun.cookie],
         [`${denial}&code=ambiguous`, begun.cookie],
         [
-          `/oauth/twitch/callback?state=${begun.state}&code=${"x".repeat(2049)}`,
+          `/oauth/twitch/callback?state=${begun.state}&code=${Str.repeat(2049)("x")}`,
           begun.cookie,
         ],
         [
@@ -441,8 +462,8 @@ test(
         ],
         [`${denial}&cookie=${encodeURIComponent(begun.cookie)}`, ""],
         [denial, `${begun.cookie}; ${begun.cookie}`],
-        [denial, `${enrollmentCookie}=%61${"a".repeat(63)}`],
-        [denial, `oversized=${"a".repeat(4097)}`],
+        [denial, `${enrollmentCookie}=%61${Str.repeat(63)("a")}`],
+        [denial, `oversized=${Str.repeat(4097)("a")}`],
       ]) {
         const response = yield* f.request(path ?? "", cookie);
         expect(response.status).toBe(400);
@@ -455,7 +476,7 @@ test(
 
       expect(f.h.control.exchanges).toBe(exchanges);
       expect(
-        Schema.decodeUnknownSync(AccountState)(f.h.snapshot()).enrollments,
+        (yield* Schema.decodeEffect(AccountState)(f.h.snapshot())).enrollments,
       ).toEqual(pending);
       const denied = yield* f.request(denial, begun.cookie);
       expect(denied.status).toBe(303);
@@ -504,12 +525,19 @@ for (const websiteOrigin of [
             Match.orElse(() => "300"),
           );
           f.h.control.grantScopes =
-            new URL(auth.url).searchParams.get("scope")?.split(" ") ?? [];
+            Option.getOrUndefined(
+              Option.map(
+                Option.fromNullishOr(
+                  new URL(auth.url).searchParams.get("scope"),
+                ),
+                (effectNativeValue1) => Str.split(effectNativeValue1, " "),
+              ),
+            ) ?? [];
 
           const cookie = Match.value(index).pipe(
             Match.when(0, () => ""),
             Match.when(1, () => `${enrollmentCookie}=malformed`),
-            Match.orElse(() => `${enrollmentCookie}=${"a".repeat(64)}`),
+            Match.orElse(() => `${enrollmentCookie}=${Str.repeat(64)("a")}`),
           );
 
           const response = yield* f.complete(state, cookie);
@@ -520,7 +548,7 @@ for (const websiteOrigin of [
           );
         }
 
-        const status = yield* f.account.service.status();
+        const status = yield* f.account.service.status;
         expect(Schema.is(AccountStatus)(status)).toBeTrue();
         expect(status.sender?.authorized).toBeTrue();
         const begun = yield* f.begin();
@@ -601,11 +629,11 @@ test(
       kind: "recovering",
       login: "public_channel",
     });
-    const state = Schema.decodeUnknownSync(AccountState)(f.h.snapshot());
+    const state = yield* Schema.decodeEffect(AccountState)(f.h.snapshot());
     expect(state.grants["400"]).toEqual(["channel:bot"]);
-    expect(state.publicMembers.map((member) => String(member.id))).toEqual([
-      "400",
-    ]);
+    expect(Arr.map(state.publicMembers, (member) => String(member.id))).toEqual(
+      ["400"],
+    );
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
@@ -622,7 +650,9 @@ test(
             authorization: "Bearer operator",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ stage: identity.stage }),
+          body: Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
+            stage: identity.stage,
+          }),
         }),
       ),
     );
@@ -734,7 +764,7 @@ test(
       privateHeaders(response);
     }
 
-    const secure = `${enrollmentCookie}=${local.cookie.slice(localEnrollmentCookie.length + 1)}`;
+    const secure = `${enrollmentCookie}=${Str.slice(localEnrollmentCookie.length + 1)(local.cookie)}`;
     expect(
       (yield* f.request("/oauth/twitch/enroll/status", secure)).status,
     ).toBe(401);
@@ -793,7 +823,7 @@ test(
       grant(f.h);
       yield* f.complete(begun.state, begun.cookie);
       f.h.time(initial + 1);
-      yield* f.account.credentialAlarm();
+      yield* f.account.credentialAlarm;
       const before = f.h.snapshot();
 
       const request = () =>

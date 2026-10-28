@@ -1,3 +1,4 @@
+import { Array as Arr } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import { buttonVariants } from "../components/ui/button";
@@ -28,7 +29,7 @@ export const eyebrow = (
         "flex items-center gap-2 text-[10px] font-bold leading-[1.7] tracking-[1.8px] text-foreground",
       ),
     ],
-    Array.isArray(children) ? children : [children],
+    Arr.isArray<typeof children>(children) ? children : [children],
   );
 
 export const connectLink = (

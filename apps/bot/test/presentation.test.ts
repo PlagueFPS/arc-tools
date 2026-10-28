@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { Array as Arr, String as Str } from "effect";
+
 import {
   discordResponse,
   friendlyFailure,
@@ -17,26 +19,31 @@ describe("transport presentation", () => {
     for (const input of [
       "Sensors",
       "!sell sensors",
-      "a".repeat(495),
-      "👨🏽‍💻 ".repeat(180),
-      "a\n \t".repeat(500),
+      Str.repeat(495)("a"),
+      Str.repeat(180)("👨🏽‍💻 "),
+      Str.repeat(500)("a\n \t"),
     ]) {
       const parts = twitchParts(input);
       expect(parts.length).toBeLessThanOrEqual(8);
-      expect(parts.every((part) => part.length <= 500)).toBeTrue();
+      expect(Arr.every(parts, (part) => !!(part.length <= 500))).toBeTrue();
       expect(
-        parts.map((part) => part.replace(/^\[\d\/\d\]: /, "")).join(""),
+        Arr.join(
+          Arr.map(parts, (part) => Str.replace(/^\[\d\/\d\]: /, "")(part)),
+          "",
+        ),
       ).toBe(input);
       expect(twitchParts(input)).toEqual(parts);
-      expect(parts.some((part) => /[\uD800-\uDBFF]$/.test(part))).toBeFalse();
+      expect(
+        Arr.some(parts, (part) => !!/[\uD800-\uDBFF]$/.test(part)),
+      ).toBeFalse();
     }
   });
   test("oversized plans fail explicitly without a partial result", () => {
-    expect(twitchParts("a".repeat(4000))).toEqual([oversized]);
-    expect(discordResponse("a".repeat(2001))).toEqual(
+    expect(twitchParts(Str.repeat(4000)("a"))).toEqual([oversized]);
+    expect(discordResponse(Str.repeat(2001)("a"))).toEqual(
       discordResponse(oversized, true),
     );
-    expect(discordResponse("\u0000".repeat(2000))).toEqual(
+    expect(discordResponse(Str.repeat(2000)("\u0000"))).toEqual(
       discordResponse(oversized, true),
     );
   });
@@ -44,9 +51,9 @@ describe("transport presentation", () => {
     expect(twitchParts("Sensors")).toEqual(["Sensors"]);
     expect(twitchParts("!sell sensors")).toEqual(["!sell sensors"]);
     expect(twitchParts("")).toEqual([friendlyFailure]);
-    expect(twitchParts("a".repeat(496))).toEqual([
-      `[1/2]: ${"a".repeat(489)}`,
-      `[2/2]: ${"a".repeat(7)}`,
+    expect(twitchParts(Str.repeat(496)("a"))).toEqual([
+      `[1/2]: ${Str.repeat(489)("a")}`,
+      `[2/2]: ${Str.repeat(7)("a")}`,
     ]);
     expect(twitchParts("ARC Raiders")).toEqual(["ARC Raiders"]);
   });
@@ -60,9 +67,11 @@ describe("transport presentation", () => {
       },
     });
     expect(discordResponse("Failure", true).data.flags).toBe(64);
-    expect(discordResponse("😀".repeat(1000)).data.content).toBe(
-      "😀".repeat(1000),
+    expect(discordResponse(Str.repeat(1000)("😀")).data.content).toBe(
+      Str.repeat(1000)("😀"),
     );
-    expect(discordResponse("😀".repeat(1001)).data.content).toBe(oversized);
+    expect(discordResponse(Str.repeat(1001)("😀")).data.content).toBe(
+      oversized,
+    );
   });
 });

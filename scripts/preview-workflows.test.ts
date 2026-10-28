@@ -1,6 +1,15 @@
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { describe, expect, test } from "bun:test";
+import { format } from "node:util";
+import { runInNewContext } from "node:vm";
 
-import { Schema } from "effect";
+import {
+  Schema,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Option,
+} from "effect";
 
 const expression = (value: string) => `\${{ ${value} }}`;
 
@@ -64,8 +73,14 @@ function job(workflow: typeof Workflow.Type, name: string) {
 }
 
 function step(workflow: typeof Workflow.Type, jobName: string, name: string) {
-  const value = job(workflow, jobName).steps?.find(
-    (step) => step.name === name,
+  const value = Option.getOrUndefined(
+    Option.map(
+      Option.fromNullishOr(job(workflow, jobName).steps),
+      (effectNativeValue0) =>
+        Option.getOrUndefined(
+          Arr.findFirst(effectNativeValue0, (step) => !!(step.name === name)),
+        ),
+    ),
   );
 
   if (!value) throw new Error(`Missing step ${name}`);
@@ -86,9 +101,10 @@ function enabled(
   if (!expression) return true;
 
   return (
-    new Function("github", "inputs", `return (${expression});`)(
-      github,
-      inputs,
+    runInNewContext(
+      `(${expression})`,
+      { github, inputs },
+      { timeout: 1000, contextCodeGeneration: { strings: false, wasm: false } },
     ) === true
   );
 }
@@ -127,7 +143,7 @@ function context(
   };
 }
 
-const revision = "a".repeat(40);
+const revision = Str.repeat(40)("a");
 
 const app = "123456789";
 
@@ -139,8 +155,8 @@ const releaseSecretNames = [
   "CLOUDFLARE_API_TOKEN",
 ] as const;
 
-const fixtureSecrets = Object.fromEntries(
-  releaseSecretNames.map((name) => [name, `fixture-${name}-credential`]),
+const fixtureSecrets = Rec.fromEntries(
+  Arr.map(releaseSecretNames, (name) => [name, `fixture-${name}-credential`]),
 );
 
 const callableRelease = Schema.Struct({
@@ -211,10 +227,10 @@ async function runGuard(
         ...overrides,
       },
     },
-    Object.fromEntries(
-      ["log", "info", "warn", "error", "debug"].map((name) => [
+    Rec.fromEntries(
+      Arr.map(["log", "info", "warn", "error", "debug"], (name) => [
         name,
-        (...values: unknown[]) => observed.logs.push(values.join(" ")),
+        (...values: unknown[]) => observed.logs.push(format(...values)),
       ]),
     ),
   );
@@ -242,7 +258,7 @@ describe("workflow event and dependency behavior", () => {
   test("automatic release explicitly forwards every required environment secret", () => {
     const caller = job(ci, "release");
     expect(() => checkSecretForwarding(caller)).not.toThrow();
-    expect(Object.keys(caller.secrets ?? {}).sort()).toEqual(
+    expect(Rec.keys(caller.secrets ?? {}).sort()).toEqual(
       [...releaseSecretNames].sort(),
     );
 
@@ -250,7 +266,7 @@ describe("workflow event and dependency behavior", () => {
       release.on.workflow_call,
     );
 
-    expect(Object.keys(called.secrets).sort()).toEqual(
+    expect(Rec.keys(called.secrets).sort()).toEqual(
       [...releaseSecretNames].sort(),
     );
 
@@ -336,13 +352,18 @@ describe("workflow event and dependency behavior", () => {
     }
 
     expect(enabled(close.if, context("workflow_dispatch"))).toBeTrue();
-    expect(Object.keys(cleanup.on).sort()).toEqual([
+    expect(Rec.keys(cleanup.on).sort()).toEqual([
       "pull_request_target",
       "workflow_dispatch",
     ]);
 
-    const checkouts = close.steps?.filter(
-      (entry) => entry.uses === "actions/checkout@v4",
+    const checkouts = Option.getOrUndefined(
+      Option.map(Option.fromNullishOr(close.steps), (effectNativeValue1) =>
+        Arr.filter(
+          effectNativeValue1,
+          (entry) => !!(entry.uses === "actions/checkout@v4"),
+        ),
+      ),
     );
 
     expect(checkouts?.length).toBe(1);
@@ -358,8 +379,8 @@ describe("workflow event and dependency behavior", () => {
         ]).toContain(entry.uses);
       expect(entry.run ?? "").not.toContain("${{");
 
-      for (const value of Object.values(entry.env ?? {}))
-        if (value.includes("secrets."))
+      for (const value of Rec.values(entry.env ?? {}))
+        if (Str.includes("secrets.")(value))
           expect([
             expression("secrets.GITHUB_TOKEN"),
             expression("secrets.CLOUDFLARE_TEST_API_TOKEN"),
@@ -375,11 +396,16 @@ describe("workflow event and dependency behavior", () => {
     const close = job(cleanup, "cleanup");
 
     const expand = (value: string, github: GithubContext, inputs = {}) =>
+      // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Native replace supports the callback required to expand checked-in workflow expressions.
       value.replace(/\$\{\{\s*(.*?)\s*\}\}/g, (_, expression) =>
         String(
-          new Function("github", "inputs", `return (${expression});`)(
-            github,
-            inputs,
+          runInNewContext(
+            `(${expression})`,
+            { github, inputs },
+            {
+              timeout: 1000,
+              contextCodeGeneration: { strings: false, wasm: false },
+            },
           ),
         ),
       );
@@ -399,8 +425,16 @@ describe("workflow event and dependency behavior", () => {
       expect(value.concurrency?.["cancel-in-progress"]).toBeFalse();
       expect(value.permissions?.["pull-requests"]).toBe("write");
       expect(
-        value.steps?.find((step) => step.uses === "actions/upload-artifact@v4")
-          ?.if,
+        Option.getOrUndefined(
+          Option.map(Option.fromNullishOr(value.steps), (effectNativeValue2) =>
+            Option.getOrUndefined(
+              Arr.findFirst(
+                effectNativeValue2,
+                (step) => !!(step.uses === "actions/upload-artifact@v4"),
+              ),
+            ),
+          ),
+        )?.if,
       ).toBe("always()");
     }
 
@@ -416,7 +450,7 @@ describe("workflow event and dependency behavior", () => {
     ).toContain("No cleanup was performed");
 
     for (const workflow of [ci, cleanup])
-      for (const value of Object.values(workflow.jobs))
+      for (const value of Rec.values(workflow.jobs))
         for (const entry of value.steps ?? []) {
           expect(entry.run ?? "").not.toContain("${{");
           expect(entry.env?.DISCORD_BOT_TOKEN).toBeUndefined();
@@ -437,8 +471,16 @@ describe("workflow event and dependency behavior", () => {
       expression("inputs.revision || github.sha"),
     );
     expect(
-      owner.steps?.find((entry) => entry.uses === "actions/checkout@v4")?.with
-        ?.ref,
+      Option.getOrUndefined(
+        Option.map(Option.fromNullishOr(owner.steps), (effectNativeValue3) =>
+          Option.getOrUndefined(
+            Arr.findFirst(
+              effectNativeValue3,
+              (entry) => !!(entry.uses === "actions/checkout@v4"),
+            ),
+          ),
+        ),
+      )?.with?.ref,
     ).toBe(owner.env?.ARC_BUILD_REVISION);
     expect(job(ci, "release").with).toEqual({
       stage: "prod",
@@ -466,7 +508,7 @@ describe("executed release origin and revision guard", () => {
       for (const name of releaseSecretNames) {
         for (const empty of ["", " \t"]) {
           const observed = { apiCalls: 0, logs: [] };
-          await expect(
+          expect(
             runGuard(
               { [name]: empty },
               event,
@@ -502,7 +544,7 @@ describe("executed release origin and revision guard", () => {
         "workflow_dispatch",
         "refs/heads/repair",
       );
-      await expect(runGuard({ ARC_WEBSITE_URL: website })).rejects.toThrow(
+      expect(runGuard({ ARC_WEBSITE_URL: website })).rejects.toThrow(
         "ARC_WEBSITE_URL",
       );
     }
@@ -515,7 +557,7 @@ describe("executed release origin and revision guard", () => {
       "http://localhost:3000?x=1",
       "http://localhost:3000/extra",
     ]) {
-      await expect(
+      expect(
         runGuard(
           { ARC_STAGE: "staging", ARC_WEBSITE_URL: website },
           "workflow_dispatch",
@@ -527,26 +569,26 @@ describe("executed release origin and revision guard", () => {
 
   test("PR origins, stale automatic commits, arbitrary revisions, wrong application IDs, and missing or invalid origins fail", async () => {
     for (const event of ["pull_request", "pull_request_target", "workflow_run"])
-      await expect(runGuard({}, event)).rejects.toThrow("PR origins");
-    await expect(runGuard({}, "push", "refs/heads/other")).rejects.toThrow(
+      expect(runGuard({}, event)).rejects.toThrow("PR origins");
+    expect(runGuard({}, "push", "refs/heads/other")).rejects.toThrow(
       "exact checked main",
     );
-    await expect(
+    expect(
       runGuard({}, "workflow_dispatch", "refs/heads/other"),
     ).rejects.toThrow("Manual production");
-    await expect(
-      runGuard({}, "push", "refs/heads/main", "b".repeat(40)),
+    expect(
+      runGuard({}, "push", "refs/heads/main", Str.repeat(40)("b")),
     ).rejects.toThrow("Stale automatic");
-    await expect(
-      runGuard({ ARC_BUILD_REVISION: "b".repeat(40) }),
+    expect(
+      runGuard({ ARC_BUILD_REVISION: Str.repeat(40)("b") }),
     ).rejects.toThrow("exact checked main");
-    await expect(
-      runGuard({ ARC_BUILD_REVISION: "a".repeat(7) }),
+    expect(
+      runGuard({ ARC_BUILD_REVISION: Str.repeat(7)("a") }),
     ).rejects.toThrow("full SHA");
-    await expect(
-      runGuard({ DISCORD_APPLICATION_ID: "987654321" }),
-    ).rejects.toThrow("application_id");
-    await expect(runGuard({ RELEASE_APPLICATION_ID: "" })).rejects.toThrow(
+    expect(runGuard({ DISCORD_APPLICATION_ID: "987654321" })).rejects.toThrow(
+      "application_id",
+    );
+    expect(runGuard({ RELEASE_APPLICATION_ID: "" })).rejects.toThrow(
       "PROD_DISCORD_APPLICATION_ID",
     );
 
@@ -556,8 +598,8 @@ describe("executed release origin and revision guard", () => {
       "http://example.invalid",
       "https://example.invalid/",
     ]) {
-      await expect(runGuard({ ARC_BOT_URL: origin })).rejects.toThrow();
-      await expect(runGuard({ ARC_WEBSITE_URL: origin })).rejects.toThrow();
+      expect(runGuard({ ARC_BOT_URL: origin })).rejects.toThrow();
+      expect(runGuard({ ARC_WEBSITE_URL: origin })).rejects.toThrow();
     }
   });
 });
@@ -602,7 +644,7 @@ describe("Discord release preflight and sync-only recovery", () => {
   test("production recovery accepts only main-history revisions and needs no deployment secrets or Website configuration", async () => {
     const overrides = {
       RELEASE_OPERATION: "sync",
-      ARC_BUILD_REVISION: "b".repeat(40),
+      ARC_BUILD_REVISION: Str.repeat(40)("b"),
       TWITCH_CLIENT_SECRET: undefined,
       TWITCH_SIGNING_SECRET: undefined,
       CLOUDFLARE_API_TOKEN: undefined,
@@ -625,7 +667,7 @@ describe("Discord release preflight and sync-only recovery", () => {
     }
 
     for (const comparison of ["behind", "diverged"])
-      await expect(
+      expect(
         runGuard(
           overrides,
           "workflow_dispatch",
@@ -635,16 +677,14 @@ describe("Discord release preflight and sync-only recovery", () => {
           comparison,
         ),
       ).rejects.toThrow("main history");
-    await expect(
+    expect(
       runGuard(overrides, "workflow_dispatch", "refs/heads/repair"),
     ).rejects.toThrow("main");
-    await expect(runGuard(overrides, "push")).rejects.toThrow(
-      "manual dispatch",
-    );
-    await expect(
+    expect(runGuard(overrides, "push")).rejects.toThrow("manual dispatch");
+    expect(
       runGuard({ ...overrides, DISCORD_BOT_TOKEN: "" }, "workflow_dispatch"),
     ).rejects.toThrow("DISCORD_BOT_TOKEN");
-    await expect(runGuard({ RELEASE_OPERATION: "other" })).rejects.toThrow(
+    expect(runGuard({ RELEASE_OPERATION: "other" })).rejects.toThrow(
       "operation",
     );
   });

@@ -1,3 +1,4 @@
+import { Array as Arr } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import { buttonVariants } from "../components/ui/button";
@@ -171,8 +172,10 @@ const details = (h: HtmlBuilder<Message>): Html =>
             ],
             ["IN YOUR CHAT"],
           ),
-          ...["!find sensors", "!craft sensors", "!active"].map((command) =>
-            h.code([h.Class("text-[11px] text-foreground")], [command]),
+          ...Arr.map(
+            ["!find sensors", "!craft sensors", "!active"],
+            (command) =>
+              h.code([h.Class("text-[11px] text-foreground")], [command]),
           ),
         ],
       ),

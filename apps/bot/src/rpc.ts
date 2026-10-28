@@ -21,45 +21,45 @@ export const botOperations = <R>(clients: {
   enrollmentBegin: Effect.fnUntraced(function* (
     input: Parameters<BotOperations["enrollmentBegin"]>[0],
   ) {
-    const valid = yield* Schema.decodeUnknownEffect(EnrollmentBegin)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(EnrollmentBegin)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     return yield* (yield* clients.enrollment).begin(valid);
   }),
   enrollmentComplete: Effect.fnUntraced(function* (
     input: Parameters<BotOperations["enrollmentComplete"]>[0],
   ) {
-    const valid = yield* Schema.decodeUnknownEffect(EnrollmentCompletion)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(EnrollmentCompletion)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     return yield* (yield* clients.enrollment).complete(valid);
   }),
   enrollmentLeave: Effect.fnUntraced(function* (
     input: Parameters<BotOperations["enrollmentLeave"]>[0],
   ) {
-    const valid = yield* Schema.decodeUnknownEffect(EnrollmentSession)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(EnrollmentSession)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     return yield* (yield* clients.enrollment).leave(valid);
   }),
   enrollmentStatus: Effect.fnUntraced(function* (
     input: Parameters<BotOperations["enrollmentStatus"]>[0],
   ) {
-    const valid = yield* Schema.decodeUnknownEffect(EnrollmentSession)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(EnrollmentSession)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     return yield* (yield* clients.enrollment).status(valid);
   }),
   completeOperatorOAuth: Effect.fnUntraced(function* (
     input: Parameters<BotOperations["completeOperatorOAuth"]>[0],
   ) {
-    const valid = yield* Schema.decodeUnknownEffect(OperatorCompletion)(
-      input,
-    ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+    const valid = yield* Schema.decodeEffect(OperatorCompletion)(input).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
+    );
 
     return yield* (yield* clients.account).completeOAuth({
       ...valid,

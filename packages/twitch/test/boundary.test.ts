@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 
+import { Array as Arr } from "effect";
+
 test("the account contract bundle excludes provider mutation and deployment runtime", async () => {
   const inputs: string[] = [];
 
@@ -24,10 +26,12 @@ test("the account contract bundle excludes provider mutation and deployment runt
     new URL("../src/contracts.ts", import.meta.url).pathname,
   );
   expect(
-    inputs.some((path) =>
-      /apps\/bot|alchemy|packages\/twitch\/src\/(account|provider|state|cloudflare|testing)\.ts/.test(
-        path,
-      ),
+    Arr.some(
+      inputs,
+      (path) =>
+        !!/apps\/bot|alchemy|packages\/twitch\/src\/(account|provider|state|cloudflare|testing)\.ts/.test(
+          path,
+        ),
     ),
   ).toBe(false);
 });

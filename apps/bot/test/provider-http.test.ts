@@ -1,3 +1,8 @@
+/* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/global-fetch -- The transport harness exercises native Fetch and Response behavior at the actual HTTP boundary. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import { Dispatch } from "@arctools/twitch/server";
@@ -9,7 +14,17 @@ import {
   ProviderError,
 } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
-import { Clock, Deferred, Result, Effect, Fiber, Layer, Schema } from "effect";
+import {
+  Clock,
+  Deferred,
+  Result,
+  Effect,
+  Fiber,
+  Layer,
+  Schema,
+  Array as Arr,
+  String as Str,
+} from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -57,10 +72,10 @@ test(
     expect(released).toBe(1);
     expect(signals[0]?.aborted).toBeTrue();
 
-    class ConsumerError extends Schema.TaggedError<ConsumerError>()(
-      "ConsumerError",
-      {},
-    ) {}
+    class ConsumerError extends Schema.TaggedError<
+      ConsumerError,
+      { readonly brand: unique symbol }
+    >()("ConsumerError", {}) {}
 
     const failure = new ConsumerError({});
     expect(
@@ -78,9 +93,16 @@ test(
         }),
     );
 
-    const error = yield* request(failed, outgoing, readJson).pipe(Effect.flip);
-    expect(error).toEqual(new ProviderError({ kind: "network" }));
-    expect(JSON.stringify(error)).not.toContain("canary");
+    const error = yield* request(failed, outgoing, readJson).pipe(
+      Effect.result,
+    );
+
+    expect(error).toEqual(Result.fail(new ProviderError({ kind: "network" })));
+    expect(
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        error,
+      ).pipe(Effect.orDie),
+    ).not.toContain("canary");
   }),
 );
 
@@ -164,7 +186,7 @@ const errorBodies: { name: string; response: () => Response }[] = [
   },
   {
     name: "oversized",
-    response: () => new Response("x".repeat(300_000), { status: 401 }),
+    response: () => new Response(Str.repeat(300_000)("x"), { status: 401 }),
   },
   { name: "empty", response: () => new Response(null, { status: 401 }) },
   {
@@ -217,9 +239,7 @@ for (const body of errorBodies) {
       expect(yield* a.provider.send("canary-token", "100", input)).toEqual({
         kind: "unauthorized",
       });
-      expect((yield* a.provider.mint().pipe(Effect.flip)).code).toBe(
-        "provider",
-      );
+      expect((yield* a.provider.mint.pipe(Effect.flip)).code).toBe("provider");
       expect(
         (yield* a.provider.exchange("canary-code").pipe(Effect.flip)).code,
       ).toBe("provider");
@@ -495,7 +515,7 @@ test(
   "accepted bodies are capped at 256 KiB of bytes including JSON framing",
   Effect.gen(function* () {
     const f = yield* fixture();
-    const text = "é".repeat(131_071);
+    const text = Str.repeat(131_071)("é");
     f.control.responses.set("GET /users", () => Response.json(text));
     expect(
       (yield* fetchResponse(HttpClientRequest.get(`${f.base}/users`))).body,
@@ -558,7 +578,7 @@ test(
 for (const body of [
   "{",
   JSON.stringify({ data: [{ is_sent: "true" }] }),
-  "x".repeat(300_000),
+  Str.repeat(300_000)("x"),
 ]) {
   test(
     `invalid successful send ${body.length} bytes stays ambiguous without POST replay`,
@@ -581,9 +601,12 @@ for (const body of [
 
       expect(yield* a.service.dispatch(input)).toEqual({ kind: "ambiguous" });
       expect(yield* a.service.dispatch(input)).toEqual({ kind: "ambiguous" });
-      expect((yield* a.service.status()).credential).toBe("valid");
+      expect((yield* a.service.status).credential).toBe("valid");
       expect(
-        f.control.requests.filter((entry) => entry.path === "/chat/messages"),
+        Arr.filter(
+          f.control.requests,
+          (entry) => !!(entry.path === "/chat/messages"),
+        ),
       ).toEqual([{ method: "POST", path: "/chat/messages" }]);
     }),
   );
@@ -611,7 +634,7 @@ const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
       data(socket, bytes) {
         socket.data += bytes.toString();
 
-        if (!socket.data.includes("\r\n\r\n")) return;
+        if (!Str.includes("\r\n\r\n")(socket.data)) return;
         socket.data = "";
         calls.requests++;
         socket.write(
@@ -667,7 +690,7 @@ const truncatedWireResponse = Effect.fnUntraced(function* (status: number) {
 });
 
 function sendInput() {
-  return Schema.decodeUnknownSync(Dispatch)({
+  return Schema.decodeSync(Dispatch)({
     source: {
       installationId: "provider-fixture",
       subscriptionId: "provider-fixture",

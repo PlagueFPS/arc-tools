@@ -20,8 +20,7 @@ export const makeAccountSetup = (http = fixtureHttp, budgetMs = 10000) =>
       budgetMs - Number(clock.monotonicTimeNanosUnsafe() - started) / 1e6;
 
     for (let attempt = 1; attempt <= 20; attempt++) {
-      if (remaining() <= 0)
-        return yield* Effect.fail(new Error("Account setup remained busy"));
+      if (remaining() <= 0) return yield* new AccountError({ code: "busy" });
 
       const response = yield* http.requestOnce(
         url,
@@ -43,7 +42,7 @@ export const makeAccountSetup = (http = fixtureHttp, budgetMs = 10000) =>
       yield* Effect.sleep(Math.min(250, Math.max(0, remaining())));
     }
 
-    return yield* Effect.fail(new Error("Account setup remained busy"));
+    return yield* new AccountError({ code: "busy" });
   });
 
 export const setupWhenAvailable = makeAccountSetup();

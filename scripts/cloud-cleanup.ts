@@ -1,3 +1,5 @@
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
@@ -6,10 +8,15 @@ import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
 import * as Workers from "@distilled.cloud/cloudflare/workers";
 import { State } from "alchemy/State";
 import * as Core from "alchemy/Test/Core";
-import { Effect, Schema, Stream } from "effect";
+import { Effect, Schema, Stream, Array as Arr, Console } from "effect";
 
 import Stack from "../alchemy.run.js";
 import { CloudResourceEvidence, cloudSettings } from "./cloud-settings.js";
+
+class CloudCleanupError extends Schema.TaggedError<
+  CloudCleanupError,
+  { readonly brand: unique symbol }
+>()("CloudCleanupError", { message: Schema.String }) {}
 
 const settings = cloudSettings(process.env);
 
@@ -25,7 +32,9 @@ const evidence = existsSync(resourceFile)
   : { stage: settings.stage, workers: [], namespaces: [] };
 
 if (evidence.stage !== settings.stage)
-  throw new Error("Cleanup resource journal stage mismatch");
+  throw new CloudCleanupError({
+    message: "Cleanup resource journal stage mismatch",
+  });
 
 const options = {
   providers: Cloudflare.providers(),
@@ -50,11 +59,9 @@ await Core.run(
     });
 
     if (remaining.length !== 0 || output !== undefined) {
-      return yield* Effect.fail(
-        new Error(
-          `Cleanup left ${remaining.length} state entries for ${settings.stage}`,
-        ),
-      );
+      return yield* new CloudCleanupError({
+        message: `Cleanup left ${remaining.length} state entries for ${settings.stage}`,
+      });
     }
 
     yield* Core.withProviders(
@@ -80,25 +87,27 @@ await Core.run(
           .items({ accountId })
           .pipe(Stream.runCollect);
 
-        const remainingWorkers = workers.filter((worker) =>
-          names.includes(worker.id ?? ""),
+        const remainingWorkers = Arr.filter(
+          workers,
+          (worker) => !!names.includes(worker.id ?? ""),
         );
 
-        const remainingObjects = namespaces.filter(
+        const remainingObjects = Arr.filter(
+          namespaces,
           (namespace) =>
-            names.includes(namespace.script ?? "") ||
-            evidence.namespaces.includes(namespace.id ?? ""),
+            !!(
+              names.includes(namespace.script ?? "") ||
+              evidence.namespaces.includes(namespace.id ?? "")
+            ),
         );
 
         if (remainingWorkers.length || remainingObjects.length) {
-          return yield* Effect.fail(
-            new Error(
-              `Cloudflare still lists ${remainingWorkers.length} Workers and ${remainingObjects.length} namespaces for ${settings.stage}`,
-            ),
-          );
+          return yield* new CloudCleanupError({
+            message: `Cloudflare still lists ${remainingWorkers.length} Workers and ${remainingObjects.length} namespaces for ${settings.stage}`,
+          });
         }
 
-        console.info(
+        yield* Console.info(
           `CLEANUP VERIFIED ${settings.stage}: Cloudflare lists 0 Workers and 0 DO namespaces; state entries and output absent; control backend retained`,
         );
       }),

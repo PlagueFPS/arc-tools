@@ -1,11 +1,11 @@
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Effect, Exit, Semaphore } from "effect";
+import { Effect, Exit, Semaphore, Array as Arr, String as Str } from "effect";
 
 export const fixtureRuntime = RuntimeContext.of({
   Type: "test",
   id: "fixture-controls",
   env: {},
-  get: () => Effect.succeed(undefined),
+  get: () => Effect.as(Effect.void, undefined),
   set: (key) => Effect.succeed(key),
 });
 
@@ -25,10 +25,9 @@ export const fixtureStorage = Effect.fnUntraced(function* () {
     list: <T = unknown>({ prefix }: { prefix: string }) =>
       Effect.sync(
         () =>
-          new Map([...values].filter(([key]) => key.startsWith(prefix))) as Map<
-            string,
-            T
-          >,
+          new Map(
+            Arr.filter([...values], ([key]) => !!Str.startsWith(prefix)(key)),
+          ) as Map<string, T>,
       ),
     transaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.gen(function* () {
@@ -44,6 +43,6 @@ export const fixtureStorage = Effect.fnUntraced(function* () {
         }
 
         return exit.value;
-      }).pipe(lock.withPermit),
+      }).pipe((effect) => lock.withPermit(effect)),
   };
 });

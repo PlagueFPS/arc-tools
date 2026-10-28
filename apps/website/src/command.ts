@@ -48,6 +48,7 @@ export const CheckEnrollment = ApplicationDefinition.makeCommand(
                   : CheckError.Unavailable(),
               }),
           }),
+          // oxlint-disable-next-line effecttsgo/strict-effect-provide -- The Foldkit Command is the browser request entry point and owns this HTTP layer.
           Effect.provide(Http.layer),
           Effect.provideService(FetchHttpClient.RequestInit, {
             credentials: "same-origin",
@@ -100,6 +101,7 @@ export const LeaveChannel = ApplicationDefinition.makeCommand("LeaveChannel", {
                 : CheckError.Unavailable(),
             }),
         }),
+        // oxlint-disable-next-line effecttsgo/strict-effect-provide -- The Foldkit Command is the browser request entry point and owns this HTTP layer.
         Effect.provide(Http.layer),
         Effect.provideService(FetchHttpClient.RequestInit, {
           credentials: "same-origin",

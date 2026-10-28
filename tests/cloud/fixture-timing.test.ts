@@ -1,6 +1,7 @@
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect, test } from "bun:test";
 
-import { Schema } from "effect";
+import { Schema, String as Str } from "effect";
 
 import { Work } from "../../apps/bot/src/tenant-state.js";
 import {
@@ -10,11 +11,11 @@ import {
 } from "./fixture-timing.js";
 import { TenantSnapshot } from "./tenant-fixture.js";
 
-const work = Schema.decodeUnknownSync(Work)({
+const work = Schema.decodeSync(Work)({
   transport: "twitch",
   kind: "computing",
   id: "native",
-  fingerprint: "f".repeat(64),
+  fingerprint: Str.repeat(64)("f"),
   receivedAt: 1000,
   deadline: 11000,
   retainUntil: 611000,
@@ -37,7 +38,7 @@ test("ingress timing requires a present finite decimal stamp", () => {
     "-1",
     "1.5",
     "1e3",
-    "9".repeat(400),
+    Str.repeat(400)("9"),
   ])
     expect(() =>
       ingressTiming(new Headers({ "x-arc-ingress-ms": stamp })),
@@ -45,7 +46,7 @@ test("ingress timing requires a present finite decimal stamp", () => {
 });
 
 test("alarm progress changes phase without changing work identity or the immutable cutoff", () => {
-  const terminal = Schema.decodeUnknownSync(Work)({
+  const terminal = Schema.decodeSync(Work)({
     ...immutableWork(work),
     transport: "twitch",
     kind: "terminal",
@@ -55,14 +56,12 @@ test("alarm progress changes phase without changing work identity or the immutab
 
   expect(immutableWork(terminal)).toEqual(immutableWork(work));
   expect(
-    immutableWork(
-      Schema.decodeUnknownSync(Work)({ ...terminal, deadline: 12000 }),
-    ),
+    immutableWork(Schema.decodeSync(Work)({ ...terminal, deadline: 12000 })),
   ).not.toEqual(immutableWork(work));
 });
 
 test("a null native alarm needs evidence from the same activation", () => {
-  const snapshot = Schema.decodeUnknownSync(TenantSnapshot)({
+  const snapshot = Schema.decodeSync(TenantSnapshot)({
     instance: "current",
     state: { tenant: "native", generation: 1, works: { native: work } },
     alarm: null,

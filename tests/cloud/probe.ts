@@ -1,4 +1,6 @@
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { Stack } from "alchemy";
 import { Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
@@ -15,18 +17,18 @@ import {
 } from "./fixture-response.js";
 
 const AlarmInvocation = Schema.Struct({
-  at: Schema.Number,
-  attempt: Schema.Number,
-  retryCount: Schema.Number,
+  at: Schema.Finite,
+  attempt: Schema.Finite,
+  retryCount: Schema.Finite,
 });
 
 export const ProbeSnapshot = Schema.Struct({
   instance: Schema.String,
   value: Schema.String,
-  attempts: Schema.Number,
+  attempts: Schema.Finite,
   completed: Schema.Boolean,
-  retryCount: Schema.Number,
-  alarm: Schema.NullOr(Schema.Number),
+  retryCount: Schema.Finite,
+  alarm: Schema.NullOr(Schema.Finite),
   invocations: Schema.Array(AlarmInvocation),
 });
 
@@ -35,11 +37,14 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
-      const instance = crypto.randomUUID();
-      yield* state.storage.sql.exec(
-        "CREATE TABLE IF NOT EXISTS proof (id INTEGER PRIMARY KEY, value TEXT NOT NULL)",
-      );
+      const instance = yield* secureRandomUUID;
+      yield* state.storage.sql
+        .exec(
+          "CREATE TABLE IF NOT EXISTS proof (id INTEGER PRIMARY KEY, value TEXT NOT NULL)",
+        )
+        .pipe(Effect.asVoid);
 
       const snapshot = Effect.fn("Probe.snapshot")(function* () {
         const cursor = yield* state.storage.sql.exec<{ value: string }>(
@@ -65,18 +70,18 @@ export class ProbeObject extends Cloudflare.DurableObject<ProbeObject>()(
       return {
         snapshot,
         prepare: Effect.fn("Probe.prepare")(function* () {
-          yield* state.storage.sql.exec(
-            "INSERT OR REPLACE INTO proof VALUES (1, 'committed')",
-          );
+          yield* state.storage.sql
+            .exec("INSERT OR REPLACE INTO proof VALUES (1, 'committed')")
+            .pipe(Effect.asVoid);
           const before = Date.now() + 60_000;
           yield* state.storage.setAlarm(before);
 
           const rolledBack = yield* state.storage
             .transaction(
               Effect.gen(function* () {
-                yield* state.storage.sql.exec(
-                  "UPDATE proof SET value = 'must-rollback' WHERE id = 1",
-                );
+                yield* state.storage.sql
+                  .exec("UPDATE proof SET value = 'must-rollback' WHERE id = 1")
+                  .pipe(Effect.asVoid);
                 yield* state.storage.put("attempts", 99);
                 yield* state.storage.setAlarm(Date.now() + 120_000);
 

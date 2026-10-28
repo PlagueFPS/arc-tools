@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
-test("the pure utils bundle excludes Effect and server HTTP dependencies", async () => {
+import { Array as Arr, String as Str } from "effect";
+
+test("the utils bundle builds for browsers without server HTTP dependencies", async () => {
   const inputs: string[] = [];
 
   const result = await Bun.build({
@@ -23,7 +25,5 @@ test("the pure utils bundle excludes Effect and server HTTP dependencies", async
   expect(inputs).toContain(
     new URL("../src/index.ts", import.meta.url).pathname,
   );
-  expect(inputs.some((path) => /node_modules|http\.ts$/.test(path))).toBe(
-    false,
-  );
+  expect(Arr.some(inputs, (path) => Str.endsWith("http.ts")(path))).toBe(false);
 });

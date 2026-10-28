@@ -17,12 +17,12 @@ import {
   type HttpClientResponse,
 } from "effect/http";
 
-export class ProviderError extends Schema.TaggedError<ProviderError>()(
-  "ProviderError",
-  {
-    kind: Schema.Literals(["network", "body", "deadline"]),
-  },
-) {}
+export class ProviderError extends Schema.TaggedError<
+  ProviderError,
+  { readonly brand: unique symbol }
+>()("ProviderError", {
+  kind: Schema.Literals(["network", "body", "deadline"]),
+}) {}
 
 export const providerTransport = Layer.effect(
   HttpClient.HttpClient,
@@ -79,11 +79,9 @@ export const readJson = Effect.fnUntraced(function* (
 
   if (bytes.byteLength === 0) return null;
 
-  return yield* Schema.decodeUnknownEffect(
-    Schema.fromJsonString(Schema.Unknown),
-  )(new TextDecoder().decode(bytes)).pipe(
-    Effect.mapError(() => new ProviderError({ kind: "network" })),
-  );
+  return yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(
+    new TextDecoder().decode(bytes),
+  ).pipe(Effect.mapError(() => new ProviderError({ kind: "network" })));
 });
 
 export const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
@@ -95,13 +93,12 @@ export const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
 const webCrypto = Crypto.make({
   randomBytes: (size) => crypto.getRandomValues(new Uint8Array(size)),
   digest: (algorithm, bytes) =>
-    Effect.promise(
-      async () =>
-        new Uint8Array(
-          await crypto.subtle.digest(algorithm, new Uint8Array(bytes)),
-        ),
-    ),
+    Effect.promise(() =>
+      crypto.subtle.digest(algorithm, new Uint8Array(bytes)),
+    ).pipe(Effect.map((buffer) => new Uint8Array(buffer))),
 });
+
+export const randomUUID = webCrypto.randomUUIDv4().pipe(Effect.orDie);
 
 export const digest = (value: string) =>
   webCrypto

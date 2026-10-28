@@ -1,3 +1,5 @@
+import { Array as Arr, String as Str } from "effect";
+
 export interface SlashOption {
   readonly name: string;
   readonly description: string;
@@ -99,10 +101,10 @@ const definitions = [
 
 function invocations(command: CommandMetadata) {
   const argumentsFor = (example: boolean, discord: boolean) =>
-    command.slashOptions.map((option) => {
+    Arr.map(command.slashOptions, (option) => {
       const value = example
-        ? command.exampleArguments[option.name]
-        : `<${option.name.replaceAll("_", " ")}>`;
+        ? (command.exampleArguments[option.name] ?? "")
+        : `<${Str.replaceAll("_", " ")(option.name)}>`;
 
       const argument = discord ? `${option.name}:${value}` : value;
 
@@ -110,10 +112,13 @@ function invocations(command: CommandMetadata) {
     });
 
   const invocation = (example: boolean, discord: boolean) =>
-    [
-      `${discord ? "/" : "!"}${command.name}`,
-      ...argumentsFor(example, discord),
-    ].join(" ");
+    Arr.join(
+      [
+        `${discord ? "/" : "!"}${command.name}`,
+        ...argumentsFor(example, discord),
+      ],
+      " ",
+    );
 
   return {
     usage: {
@@ -128,7 +133,7 @@ function invocations(command: CommandMetadata) {
 }
 
 export const commandCatalog = Object.freeze(
-  definitions.map((command) => ({
+  Arr.map(definitions, (command) => ({
     ...command,
     ...invocations(command),
   })),

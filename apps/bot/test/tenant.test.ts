@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import { makeFixture } from "@arctools/arc-data/testing";
@@ -11,6 +12,11 @@ import {
   Exit,
   Fiber,
   Layer,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Schema,
+  Option,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -52,7 +58,7 @@ describe("Tenant durable behavior", () => {
         yield* TestClock.setTime(until - 1);
         const restored = yield* fixture.construct("restored");
         yield* restored.recover();
-        expect(Object.keys(fixture.snapshot().works)).toEqual(["work"]);
+        expect(Rec.keys(fixture.snapshot().works)).toEqual(["work"]);
         yield* TestClock.setTime(until);
         yield* restored.recover();
         expect(fixture.snapshot().works).toEqual({});
@@ -110,7 +116,7 @@ describe("Tenant durable behavior", () => {
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(cleanup);
       expect((yield* Fiber.join(fresh)).data.flags).toBe(0);
-      expect(Object.keys(fixture.snapshot().works)).toEqual(["fresh"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["fresh"]);
       expect(fixture.alarm()).toBe(1206000);
     }),
   );
@@ -125,7 +131,7 @@ describe("Tenant durable behavior", () => {
       yield* tenant.respondDiscord(discordReceipt("newer", 1000));
       yield* TestClock.setTime(603000);
       yield* tenant.recover();
-      expect(Object.keys(fixture.snapshot().works)).toEqual(["newer"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["newer"]);
       expect(fixture.alarm()).toBe(604000);
       expect(fixture.deletions()).toBe(0);
       yield* TestClock.setTime(604000);
@@ -136,7 +142,7 @@ describe("Tenant durable behavior", () => {
         (yield* reinstalled.respondDiscord(discordReceipt("fresh", 604000)))
           .data.flags,
       ).toBe(0);
-      expect(Object.keys(fixture.snapshot().works)).toEqual(["fresh"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["fresh"]);
       expect(fixture.alarm()).toBe(1207000);
     }),
   );
@@ -165,7 +171,10 @@ describe("Tenant durable behavior", () => {
       expect(fixture.launches).toHaveLength(1);
 
       const conflict = yield* tenant
-        .acceptTwitch({ ...twitchReceipt(), fingerprint: "b".repeat(64) })
+        .acceptTwitch({
+          ...twitchReceipt(),
+          fingerprint: Str.repeat(64)("b"),
+        })
         .pipe(Effect.result);
 
       expect(conflict).toMatchObject(Result.fail({ code: "conflict" }));
@@ -181,7 +190,7 @@ describe("Tenant durable behavior", () => {
         transport: "twitch",
         source: twitchReceipt().source,
         id: WorkId.make("work"),
-        fingerprint: "a".repeat(64),
+        fingerprint: Str.repeat(64)("a"),
         receivedAt: 0,
         deadline: Deadline.make(10000),
         retainUntil: 610000,
@@ -217,7 +226,7 @@ describe("Tenant durable behavior", () => {
       yield* next.recover();
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(running);
-      expect(fixture.sent.map((send) => send.text)).toEqual([
+      expect(Arr.map(fixture.sent, (send) => send.text)).toEqual([
         "New can be sold for 20 coins each",
       ]);
       expect(fixture.snapshot().generation).toBe(3);
@@ -291,7 +300,7 @@ describe("Tenant durable behavior", () => {
         const fixture = yield* tenantFixture();
         const tenant = yield* fixture.construct();
         fixture.source.body({
-          data: [{ id: "sensors", name: "x".repeat(1200), value: 10 }],
+          data: [{ id: "sensors", name: Str.repeat(1200)("x"), value: 10 }],
         });
         fixture.dispatch((input) =>
           Effect.sync(() => {
@@ -303,12 +312,24 @@ describe("Tenant durable behavior", () => {
         yield* tenant.acceptTwitch(twitchReceipt());
         yield* fixture.drain;
         expect(fixture.sent).toHaveLength(1);
-        expect(fixture.sent[0]?.text.startsWith("[1/3]: ")).toBeTrue();
+        expect(
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(fixture.sent[0]?.text),
+              (effectNativeValue0) =>
+                Str.startsWith("[1/3]: ")(effectNativeValue0),
+            ),
+          ),
+        ).toBeTrue();
         expect(fixture.snapshot().works.work).toMatchObject({
           kind: "terminal",
           outcome: kind,
         });
-        expect(JSON.stringify(fixture.snapshot())).not.toContain("parent");
+        expect(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            fixture.snapshot(),
+          ).pipe(Effect.orDie),
+        ).not.toContain("parent");
       }),
     );
   test(
@@ -324,7 +345,7 @@ describe("Tenant durable behavior", () => {
           .acceptTwitch(twitchReceipt("overflow"))
           .pipe(Effect.result),
       ).toMatchObject(Result.fail({ code: "capacity" }));
-      expect(Object.keys(fixture.snapshot().works)).toHaveLength(8);
+      expect(Rec.keys(fixture.snapshot().works)).toHaveLength(8);
       expect(fits(fixture.snapshot())).toBeTrue();
       expect(
         encodedBytes(fixture.snapshot()) + 8 * tenantPolicy.reservation,
@@ -352,7 +373,7 @@ describe("Tenant durable behavior", () => {
         (yield* tenant.respondDiscord(discordReceipt("new", 603000))).data
           .flags,
       ).toBe(0);
-      expect(Object.keys(fixture.snapshot().works)).toEqual(["new"]);
+      expect(Rec.keys(fixture.snapshot().works)).toEqual(["new"]);
       expect(fixture.alarm()).toBe(1206000);
     }),
   );
@@ -454,7 +475,11 @@ describe("Tenant durable behavior", () => {
         kind: "terminal",
         deadline: 3000,
       });
-      expect(JSON.stringify(fixture.snapshot())).not.toContain("invocation");
+      expect(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          fixture.snapshot(),
+        ).pipe(Effect.orDie),
+      ).not.toContain("invocation");
     }),
   );
 });
@@ -499,7 +524,7 @@ test(
     const fixture = yield* tenantFixture();
     const tenant = yield* fixture.construct();
     fixture.source.body({
-      data: [{ id: "sensors", name: "😀".repeat(900), value: 10 }],
+      data: [{ id: "sensors", name: Str.repeat(900)("😀"), value: 10 }],
     });
     let admitted = 0;
 
@@ -526,7 +551,7 @@ test(
     expect(
       (yield* tenant.respondDiscord(discordReceipt("large-0"))).data.flags,
     ).toBe(0);
-    expect(Object.keys(fixture.snapshot().works)).toHaveLength(admitted);
+    expect(Rec.keys(fixture.snapshot().works)).toHaveLength(admitted);
   }),
 );
 
@@ -578,7 +603,7 @@ test(
     fixture.source.respond((url) =>
       Effect.succeed(
         Response.json({
-          data: url.pathname.endsWith("/traders")
+          data: Str.endsWith("/traders")(url.pathname)
             ? {
                 Apollo: [],
                 Celeste: [],
@@ -586,7 +611,7 @@ test(
                 Shani: [{ id: "sensors", name: "Sensors", trader_price: 100 }],
                 TianWen: [],
               }
-            : url.pathname.endsWith("/arcs")
+            : Str.endsWith("/arcs")(url.pathname)
               ? [
                   {
                     id: "bastion",
@@ -594,7 +619,7 @@ test(
                     loot: [{ item: { id: "sensors", name: "Sensors" } }],
                   },
                 ]
-              : url.pathname.endsWith("/events-schedule")
+              : Str.endsWith("/events-schedule")(url.pathname)
                 ? [
                     {
                       name: "Harvester",
@@ -659,8 +684,8 @@ test(
       yield* twitchFixture.drain;
     }
 
-    expect(twitchFixture.sent.map((message) => message.text)).toEqual(
-      cases.map(([, , text]) => text),
+    expect(Arr.map(twitchFixture.sent, (message) => message.text)).toEqual(
+      Arr.map(cases, ([, , text]) => text),
     );
     expect(fixture.source.calls).toHaveLength(5);
   }),

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, Array as Arr, String as Str } from "effect";
 
 export const friendlyFailure =
   "I couldn't finish that command in time. Please try again.";
@@ -37,7 +37,7 @@ export function discordResponse(text: string, failed = false): DiscordResponse {
 }
 
 export function twitchParts(content: string): readonly string[] {
-  const text = content.replaceAll("@", "@\u200b");
+  const text = Str.replaceAll("@", "@\u200b")(content);
 
   if (text && text.length <= 495 && encodedBytes(text) <= 7000) return [text];
   const parts: string[] = [];
@@ -58,7 +58,7 @@ export function twitchParts(content: string): readonly string[] {
 
   if (parts.length > 8) return [oversized];
 
-  const labelled = parts.map((value, index) =>
+  const labelled = Arr.map(parts, (value, index) =>
     parts.length === 1 ? value : `[${index + 1}/${parts.length}]: ${value}`,
   );
 

@@ -2,7 +2,7 @@ import { makeRpcStub } from "@alchemy.run/cloudflare/Bridge";
 import { handleRpcExit } from "@alchemy.run/cloudflare/Workers/WorkerBridge";
 import type { BotOperations } from "@arctools/bot-contracts";
 import { AccountError } from "@arctools/twitch/server";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, String as Str } from "effect";
 import { expect, test } from "vitest";
 
 import { websiteHttp } from "./enrollment.js";
@@ -26,7 +26,9 @@ for (const [code, expected] of [
     const response = await Effect.runPromise(
       websiteHttp(Effect.succeed(bot)).status(
         new Request("https://website.invalid/oauth/twitch/enroll/status", {
-          headers: { cookie: `__Host-arctools-enrollment=${"a".repeat(64)}` },
+          headers: {
+            cookie: `__Host-arctools-enrollment=${Str.repeat(64)("a")}`,
+          },
         }),
       ),
     );
@@ -44,7 +46,9 @@ test("missing Website binding is a private 503 for begin, authenticated status a
   const request = new Request(
     "https://website.invalid/oauth/twitch/callback?state=operator&code=code",
     {
-      headers: { cookie: `__Host-arctools-enrollment=${"a".repeat(64)}` },
+      headers: {
+        cookie: `__Host-arctools-enrollment=${Str.repeat(64)("a")}`,
+      },
     },
   );
 

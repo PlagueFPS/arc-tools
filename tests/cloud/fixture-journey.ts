@@ -1,18 +1,19 @@
-import { Cause, Effect, Exit, Schema, type Scope } from "effect";
+/* oxlint-disable effecttsgo/crypto-random-uuid-in-effect -- The synchronous suspension allocates its operation ID before installing the cleanup journal. */
+import { Cause, Effect, Exit, Schema, type Scope, Array as Arr } from "effect";
 
 import { ControlObservation } from "./fixture-control.js";
 import { auditedObservation, fixtureHttp } from "./fixture-http.js";
 import type { SourceControl } from "./metaforge.js";
 import type { TemporaryProviderPatch } from "./twitch-provider-fixture.js";
 
-export class FixtureCleanupError extends Schema.TaggedError<FixtureCleanupError>()(
-  "FixtureCleanupError",
-  {
-    controlId: Schema.String,
-    phase: Schema.Literals(["release", "verify"]),
-    state: Schema.Literals(["dirty", "unknown"]),
-  },
-) {
+export class FixtureCleanupError extends Schema.TaggedError<
+  FixtureCleanupError,
+  { readonly brand: unique symbol }
+>()("FixtureCleanupError", {
+  controlId: Schema.String,
+  phase: Schema.Literals(["release", "verify"]),
+  state: Schema.Literals(["dirty", "unknown"]),
+}) {
   override get message() {
     return JSON.stringify({
       controlId: this.controlId,
@@ -62,7 +63,9 @@ export const makeJourneyControls = (
             {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ id }),
+              body: yield* Schema.encodeEffect(
+                Schema.fromJsonString(Schema.Unknown),
+              )({ id }).pipe(Effect.orDie),
             },
             budgets.releaseMs,
           )
@@ -141,7 +144,11 @@ export const makeJourneyControls = (
         }).pipe(
           Effect.onExit(() => {
             if (Exit.isSuccess(response)) return Effect.void;
-            const defects = response.cause.reasons.filter(Cause.isDieReason);
+
+            const defects = Arr.filter(
+              response.cause.reasons,
+              Cause.isDieReason,
+            );
 
             return defects.length > 0
               ? Effect.failCause(Cause.fromReasons<never>(defects))

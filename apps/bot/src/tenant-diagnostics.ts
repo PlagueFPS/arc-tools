@@ -18,8 +18,8 @@ export const TenantTrace = Schema.Struct({
     "missing",
     "wait-limit",
   ]),
-  admissionDeltaMs: Schema.Number,
-  cutoff: Schema.Number,
+  admissionDeltaMs: Schema.Finite,
+  cutoff: Schema.Finite,
   activation: Schema.String,
 });
 

@@ -1,3 +1,9 @@
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/global-console -- This host boundary writes native CLI output or captures console output in tests. */
+/* oxlint-disable effecttsgo/global-timers -- Process and HTTP harness deadlines must use real host timers, independently of the test clock. */
+/* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { type ChildProcess, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { constants } from "node:os";

@@ -1,11 +1,29 @@
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import { AttemptId, Deadline } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
-import { Result, Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import {
+  Result,
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 
-import { discordResponse, friendlyFailure } from "../src/presentation.js";
+import {
+  type DiscordResponse,
+  discordResponse,
+  friendlyFailure,
+} from "../src/presentation.js";
 import {
   fixture as accountFixture,
   observation,
@@ -75,7 +93,7 @@ for (const [activation, at] of [
         expect(f.snapshot().works[id]?.retainUntil).toBe(603000);
       }
 
-      expect(Object.keys(f.snapshot().works)).toHaveLength(9);
+      expect(Rec.keys(f.snapshot().works)).toHaveLength(9);
       expect(f.alarm()).toBe(603000);
     }),
   );
@@ -85,7 +103,13 @@ test(
   Effect.gen(function* () {
     const f = yield* tenantFixture();
     const release = yield* Deferred.make<void>();
-    const running = [];
+
+    const running: Array<
+      Fiber.Fiber<
+        DiscordResponse,
+        import("../src/tenant-contracts.js").TenantError
+      >
+    > = [];
 
     for (let i = 0; i < 8; i++) {
       const entered = yield* Deferred.make<void>();
@@ -114,8 +138,9 @@ test(
         .pipe(Effect.result),
     ).toMatchObject(Result.fail({ code: "capacity" }));
     expect(
-      Object.values(f.snapshot().works).every(
-        (work) => work.kind === "computing",
+      Arr.every(
+        Rec.values(f.snapshot().works),
+        (work) => !!(work.kind === "computing"),
       ),
     ).toBeTrue();
     yield* Deferred.succeed(release, undefined);
@@ -226,7 +251,7 @@ test(
     });
     const f = yield* tenantFixture();
     f.source.body({
-      data: [{ id: "sensors", name: "x".repeat(650), value: 10 }],
+      data: [{ id: "sensors", name: Str.repeat(650)("x"), value: 10 }],
     });
     f.dispatch((input) =>
       Effect.sync(() => {
@@ -265,7 +290,7 @@ test(
       deadline: start + 10000,
     });
     expect(bodies).toHaveLength(2);
-    expect(f.sent.map((send) => send.attemptId)).toEqual([
+    expect(Arr.map(f.sent, (send) => send.attemptId)).toEqual([
       AttemptId.make("slow-send:0"),
       AttemptId.make("slow-send:1"),
     ]);
@@ -291,11 +316,15 @@ for (const transport of ["discord", "twitch"] as const)
       } else {
         yield* tenant.acceptTwitch(twitchReceipt());
         yield* f.drain;
-        expect(f.sent.map((send) => send.text)).toEqual([friendlyFailure]);
+        expect(Arr.map(f.sent, (send) => send.text)).toEqual([friendlyFailure]);
       }
 
       expect(f.snapshot().works.work?.kind).toBe("terminal");
-      expect(JSON.stringify(f.snapshot())).not.toContain("CANARY");
+      expect(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          f.snapshot(),
+        ).pipe(Effect.orDie),
+      ).not.toContain("CANARY");
       const next = yield* f.construct();
 
       if (transport === "discord")
@@ -327,8 +356,9 @@ test(
     yield* restored.recover();
     expect(f.sent).toHaveLength(8);
     expect(
-      Object.values(f.snapshot().works).every(
-        (work) => work.kind === "terminal",
+      Arr.every(
+        Rec.values(f.snapshot().works),
+        (work) => !!(work.kind === "terminal"),
       ),
     ).toBeTrue();
     expect(f.alarm()).toBe(610000);

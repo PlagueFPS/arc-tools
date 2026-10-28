@@ -1,6 +1,8 @@
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
 import { createHash } from "node:crypto";
 
-import { Schema } from "effect";
+import { Schema, String as Str } from "effect";
 
 export const Repository = Schema.Literal("PlagueFPS/arc-tools");
 
@@ -26,13 +28,13 @@ export function previewIdentity(input: {
   )(input);
 
   const hash = createHash("sha256")
-    .update(`${repository.toLowerCase()}#${number}`)
+    .update(`${Str.toLowerCase(repository)}#${number}`)
     .digest("hex");
 
-  const run = hash.slice(8, 20);
+  const run = Str.slice(8, 20)(hash);
 
-  const stage = Schema.decodeUnknownSync(PreviewStage)(
-    `test-tenant-${hash.slice(0, 8)}-${run}`,
+  const stage = Schema.decodeSync(PreviewStage)(
+    `test-tenant-${Str.slice(0, 8)(hash)}-${run}`,
   );
 
   return { repository, number, stage, run };
@@ -108,5 +110,5 @@ export function previewAction(args: string[]): PreviewAction {
   )
     throw new Error("Use preview deploy|cleanup --pr <positive PR number>");
 
-  return { action, number: Schema.decodeUnknownSync(PrNumber)(Number(number)) };
+  return { action, number: Schema.decodeSync(PrNumber)(Number(number)) };
 }

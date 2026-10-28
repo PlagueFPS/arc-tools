@@ -1,3 +1,4 @@
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import {
   Cause,
   Exit,
@@ -7,7 +8,18 @@ import {
   Predicate,
   Schedule,
   Schema,
+  Array as Arr,
+  String as Str,
 } from "effect";
+
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/crypto-random-uuid -- Native fixture callbacks allocate secure operation IDs synchronously. */
+/* oxlint-disable effecttsgo/global-console-in-effect -- The fixture captures native console output at a synchronous host callback boundary. */
+/* oxlint-disable effecttsgo/global-timers-in-effect -- The native callback deadline must use a real host timer independently of the injected test clock. */
+/* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+import { FixtureInvariantError } from "./fixture-error.js";
 
 export const fixtureHeader = "x-arc-cloud-fixture";
 
@@ -100,7 +112,7 @@ const ContextFields = {
   attempt: Schema.Int,
   method: Schema.String,
   route: Schema.String,
-  elapsedMs: Schema.Number,
+  elapsedMs: Schema.Finite,
 };
 
 const TenantDiagnostic = Schema.Struct({
@@ -118,12 +130,12 @@ const TenantDiagnostic = Schema.Struct({
 const HttpDiagnostic = Schema.Struct({
   ...ContextFields,
   kind: Schema.Literal("http"),
-  status: Schema.Number,
+  status: Schema.Finite,
   contentType: Schema.NullOr(Schema.String),
   server: Schema.NullOr(Schema.String),
   ray: Schema.NullOr(Schema.String),
   fixture: Schema.NullOr(Schema.String),
-  bodyBytes: Schema.Number,
+  bodyBytes: Schema.Finite,
   bodySha256: Schema.String,
   probeError: Schema.optional(Schema.Literal("fixture-failure")),
   tenant: TenantDiagnostic,
@@ -151,30 +163,36 @@ export const RequestDiagnostic = Schema.Union([
   Schema.Struct({
     ...ContextFields,
     kind: Schema.Literal("budget"),
-    budgetMs: Schema.Number,
+    budgetMs: Schema.Finite,
   }),
 ]);
 
-export class FixtureRequestError extends Schema.TaggedError<FixtureRequestError>()(
-  "FixtureRequestError",
-  { diagnostic: RequestDiagnostic },
-) {
+export class FixtureRequestError extends Schema.TaggedError<
+  FixtureRequestError,
+  { readonly brand: unique symbol }
+>()("FixtureRequestError", { diagnostic: RequestDiagnostic }) {
   override get message() {
     return JSON.stringify(this.diagnostic);
   }
 }
 
-class FixtureRouteNotReady extends Schema.TaggedError<FixtureRouteNotReady>()(
-  "FixtureRouteNotReady",
-  { diagnostic: HttpDiagnostic },
-) {}
+class FixtureRouteNotReady extends Schema.TaggedError<
+  FixtureRouteNotReady,
+  { readonly brand: unique symbol }
+>()("FixtureRouteNotReady", { diagnostic: HttpDiagnostic }) {}
 
 export type EvidenceSink = (
   event: typeof RequestDiagnostic.Type,
 ) => Effect.Effect<void>;
 
 let evidenceSink: EvidenceSink = (event) =>
-  Effect.sync(() => console.info(JSON.stringify({ fixtureHttp: event })));
+  Effect.sync(() =>
+    console.info(
+      Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
+        fixtureHttp: event,
+      }),
+    ),
+  );
 
 export const setFixtureHttpEvidenceSink = (sink: EvidenceSink) => {
   evidenceSink = sink;
@@ -190,7 +208,12 @@ export const isRouteNotReady = (
   url.protocol === "https:" &&
   disposableHost.test(url.hostname) &&
   diagnostic.status === 404 &&
-  diagnostic.contentType?.split(";")[0] === "text/html" &&
+  Option.getOrUndefined(
+    Option.map(
+      Option.fromNullishOr(diagnostic.contentType),
+      (effectNativeValue0) => Str.split(effectNativeValue0, ";"),
+    ),
+  )?.[0] === "text/html" &&
   diagnostic.server === "cloudflare" &&
   diagnostic.fixture === null &&
   diagnostic.bodySha256 === placeholderSha256;
@@ -248,9 +271,9 @@ const paths = new Set([
 ]);
 
 export const safeRoute = (url: URL) => {
-  const segments = url.pathname.split("/");
+  const segments = Str.split(url.pathname, "/");
 
-  const mapped = segments.map((part, index) => {
+  const mapped = Arr.map(segments, (part, index) => {
     if (!part) return "";
 
     if (segments[index - 1] === "journeys") return ":journey";
@@ -260,7 +283,7 @@ export const safeRoute = (url: URL) => {
     return paths.has(part) ? part : ":value";
   });
 
-  return `${disposableHost.test(url.hostname) ? `${url.hostname.split(".")[0]}.*.workers.dev` : "external"}${mapped.join("/")}`;
+  return `${disposableHost.test(url.hostname) ? `${Str.split(url.hostname, ".")[0]}.*.workers.dev` : "external"}${Arr.join(mapped, "/")}`;
 };
 
 const safeHeader = (headers: Headers, key: string, pattern: RegExp) => {
@@ -322,7 +345,11 @@ export const auditedObservation = <A, I>(
   schema: Schema.Codec<A, I>,
 ): SafeObservation<A, I> => {
   const parsed = new URL(url);
-  const path = parsed.pathname.replace(/^\/journeys\/[a-z][a-z0-9-]{0,63}/, "");
+
+  const path = Str.replace(
+    /^\/journeys\/[a-z][a-z0-9-]{0,63}/,
+    "",
+  )(parsed.pathname);
 
   const fixture =
     localFixtures.get(parsed.origin) ??
@@ -390,7 +417,7 @@ export const makeFixtureHttp = (
   const context = (
     url: string,
     method = "GET",
-    operationId = crypto.randomUUID(),
+    operationId: string = crypto.randomUUID(),
     attempt = 1,
   ) => ({
     operationId,
@@ -508,13 +535,13 @@ export const makeFixtureHttp = (
     const probeError =
       ctx.method === "GET" &&
       probe.pathname === "/snapshot" &&
-      probe.hostname.startsWith("arc-tools-probe-test-") &&
+      Str.startsWith("arc-tools-probe-test-")(probe.hostname) &&
       disposableHost.test(probe.hostname) &&
       response.status === 500 &&
       response.headers.get(fixtureHeader) === "v1" &&
       body.byteLength <= 8192 &&
       Option.isSome(
-        Schema.decodeUnknownOption(
+        Schema.decodeOption(
           Schema.fromJsonString(
             Schema.Struct({ probeError: Schema.Literal("fixture-failure") }),
           ),
@@ -541,9 +568,12 @@ export const makeFixtureHttp = (
       ray: safeHeader(response.headers, "cf-ray", /^[a-f0-9]{16}-[A-Z]{3}$/),
       fixture: safeHeader(response.headers, fixtureHeader, /^v1$/),
       bodyBytes: body.byteLength,
-      bodySha256: Array.from(new Uint8Array(digest), (b) =>
-        b.toString(16).padStart(2, "0"),
-      ).join(""),
+      bodySha256: Arr.join(
+        Array.from(new Uint8Array(digest), (b) =>
+          Str.padStart(2, "0")(b.toString(16)),
+        ),
+        "",
+      ),
       tenant: {
         lookups: safeHeader(response.headers, "x-arc-tenant-lookups", numeric),
         rpcs: safeHeader(response.headers, "x-arc-tenant-rpcs", numeric),
@@ -587,7 +617,7 @@ export const makeFixtureHttp = (
   ) {
     const clock = yield* Clock.Clock;
     const start = clock.monotonicTimeNanosUnsafe();
-    const id = crypto.randomUUID();
+    const id = yield* secureRandomUUID;
 
     for (let attempt = 1; ; attempt++) {
       const remaining =
@@ -656,7 +686,12 @@ export const makeFixtureHttp = (
     if (response.status !== 200) return yield* decodeFailure("status");
 
     if (
-      response.headers.get("content-type")?.split(";")[0] !== "application/json"
+      Option.getOrUndefined(
+        Option.map(
+          Option.fromNullishOr(response.headers.get("content-type")),
+          (effectNativeValue1) => Str.split(effectNativeValue1, ";"),
+        ),
+      )?.[0] !== "application/json"
     )
       return yield* decodeFailure("content-type");
 
@@ -686,7 +721,7 @@ export const makeFixtureHttp = (
   ) {
     const clock = yield* Clock.Clock;
     const start = clock.monotonicTimeNanosUnsafe();
-    const id = crypto.randomUUID();
+    const id = yield* secureRandomUUID;
     let wireAttempt = 0;
 
     const remaining = () =>
@@ -741,8 +776,9 @@ export const makeFixtureHttp = (
           Predicate.isTagged(failure, "FixtureRouteNotReady") ||
           ((failure.diagnostic.kind === "transport" ||
             failure.diagnostic.kind === "body-read") &&
-            failure.diagnostic.causes.some((link) =>
-              transientCodes.has(link.code),
+            Arr.some(
+              failure.diagnostic.causes,
+              (link) => !!transientCodes.has(link.code),
             ));
 
         if (!retry || attempt === 3)
@@ -815,7 +851,7 @@ export const reconstructedSnapshot = Effect.fnUntraced(function* <
     Effect.tap((snapshot) =>
       Effect.sync(() =>
         console.info(
-          JSON.stringify({
+          Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
             reconstruction: { previous, observed: snapshot.instance },
           }),
         ),
@@ -830,11 +866,9 @@ export const reconstructedSnapshot = Effect.fnUntraced(function* <
   );
 
   if (result.instance === previous)
-    return yield* Effect.fail(
-      new Error(
-        `Reconstruction not observed after 21 snapshots of ${previous}`,
-      ),
-    );
+    return yield* new FixtureInvariantError({
+      message: `Reconstruction not observed after 21 snapshots of ${previous}`,
+    });
 
   return result;
 });

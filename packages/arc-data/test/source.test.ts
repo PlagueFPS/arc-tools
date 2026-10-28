@@ -1,7 +1,18 @@
+/* oxlint-disable effecttsgo/global-timers -- Process and HTTP harness deadlines must use real host timers, independently of the test clock. */
+/* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect, test } from "bun:test";
 import { createServer } from "node:http";
 
-import { Effect, Predicate, Result, Schema, SchemaGetter } from "effect";
+import {
+  Effect,
+  Predicate,
+  Result,
+  Schema,
+  SchemaGetter,
+  String as Str,
+} from "effect";
 import { FetchHttpClient } from "effect/http";
 
 import { DataUnavailable } from "../src/data-service.js";
@@ -79,7 +90,7 @@ for (const scenario of [
   test(`source closes the HTTP response after ${scenario.name}`, async () => {
     const server = await sourceServer(scenario.status, {
       kind: "streaming",
-      chunk: new TextEncoder().encode("x".repeat(33)),
+      chunk: new TextEncoder().encode(Str.repeat(33)("x")),
     });
 
     try {

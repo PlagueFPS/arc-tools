@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
@@ -5,15 +6,16 @@ import { Effect, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import { selectEvent } from "../src/events.js";
-import type { Event } from "../src/schema.js";
+import { Event } from "../src/schema.js";
 
-const event = (overrides: Partial<Event> = {}) => ({
-  name: "Prospecting Probes",
-  map: "Bastion",
-  startTime: 1000,
-  endTime: 2000,
-  ...overrides,
-});
+const event = (overrides: Partial<Event> = {}) =>
+  new Event({
+    name: "Prospecting Probes",
+    map: "Bastion",
+    startTime: 1000,
+    endTime: 2000,
+    ...overrides,
+  });
 
 const { test } = Test.make({ providers: Layer.empty });
 

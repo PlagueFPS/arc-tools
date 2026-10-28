@@ -8,7 +8,7 @@ import {
 } from "@arctools/twitch/cloudflare";
 import { TwitchAccount } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
-import { Effect, Layer, Option, Redacted } from "effect";
+import { Effect, Layer, Option, Redacted, Schema } from "effect";
 
 import { bindBotOrigin, oauthOrigin, runtimeConfig } from "./config.js";
 
@@ -20,6 +20,7 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
     const configuredOAuthOrigin = yield* oauthOrigin.pipe(Effect.orDie);
     const endpoints = yield* Effect.serviceOption(AccountEndpoints);
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
       const webhookOrigin = yield* origin;
       const oauthOrigin = configuredOAuthOrigin ?? webhookOrigin;
@@ -49,6 +50,7 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
 export const bindAccount = Effect.gen(function* () {
   const objects = yield* TwitchAccountDO;
 
+  // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
   return Effect.gen(function* () {
     const object = objects.getByName("environment");
 
@@ -63,22 +65,23 @@ export const layer = Layer.effect(TwitchAccount, makeClient);
 export const bindEnrollment = Effect.gen(function* () {
   const objects = yield* TwitchAccountDO;
 
-  return Effect.gen(function* () {
-    return yield* makeEnrollmentClient(objects.getByName("environment"));
-  });
+  // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
+  return Effect.suspend(() =>
+    makeEnrollmentClient(objects.getByName("environment")),
+  );
 });
 
 export const accountRevision = Effect.fnUntraced(function* (
   config: Omit<AccountRuntimeConfig, "revision">,
 ) {
   return yield* digest(
-    JSON.stringify([
+    yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([
       config.identity,
       config.webhookOrigin,
       config.oauthOrigin,
       config.webhookReady,
       Redacted.value(config.twitchClientSecret),
       Redacted.value(config.twitchSigningSecret),
-    ]),
+    ]).pipe(Effect.orDie),
   );
 });

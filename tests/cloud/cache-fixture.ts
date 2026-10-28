@@ -1,4 +1,6 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { Stack } from "alchemy";
 import { Clock, Effect, Layer, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
@@ -40,8 +42,9 @@ export class CacheFixtureObject extends Cloudflare.DurableObject<CacheFixtureObj
     const source = yield* Cloudflare.Worker(MetaforgeWorker.LogicalId, {});
     const sourceUrl = yield* source.url;
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
-      const instance = crypto.randomUUID();
+      const instance = yield* secureRandomUUID;
       const sourceBase = yield* sourceUrl;
 
       if (!Schema.is(Schema.String)(sourceBase))
@@ -85,7 +88,8 @@ export class CacheFixtureObject extends Cloudflare.DurableObject<CacheFixtureObj
           yield* cache.reset;
           cache = yield* CacheRpc.pipe(
             Effect.provide(cacheRpcLayer(options)),
-          ).pipe(Effect.provideService(Cloudflare.DurableObjectState, state));
+            Effect.provideService(Cloudflare.DurableObjectState, state),
+          );
         }),
         snapshot: Effect.fnUntraced(function* () {
           return {
@@ -165,7 +169,7 @@ export class CacheFixtureWorker extends Cloudflare.Worker<CacheFixtureWorker>()(
         .handleRaw("time", ({ request }) =>
           Effect.gen(function* () {
             const time = yield* request.json.pipe(
-              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Number)),
+              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Finite)),
               Effect.orDie,
             );
 

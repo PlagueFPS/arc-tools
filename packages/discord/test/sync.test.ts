@@ -1,3 +1,5 @@
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import {
@@ -22,6 +24,8 @@ import {
   Result,
   Schema,
   Stream,
+  Array as Arr,
+  Option,
 } from "effect";
 import {
   HttpClient,
@@ -37,14 +41,16 @@ const fixture = Effect.fnUntraced(function* () {
   const hash = yield* manifestHash;
 
   const control = {
-    remote: Schema.decodeUnknownSync(RemoteCommands)(commandManifest),
+    remote: yield* Schema.decodeEffect(RemoteCommands)(commandManifest),
     status: "ready",
     revision: "commit-one",
     hash,
     writes: 0,
     reads: 0,
     rateLimits: 0,
-    rateLimitBody: JSON.stringify({ retry_after: 0.001 }),
+    rateLimitBody: yield* Schema.encodeEffect(
+      Schema.fromJsonString(Schema.Unknown),
+    )({ retry_after: 0.001 }).pipe(Effect.orDie),
     commandAttempts: 0,
     healthReads: 0,
     badReadback: false,
@@ -86,7 +92,7 @@ const fixture = Effect.fnUntraced(function* () {
         control.remote = Schema.decodeUnknownSync(RemoteCommands)(raw);
 
         if (control.localizedReadback)
-          control.remote = control.remote.map((command) => ({
+          control.remote = Arr.map(control.remote, (command) => ({
             ...command,
             name_localizations: { de: "falsch" },
           }));
@@ -104,7 +110,7 @@ const fixture = Effect.fnUntraced(function* () {
       return Response.json(
         control.badReadback
           ? []
-          : control.remote.map((command) => {
+          : Arr.map(control.remote, (command) => {
               const result = {
                 ...command,
                 id: "server-id",
@@ -115,15 +121,27 @@ const fixture = Effect.fnUntraced(function* () {
               if (!full) {
                 result.name_localizations = undefined;
                 result.description_localizations = undefined;
-                result.options = command.options?.map((option) => ({
-                  ...option,
-                  name_localizations: undefined,
-                  description_localizations: undefined,
-                  choices: option.choices?.map((choice) => ({
-                    ...choice,
-                    name_localizations: undefined,
-                  })),
-                }));
+                result.options = Option.getOrUndefined(
+                  Option.map(
+                    Option.fromNullishOr(command.options),
+                    (effectNativeValue0) =>
+                      Arr.map(effectNativeValue0, (option) => ({
+                        ...option,
+                        name_localizations: undefined,
+                        description_localizations: undefined,
+                        choices: Option.getOrUndefined(
+                          Option.map(
+                            Option.fromNullishOr(option.choices),
+                            (effectNativeValue1) =>
+                              Arr.map(effectNativeValue1, (choice) => ({
+                                ...choice,
+                                name_localizations: undefined,
+                              })),
+                          ),
+                        ),
+                      })),
+                  ),
+                );
               }
 
               return result;
@@ -132,7 +150,7 @@ const fixture = Effect.fnUntraced(function* () {
     },
   });
 
-  yield* Effect.addFinalizer(() => Effect.sync(() => server.stop(true)));
+  yield* Effect.addFinalizer(() => Effect.promise(() => server.stop(true)));
   const endpoint = `http://127.0.0.1:${server.port}`;
 
   return {
@@ -153,7 +171,7 @@ test(
   Effect.gen(function* () {
     const f = yield* fixture();
 
-    const desired = Schema.decodeUnknownSync(RemoteCommands)([
+    const desired = yield* Schema.decodeEffect(RemoteCommands)([
       {
         ...commandManifest[0],
         name: "buy",
@@ -178,30 +196,44 @@ test(
       "option-description",
       "choice",
     ]) {
-      f.control.remote = desired.map((command) => {
+      f.control.remote = Arr.map(desired, (command) => {
         const result = {
           ...command,
-          options: command.options?.map((option) => {
-            const localized = {
-              ...option,
-              choices: option.choices?.map((choice) => {
-                const localizedChoice = { ...choice };
+          options: Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(command.options),
+              (effectNativeValue2) =>
+                Arr.map(effectNativeValue2, (option) => {
+                  const localized = {
+                    ...option,
+                    choices: Option.getOrUndefined(
+                      Option.map(
+                        Option.fromNullishOr(option.choices),
+                        (effectNativeValue3) =>
+                          Arr.map(effectNativeValue3, (choice) => {
+                            const localizedChoice = { ...choice };
 
-                if (location === "choice")
-                  localizedChoice.name_localizations = { de: "Sensoren" };
+                            if (location === "choice")
+                              localizedChoice.name_localizations = {
+                                de: "Sensoren",
+                              };
 
-                return localizedChoice;
-              }),
-            };
+                            return localizedChoice;
+                          }),
+                      ),
+                    ),
+                  };
 
-            if (location === "option-name")
-              localized.name_localizations = { de: "objekt" };
+                  if (location === "option-name")
+                    localized.name_localizations = { de: "objekt" };
 
-            if (location === "option-description")
-              localized.description_localizations = { de: "Objekt" };
+                  if (location === "option-description")
+                    localized.description_localizations = { de: "Objekt" };
 
-            return localized;
-          }),
+                  return localized;
+                }),
+            ),
+          ),
         };
 
         if (location === "name") result.name_localizations = { de: "kaufen" };
@@ -232,7 +264,7 @@ test(
   "manifest owns all ten guild-only slash definitions and string options",
   Effect.sync(() => {
     expect(commandManifest.length).toBe(10);
-    expect(commandManifest.map((command) => command.name)).toEqual([
+    expect(Arr.map(commandManifest, (command) => command.name)).toEqual([
       "buy",
       "loot",
       "craft",
@@ -245,10 +277,13 @@ test(
       "active",
     ]);
     expect(
-      commandManifest.every(
+      Arr.every(
+        commandManifest,
         (command) =>
-          command.contexts.join() === "0" &&
-          command.integration_types.join() === "0",
+          !!(
+            Arr.join(Arr.map(command.contexts, String), ",") === "0" &&
+            Arr.join(Arr.map(command.integration_types, String), ",") === "0"
+          ),
       ),
     ).toBeTrue();
     expect(commandManifest[0]?.options).toEqual([
@@ -313,7 +348,7 @@ test(
         description_localizations: null,
       },
     ];
-    f.control.remote = f.control.remote.map((command, index) =>
+    f.control.remote = Arr.map(f.control.remote, (command, index) =>
       index === 0 ? { ...command, description: "changed remotely" } : command,
     );
     expect((yield* syncCommands(f.release, f.options)).changed).toBeTrue();
@@ -351,7 +386,7 @@ test(
     ];
 
     for (const [seconds, milliseconds] of delays) {
-      const delay = yield* Schema.decodeUnknownEffect(RetryAfter)(seconds);
+      const delay = yield* Schema.decodeEffect(RetryAfter)(seconds);
       expect(Duration.toMillis(delay)).toBe(milliseconds);
     }
 
@@ -365,9 +400,7 @@ test(
     ])
       expect(
         Result.isFailure(
-          yield* Schema.decodeUnknownEffect(RetryAfter)(value).pipe(
-            Effect.result,
-          ),
+          yield* Schema.decodeEffect(RetryAfter)(value).pipe(Effect.result),
         ),
       ).toBeTrue();
   }),
@@ -501,7 +534,9 @@ const nativeFixture = Effect.fnUntraced(function* () {
     rateLimits: 0,
     staleOnRateLimit: false,
     networkFailure: false,
-    commandBody: JSON.stringify(commandManifest),
+    commandBody: yield* Schema.encodeEffect(
+      Schema.fromJsonString(Schema.Unknown),
+    )(commandManifest).pipe(Effect.orDie),
   };
 
   const client = HttpClient.make((request, url) =>
@@ -520,12 +555,12 @@ const nativeFixture = Effect.fnUntraced(function* () {
 
         return nativeResponse(
           request,
-          JSON.stringify({
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
             status: "ready",
             stage: control.stage,
             revision: control.revision,
             manifestHash: control.hash,
-          }),
+          }).pipe(Effect.orDie),
           control.healthStatus,
         );
       }
@@ -548,7 +583,9 @@ const nativeFixture = Effect.fnUntraced(function* () {
 
         return nativeResponse(
           request,
-          JSON.stringify({ retry_after: control.retryAfter }),
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+            retry_after: control.retryAfter,
+          }).pipe(Effect.orDie),
           429,
         );
       }
@@ -592,9 +629,13 @@ test(
       code: "rate-limit",
       phase: "before",
     });
-    const calls = f.requests.filter(({ path }) => path !== "/health");
-    expect(calls.map(({ time }) => time)).toEqual([0, 2, 4, 6]);
-    expect(f.requests.filter(({ path }) => path === "/health")).toHaveLength(4);
+
+    const calls = Arr.filter(f.requests, ({ path }) => !!(path !== "/health"));
+
+    expect(Arr.map(calls, ({ time }) => time)).toEqual([0, 2, 4, 6]);
+    expect(
+      Arr.filter(f.requests, ({ path }) => !!(path === "/health")),
+    ).toHaveLength(4);
   }).pipe(Effect.provide(TestClock.layer())),
 );
 
@@ -616,7 +657,7 @@ test(
       code: "stale-release",
       phase: "before",
     });
-    expect(f.requests.map(({ path, time }) => [path, time])).toEqual([
+    expect(Arr.map(f.requests, ({ path, time }) => [path, time])).toEqual([
       ["/health", 0],
       ["/api/v10/applications/fixture-discord/commands", 0],
       ["/health", 2],
@@ -648,10 +689,12 @@ for (const failure of ["status", "malformed", "stage", "revision", "manifest"])
             : "provider",
       );
       expect(result.phase).toBe("before");
-      expect(f.requests.filter(({ path }) => path === "/health")).toHaveLength(
-        1,
-      );
-      expect(f.requests.filter(({ path }) => path !== "/health")).toHaveLength(
+      expect(
+        Arr.filter(f.requests, ({ path }) => !!(path === "/health")),
+      ).toHaveLength(1);
+      expect(
+        Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
+      ).toHaveLength(
         ["stage", "revision", "manifest"].includes(failure) ? 0 : 1,
       );
     }).pipe(Effect.provide(TestClock.layer())),
@@ -676,9 +719,10 @@ test(
       phase: "before",
     });
     expect(
-      f.requests
-        .filter(({ path }) => path !== "/health")
-        .map(({ time }) => time),
+      Arr.map(
+        Arr.filter(f.requests, ({ path }) => !!(path !== "/health")),
+        ({ time }) => time,
+      ),
     ).toEqual([0, 15000]);
   }).pipe(Effect.provide(TestClock.layer())),
 );
@@ -697,7 +741,7 @@ for (const wait of [false, true])
       yield* f.started;
       yield* TestClock.adjust(wait ? 59000 : 0);
       expect(Result.isFailure(yield* Fiber.join(fiber))).toBeTrue();
-      expect(f.requests.map(({ time }) => time)).toEqual(
+      expect(Arr.map(f.requests, ({ time }) => time)).toEqual(
         Array.from({ length: wait ? 60 : 1 }, (_, i) => i * 1000),
       );
     }).pipe(Effect.provide(TestClock.layer())),

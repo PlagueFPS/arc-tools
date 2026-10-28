@@ -1,4 +1,5 @@
-import { Schema } from "effect";
+/* oxlint-disable effecttsgo/schema-sync -- The host adapter validates configuration and serializes native callbacks synchronously. */
+import { Schema, Array as Arr, Record as Rec, String as Str } from "effect";
 
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
 
@@ -6,7 +7,9 @@ export const LocalTestSettings = Schema.Struct({
   ...CloudSettings.fields,
   profile: Schema.Literal("local-tests"),
   dev: Schema.Literal(true),
-}).check(Schema.makeFilter((value) => value.stage.endsWith(`-${value.run}`)));
+}).check(
+  Schema.makeFilter((value) => Str.endsWith(`-${value.run}`)(value.stage)),
+);
 
 export const LocalTestResources = Schema.Struct({
   stage: CloudSettings.fields.stage,
@@ -39,8 +42,9 @@ export function localTestEnvironment(
   settings: typeof LocalTestSettings.Type,
 ): NodeJS.ProcessEnv {
   const env = syntheticEnvironment(
-    Object.fromEntries(
-      Object.entries(inherited).filter(
+    Rec.fromEntries(
+      Arr.filter(
+        Rec.toEntries(inherited),
         ([key]) =>
           !/^(ALCHEMY_|CLOUDFLARE_|CF_|GITHUB_TOKEN$|GH_TOKEN$)/.test(key),
       ),

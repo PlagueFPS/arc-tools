@@ -1,3 +1,10 @@
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+/* oxlint-disable effecttsgo/global-fetch-in-effect -- The transport test exercises native Fetch cancellation and wire behavior at the HTTP boundary. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/process-env-in-effect -- The fixture or CLI explicitly reads the host environment, rather than the injected application configuration. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 import { appendFile } from "node:fs/promises";
 
@@ -8,12 +15,24 @@ import {
 } from "@arctools/discord/server";
 import {
   subscriptionBinding,
+  AccountError,
   AccountStatus,
   DispatchOutcome,
   SetupResult,
 } from "@arctools/twitch/server";
 import { providerTransport } from "@arctools/utils/http";
-import { Match, Clock, Effect, Fiber, Redacted, Schema } from "effect";
+import {
+  Match,
+  Clock,
+  Effect,
+  Fiber,
+  Redacted,
+  Schema,
+  Array as Arr,
+  Option,
+  String as Str,
+  Console,
+} from "effect";
 
 import { setupWhenAvailable } from "./account-setup.js";
 import {
@@ -54,10 +73,10 @@ const Snapshot = Schema.Struct({
   journey: Schema.String,
   nativeId: Schema.String,
   logs: Schema.Array(Schema.String),
-  time: Schema.Number,
+  time: Schema.Finite,
   status: Schema.Unknown,
   onboardingRetained: Schema.Boolean,
-  alarm: Schema.NullOr(Schema.Number),
+  alarm: Schema.NullOr(Schema.Finite),
 });
 
 const rpc = Effect.fnUntraced(function* <A, I>(
@@ -71,14 +90,15 @@ const rpc = Effect.fnUntraced(function* <A, I>(
     result,
     Schema.Union([
       Schema.Struct({ kind: Schema.Literal("success"), value: schema }),
-      Schema.Struct({ kind: Schema.Literal("failure"), code: Schema.String }),
+      Schema.Struct({
+        kind: Schema.Literal("failure"),
+        code: AccountError.fields.code,
+      }),
     ]),
   );
 
   if (decoded.kind === "failure")
-    return yield* Effect.fail(
-      new Error(`Account RPC ${new URL(url).pathname}: ${decoded.code}`),
-    );
+    return yield* new AccountError({ code: decoded.code });
 
   return decoded.value;
 });
@@ -107,12 +127,17 @@ const authorize = Effect.fnUntraced(function* (url: string) {
     yield* rpc(`${url}/complete`, AccountStatus, {
       state: params.get("state"),
       operator: "fixture-operator-digest",
-      code: JSON.stringify({
+      code: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
         userId,
         login: auth.login,
-        scopes: params.get("scope")?.split(" "),
+        scopes: Option.getOrUndefined(
+          Option.map(
+            Option.fromNullishOr(params.get("scope")),
+            (effectNativeValue0) => Str.split(effectNativeValue0, " "),
+          ),
+        ),
         clientId: "fixture-twitch",
-      }),
+      }).pipe(Effect.orDie),
     });
   }
 
@@ -253,13 +278,15 @@ export function registerAccountTests({
           setup.authorizations[0]?.url ?? "",
         ).searchParams.get("state");
 
-        const code = JSON.stringify({
+        const code = yield* Schema.encodeEffect(
+          Schema.fromJsonString(Schema.Unknown),
+        )({
           userId: "100",
           login: "fixture_sender",
           clientId: "fixture-twitch",
           scopes: ["user:read:chat", "user:write:chat", "user:bot"],
           [field]: override,
-        });
+        }).pipe(Effect.orDie);
 
         const request = { state, code, operator: "fixture-operator-digest" };
         expect((yield* rawReply(`${u.account}/complete`, request)).code).toBe(
@@ -301,7 +328,7 @@ export function registerAccountTests({
       const ready = yield* authorize(u.account);
       expect(ready.status.setup).toBe("ready");
       expect(
-        ready.status.channels.map((channel) => String(channel.id)),
+        Arr.map(ready.status.channels, (channel) => String(channel.id)),
       ).toEqual(["200", "300"]);
       expect(
         (yield* get(`${u.account}/snapshot`, Snapshot)).onboardingRetained,
@@ -312,7 +339,9 @@ export function registerAccountTests({
           keepalive: false,
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stage: "wrong" }),
+          body: Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
+            stage: "wrong",
+          }),
         }),
       );
 
@@ -329,7 +358,9 @@ export function registerAccountTests({
             Authorization: "Bearer fixture-operator",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ stage: ready.status.stage }),
+          body: Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
+            stage: ready.status.stage,
+          }),
         }),
       );
 
@@ -371,7 +402,11 @@ export function registerAccountTests({
 
       expect(yield* Effect.promise(() => child.exited)).toBe(0);
       expect(
-        Schema.decodeUnknownSync(AccountStatus)(JSON.parse(output)).stage,
+        (yield* Schema.decodeUnknownEffect(AccountStatus)(
+          yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            output,
+          ).pipe(Effect.orDie),
+        )).stage,
       ).toBe(ready.status.stage);
       expect(output + errors).not.toContain("fixture-operator");
     }),
@@ -403,7 +438,8 @@ export function registerAccountTests({
       yield* post(`${u.account}/time`, configured.time + 1);
       yield* post(`${u.account}/credential`);
       expect(
-        (yield* providerSnapshot(u.provider)).remote.map(
+        Arr.map(
+          (yield* providerSnapshot(u.provider)).remote,
           (sub) => sub.condition.broadcaster_user_id,
         ),
       ).toEqual(["200"]);
@@ -496,7 +532,11 @@ export function registerAccountTests({
           ).toEqual({ kind: "rejected" });
           const captured = yield* get(`${u.account}/snapshot`, Snapshot);
           expect(captured.logs.length).toBeGreaterThan(0);
-          expect(JSON.stringify(captured.logs)).not.toContain("CANARY");
+          expect(
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+              captured.logs,
+            ).pipe(Effect.orDie),
+          ).not.toContain("CANARY");
           const before = yield* providerSnapshot(u.provider);
           expect(
             yield* rpc(`${u.account}/dispatch`, DispatchOutcome, rejected),
@@ -578,8 +618,16 @@ export function registerAccountTests({
               "POST /helix/chat/messages"
             ],
           ).toBe(observed.calls["POST /helix/chat/messages"]);
-          expect(JSON.stringify(reconstructed.status)).not.toContain("CANARY");
-          expect(JSON.stringify(observed.logs)).not.toContain("CANARY");
+          expect(
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+              reconstructed.status,
+            ).pipe(Effect.orDie),
+          ).not.toContain("CANARY");
+          expect(
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+              observed.logs,
+            ).pipe(Effect.orDie),
+          ).not.toContain("CANARY");
         }),
       );
     }),
@@ -722,8 +770,11 @@ export function registerAccountTests({
       ).toEqual({ kind: "expired" });
       const remote = yield* providerSnapshot(u.provider);
 
-      const subscription = remote.remote.find(
-        (sub) => sub.condition.broadcaster_user_id === "300",
+      const subscription = Option.getOrUndefined(
+        Arr.findFirst(
+          remote.remote,
+          (sub) => !!(sub.condition.broadcaster_user_id === "300"),
+        ),
       );
 
       if (!subscription) return yield* Effect.die("Missing revocation fixture");
@@ -757,7 +808,7 @@ export function registerAccountTests({
 
       expect(status.value.sender?.authorized).toBeTrue();
       expect(
-        status.value.channels.some((channel) => channel.id === "300"),
+        Arr.some(status.value.channels, (channel) => !!(channel.id === "300")),
       ).toBeFalse();
     }),
     { timeout: 120_000 },
@@ -796,14 +847,16 @@ export function registerAccountTests({
       ) {
         const stage = process.env.ARC_CLOUD_STAGE;
 
-        const entry = JSON.stringify({
+        const entry = yield* Schema.encodeEffect(
+          Schema.fromJsonString(Schema.Unknown),
+        )({
           stage,
           at: Date.now(),
           boundary,
           snapshots,
-        });
+        }).pipe(Effect.orDie);
 
-        console.info(`NATIVE_ALARM_ATTRIBUTION ${entry}`);
+        yield* Console.info(`NATIVE_ALARM_ATTRIBUTION ${entry}`);
         yield* Effect.promise(() =>
           appendFile(
             new URL(
@@ -824,7 +877,7 @@ export function registerAccountTests({
           preparedResponse,
           Schema.Struct({
             instance: Schema.String,
-            until: Schema.Number,
+            until: Schema.Finite,
             journey: Schema.String,
             nativeId: Schema.String,
           }),
@@ -861,7 +914,10 @@ export function registerAccountTests({
         yield* reconstructedSnapshot(native(), prepared.instance);
 
         const recovered = yield* native((value) =>
-          value.attribution.completedRuns.some((run) => run.alarmRun === 1),
+          Arr.some(
+            value.attribution.completedRuns,
+            (run) => !!(run.alarmRun === 1),
+          ),
         );
 
         yield* retain("early-account", recovered);
@@ -886,7 +942,10 @@ export function registerAccountTests({
         );
 
         const validated = yield* native((value) =>
-          value.attribution.completedRuns.some((run) => run.alarmRun === 2),
+          Arr.some(
+            value.attribution.completedRuns,
+            (run) => !!(run.alarmRun === 2),
+          ),
         );
 
         yield* retain("late-account", validated);
@@ -929,15 +988,18 @@ export function registerAccountTests({
         const beforePaired = yield* native();
 
         const priorInstances = new Set(
-          beforePaired.attribution.events.map((event) => event.instance),
+          Arr.map(beforePaired.attribution.events, (event) => event.instance),
         );
 
         const pairedRuns = (value: typeof snapshotSchema.Type) =>
-          value.attribution.completedRuns.filter(
+          Arr.filter(
+            value.attribution.completedRuns,
             (run) =>
-              run.alarmRun > beforePaired.liveAlarmRuns &&
-              !priorInstances.has(run.instance) &&
-              run.validationInvocationIds.length > 0,
+              !!(
+                run.alarmRun > beforePaired.liveAlarmRuns &&
+                !priorInstances.has(run.instance) &&
+                run.validationInvocationIds.length > 0
+              ),
           );
 
         expect(
@@ -948,7 +1010,7 @@ export function registerAccountTests({
         const paired = yield* native((value) => pairedRuns(value).length > 0);
 
         const pairedOrdinal = Math.min(
-          ...pairedRuns(paired).map((run) => run.alarmRun),
+          ...Arr.map(pairedRuns(paired), (run) => run.alarmRun),
         );
 
         const pairedKey = completedRunKey(paired.attribution, pairedOrdinal);
@@ -1051,13 +1113,11 @@ export function registerAccountTests({
       yield* post(`${u.provider}/control`, {
         commands: [
           { name: "obsolete", description: "obsolete", contexts: [0] },
-          ...commandManifest
-            .slice(1)
-            .map((command, index) =>
-              index === 0
-                ? { ...command, description: "old definition" }
-                : command,
-            ),
+          ...Arr.map(commandManifest.slice(1), (command, index) =>
+            index === 0
+              ? { ...command, description: "old definition" }
+              : command,
+          ),
         ],
       });
       expect((yield* syncCommands(release, options)).changed).toBeTrue();
@@ -1069,12 +1129,12 @@ export function registerAccountTests({
         ],
       ).toBe(written.calls["PUT /applications/fixture-discord/commands"]);
       yield* post(`${u.provider}/control`, {
-        commands: commandManifest.map((command, index) =>
+        commands: Arr.map(commandManifest, (command, index) =>
           index === 0
             ? {
                 ...command,
                 name_localizations: { de: "kaufen" },
-                options: command.options.map((option) => ({
+                options: Arr.map(command.options, (option) => ({
                   ...option,
                   description_localizations: { de: "Objektname" },
                 })),

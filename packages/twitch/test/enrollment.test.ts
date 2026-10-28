@@ -1,3 +1,6 @@
+/* oxlint-disable effecttsgo/crypto-random-uuid -- Native fixture callbacks allocate secure operation IDs synchronously. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
 import {
@@ -14,7 +17,17 @@ import {
 } from "@arctools/twitch/testing";
 import { digest } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
-import { Clock, Deferred, Effect, Fiber, Layer, Result, Schema } from "effect";
+import {
+  Clock,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Result,
+  Schema,
+  Array as Arr,
+  Option,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { fixtureConfig, harness, initial } from "./account-fixture.js";
@@ -63,7 +76,7 @@ const enroll = Effect.fnUntraced(function* (
 });
 
 const snapshot = (h: Effect.Success<ReturnType<typeof harness>>) =>
-  Schema.decodeUnknownSync(AccountState)(h.snapshot());
+  Schema.decodeSync(AccountState)(h.snapshot());
 
 const recovery = (
   h: Effect.Success<ReturnType<typeof harness>>,
@@ -80,7 +93,7 @@ const recovery = (
 const restoreLegacyCleanupRecords = (
   h: Effect.Success<ReturnType<typeof harness>>,
 ) => {
-  const sessions = snapshot(h).enrollments.map((entry) =>
+  const sessions = Arr.map(snapshot(h).enrollments, (entry) =>
     entry.phase.kind === "member"
       ? { ...entry, expiresAt: initial + policy.enrollmentSessionMs }
       : entry,
@@ -92,7 +105,7 @@ const restoreLegacyCleanupRecords = (
 
   h.memory.values.set("account:channel:v1/400", {
     ...record,
-    public: record.public.map((entry) => {
+    public: Arr.map(record.public, (entry) => {
       const { cleanupAfter: _cleanupAfter, ...member } = entry.member;
 
       return { ...entry, member };
@@ -130,7 +143,7 @@ for (const senderKind of ["personal", "synthetic"] as const) {
         yield* source.authorize();
         yield* enroll(source);
         source.time(initial + 1);
-        yield* source.alarm();
+        yield* source.alarm;
       }).pipe(Effect.provideService(Clock.Clock, source.clock));
 
       const h = yield* harness({
@@ -146,7 +159,7 @@ for (const senderKind of ["personal", "synthetic"] as const) {
         const restored = yield* h.construct(`${senderKind}-revision`);
         yield* h.authorize(restored.service);
         expect(
-          (yield* restored.service.status()).channels.map((c) => c.login),
+          Arr.map((yield* restored.service.status).channels, (c) => c.login),
         ).toEqual([fixtureConfig.senderLogin]);
         expect(snapshot(h).publicMembers).toEqual(
           snapshot(source).publicMembers,
@@ -168,7 +181,7 @@ for (const senderKind of ["personal", "synthetic"] as const) {
         const creates = h.control.creates;
         yield* restored.service.setup("operator-digest");
         h.time(initial + 1);
-        yield* restored.credentialAlarm();
+        yield* restored.credentialAlarm;
         expect(h.control.creates).toBe(creates);
         expect(h.control.sends).toBe(0);
       }).pipe(Effect.provideService(Clock.Clock, h.clock));
@@ -180,7 +193,7 @@ for (const senderKind of ["personal", "synthetic"] as const) {
         const restored = yield* returned.construct("returned-bot");
         yield* returned.authorize(restored.service);
         expect(
-          (yield* restored.service.status()).channels.map((c) => c.login),
+          Arr.map((yield* restored.service.status).channels, (c) => c.login),
         ).toEqual(["public_channel", ...bot.channelLogins]);
         expect(snapshot(returned).publicMembers).toEqual(
           snapshot(source).publicMembers,
@@ -199,7 +212,7 @@ for (const senderKind of ["personal", "synthetic"] as const) {
           outcome: { kind: "accepted", code: "reauthorize" },
         });
         returned.time(initial + 1);
-        yield* restored.credentialAlarm();
+        yield* restored.credentialAlarm;
         expect(yield* restored.enrollment.status(input.session)).toEqual({
           kind: "ready",
           login: "public_channel",
@@ -243,15 +256,23 @@ for (const stage of ["local-enrollment", "staging", "prod"]) {
         expect(saved.repair.kind).toBe("idle");
         expect(saved.nextRecoveryAt).toBe(initial + 1);
         expect(h.nativeAlarmAt()).toBe(initial + 1);
-        expect(JSON.stringify(h.snapshot())).not.toContain("canary-user-token");
-        expect(JSON.stringify(h.snapshot())).not.toContain(input.state);
+        expect(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            h.snapshot(),
+          ).pipe(Effect.orDie),
+        ).not.toContain("canary-user-token");
+        expect(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            h.snapshot(),
+          ).pipe(Effect.orDie),
+        ).not.toContain(input.state);
         expect(yield* h.enrollment.status(input.session)).toEqual({
           kind: "recovering",
           login: "public_channel",
         });
         h.time(initial + 1);
         h.consumeAlarm();
-        yield* h.alarm();
+        yield* h.alarm;
         expect(yield* h.enrollment.status(input.session)).toEqual({
           kind: "ready",
           login: "public_channel",
@@ -260,7 +281,8 @@ for (const stage of ["local-enrollment", "staging", "prod"]) {
           (yield* h.account.dispatch(h.send("public-send", "400"))).kind,
         ).toBe("sent");
         expect(
-          (yield* h.account.setup("operator-digest")).status.channels.map(
+          Arr.map(
+            (yield* h.account.setup("operator-digest")).status.channels,
             (channel) => String(channel.id),
           ),
         ).toEqual(["400", "200", "300"]);
@@ -493,9 +515,9 @@ test(
       expect(h.control.usersTokens.length).toBe(users + 2);
       yield* Deferred.succeed(h.control.usersGate, undefined);
       const outcomes = [yield* Fiber.join(a), yield* Fiber.join(b)];
-      expect(outcomes.filter(Result.isSuccess).length).toBe(1);
+      expect(Arr.filter(outcomes, Result.isSuccess).length).toBe(1);
       expect(
-        outcomes.flatMap((result) =>
+        Arr.flatMap(outcomes, (result) =>
           Result.isFailure(result) ? [result.failure.code] : [],
         ),
       ).toEqual(["capacity"]);
@@ -516,8 +538,9 @@ test(
       h.time(initial + policy.oauthMs);
       yield* h.enrollment.begin(yield* enrollmentInput());
       expect(
-        snapshot(h).enrollments.filter(
-          (entry) => entry.phase.kind === "pending",
+        Arr.filter(
+          snapshot(h).enrollments,
+          (entry) => !!(entry.phase.kind === "pending"),
         ).length,
       ).toBe(1);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
@@ -533,9 +556,9 @@ test(
 
       const input = yield* enroll(h);
       const installed = snapshot(h);
-      h.restoreRaw(Schema.encodeSync(AccountState)(installed));
+      h.restoreRaw(yield* Schema.encodeEffect(AccountState)(installed));
       const reconstructed = yield* h.construct();
-      expect((yield* reconstructed.service.status()).setup).toBe("pending");
+      expect((yield* reconstructed.service.status).setup).toBe("pending");
       expect(snapshot(h)).toEqual({
         ...installed,
         nextCredentialCheck: initial + 1,
@@ -574,10 +597,13 @@ test(
       const input = yield* enroll(h);
       h.time(initial + 1);
       h.control.failCreate = true;
-      yield* h.alarm();
+      yield* h.alarm;
 
-      const unknown = h.control.remote.find(
-        (sub) => sub.condition.broadcaster_user_id === "400",
+      const unknown = Option.getOrUndefined(
+        Arr.findFirst(
+          h.control.remote,
+          (sub) => !!(sub.condition.broadcaster_user_id === "400"),
+        ),
       )?.id;
 
       expect(unknown).toBeDefined();
@@ -587,8 +613,10 @@ test(
       h.control.subscriptionStatus = "webhook_callback_verification_pending";
       h.time(recovery(h).due);
       h.consumeAlarm();
-      yield* recovered.credentialAlarm();
-      expect(h.control.remote.some((sub) => sub.id === unknown)).toBeFalse();
+      yield* recovered.credentialAlarm;
+      expect(
+        Arr.some(h.control.remote, (sub) => !!(sub.id === unknown)),
+      ).toBeFalse();
       const record = snapshot(h).subscriptions["400"];
 
       if (!record)
@@ -616,7 +644,7 @@ test(
         login: "public_channel",
       });
       h.time(h.now() + 60_000);
-      yield* recovered.credentialAlarm();
+      yield* recovered.credentialAlarm;
       expect(snapshot(h).repair).toEqual({ kind: "idle" });
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
@@ -637,7 +665,7 @@ test(
         h.time(due);
         h.consumeAlarm();
         const restored = yield* h.construct();
-        yield* restored.credentialAlarm();
+        yield* restored.credentialAlarm;
         const next = recovery(h);
         const base = [60_000, 300_000][attempt] ?? 900_000;
         expect(next.due - due).toBeGreaterThanOrEqual(base * 0.9);
@@ -655,7 +683,7 @@ test(
       });
       h.control.failCreate = false;
       h.time(recovery(h).due);
-      yield* h.alarm();
+      yield* h.alarm;
       expect(yield* h.enrollment.status(input.session)).toEqual({
         kind: "ready",
         login: "public_channel",
@@ -672,7 +700,7 @@ test(
       yield* h.authorize();
       const input = yield* enroll(h);
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       const record = snapshot(h).subscriptions["400"];
 
       if (!record) return yield* Effect.die("Missing public subscription");
@@ -691,7 +719,7 @@ test(
       yield* h.authorize();
       const reinstalled = yield* enroll(h);
       h.time(h.now() + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       expect(yield* h.enrollment.status(reinstalled.session)).toEqual({
         kind: "ready",
         login: "public_channel",
@@ -746,7 +774,7 @@ for (const status of ["authorization_revoked", "user_removed"] as const)
         const pending = yield* enrollmentInput();
         yield* h.enrollment.begin(pending);
         h.time(initial + 1);
-        yield* h.alarm();
+        yield* h.alarm;
         const record = snapshot(h).subscriptions["400"];
 
         if (!record) return yield* Effect.die("Missing public subscription");
@@ -766,20 +794,19 @@ for (const status of ["authorization_revoked", "user_removed"] as const)
         expect(snapshot(h).nextCleanupAt).toBeLessThanOrEqual(cleanupAt);
         h.time(cleanupAt - 1);
         h.consumeAlarm();
-        yield* h.alarm();
+        yield* h.alarm;
         expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
         h.time(cleanupAt);
         h.consumeAlarm();
         const restored = yield* h.construct();
-        yield* restored.credentialAlarm();
-        expect(snapshot(h).publicMembers.map((member) => member.id)).toEqual([
-          BroadcasterId.make("500"),
-        ]);
+        yield* restored.credentialAlarm;
+        expect(
+          Arr.map(snapshot(h).publicMembers, (member) => member.id),
+        ).toEqual([BroadcasterId.make("500")]);
         expect(snapshot(h).subscriptions["400"]).toBeUndefined();
-        expect(snapshot(h).enrollments.map((entry) => entry.session)).toEqual([
-          survivor.session,
-          revoked.session,
-        ]);
+        expect(
+          Arr.map(snapshot(h).enrollments, (entry) => entry.session),
+        ).toEqual([survivor.session, revoked.session]);
         expect(snapshot(h).grants["400"]).toBeUndefined();
         expect(snapshot(h).grants["100"]).toContain("user:bot");
         expect(snapshot(h).lifecycle["400"]?.kind).toBe("removed");
@@ -799,7 +826,7 @@ for (const status of ["authorization_revoked", "user_removed"] as const)
         ).toBe("state");
         const reinstalled = yield* enroll(h);
         h.time(h.now() + 1);
-        yield* h.alarm();
+        yield* h.alarm;
         expect(yield* h.enrollment.status(reinstalled.session)).toEqual({
           kind: "ready",
           login: "public_channel",
@@ -816,7 +843,7 @@ test(
       yield* h.authorize();
       yield* enroll(h);
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       const old = snapshot(h).subscriptions["400"];
 
       if (!old) return yield* Effect.die("Missing public subscription");
@@ -830,23 +857,23 @@ test(
       yield* h.account.observeSubscription(observation);
       const renewed = yield* enroll(h);
       h.time(initial + 2);
-      yield* h.alarm();
+      yield* h.alarm;
       const replacement = snapshot(h).subscriptions["400"]?.id;
       expect(replacement).not.toBe(old.id);
       h.time(initial + policy.retentionMs + 2);
       h.consumeAlarm();
-      yield* h.alarm();
+      yield* h.alarm;
       expect(snapshot(h).revoked[old.id]?.until).toBeGreaterThan(h.now());
       yield* h.account.observeSubscription(observation);
       expect(snapshot(h).grants["400"]).toEqual(["channel:bot"]);
       h.time(initial + policy.revocationMs + 2);
       h.consumeAlarm();
-      yield* h.alarm();
+      yield* h.alarm;
       expect(snapshot(h).revoked[old.id]).toBeUndefined();
       yield* h.account.observeSubscription(observation);
       h.time(h.now() + policy.retentionMs);
       h.consumeAlarm();
-      yield* h.alarm();
+      yield* h.alarm;
       expect(snapshot(h).subscriptions["400"]?.id).toBe(replacement);
       expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
       expect(yield* h.enrollment.status(renewed.session)).toEqual({
@@ -865,7 +892,7 @@ test(
       yield* h.authorize();
       yield* enroll(h);
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       const record = snapshot(h).subscriptions["400"];
 
       if (!record) return yield* Effect.die("Missing public subscription");
@@ -898,8 +925,8 @@ test(
       yield* h.authorize();
       yield* enroll(h);
       h.time(initial + 1);
-      yield* h.alarm();
-      h.control.remote = h.control.remote.map((record) =>
+      yield* h.alarm;
+      h.control.remote = Arr.map(h.control.remote, (record) =>
         record.condition.broadcaster_user_id === "400"
           ? { ...record, status: "user_removed" }
           : record,
@@ -912,7 +939,7 @@ test(
       expect(h.control.creates).toBe(creates);
       h.time(h.now() + Math.max(policy.oauthMs, policy.retentionMs));
       h.consumeAlarm();
-      yield* h.alarm();
+      yield* h.alarm;
       expect(snapshot(h).lifecycle["400"]?.kind).toBe("removed");
       expect(snapshot(h).grants["100"]).toContain("user:bot");
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
@@ -927,7 +954,7 @@ test(
       yield* h.authorize();
       yield* enroll(h);
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       const subscription = snapshot(h).subscriptions["400"];
 
       if (!subscription)
@@ -943,14 +970,14 @@ test(
       h.time(initial + policy.retentionMs + 2);
       const restored = yield* h.construct();
       expect(h.nativeAlarmAt()).toBeLessThanOrEqual(h.now());
-      yield* restored.credentialAlarm();
+      yield* restored.credentialAlarm;
       const cleanupAfter = snapshot(h).publicMembers[0]?.cleanupAfter;
       expect(cleanupAfter).toBe(
         h.now() + Math.max(policy.oauthMs, policy.retentionMs),
       );
       h.time(h.now() + Math.max(policy.oauthMs, policy.retentionMs));
       h.consumeAlarm();
-      yield* restored.credentialAlarm();
+      yield* restored.credentialAlarm;
       expect(snapshot(h).publicMembers).toEqual([]);
       expect(snapshot(h).enrollments).toEqual([]);
       expect(snapshot(h).grants["100"]).toContain("user:bot");
@@ -967,7 +994,7 @@ for (const authorized of [true, false])
         yield* h.authorize();
         yield* enroll(h);
         h.time(initial + 1);
-        yield* h.alarm();
+        yield* h.alarm;
 
         if (!authorized)
           yield* h.store.update((state) => {
@@ -977,11 +1004,11 @@ for (const authorized of [true, false])
         restoreLegacyCleanupRecords(h);
         const restored = yield* h.construct();
         expect(h.nativeAlarmAt()).toBeLessThanOrEqual(h.now());
-        yield* restored.credentialAlarm();
+        yield* restored.credentialAlarm;
         expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
         h.time(initial + policy.enrollmentSessionMs + 1);
         h.consumeAlarm();
-        yield* restored.credentialAlarm();
+        yield* restored.credentialAlarm;
         expect(h.memory.values.has("account:channel:v1/400")).toBeTrue();
         expect(snapshot(h).publicMembers[0]?.cleanupAfter).toBeNull();
       }).pipe(Effect.provideService(Clock.Clock, h.clock));
@@ -996,7 +1023,7 @@ test(
       yield* h.authorize();
       yield* enroll(h);
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       const record = snapshot(h).subscriptions["400"];
 
       if (!record) return yield* Effect.die("Missing public subscription");
@@ -1007,10 +1034,10 @@ test(
       });
       const renewed = yield* enroll(h);
       h.time(initial + 2);
-      yield* h.alarm();
+      yield* h.alarm;
       h.time(initial + 1 + Math.max(policy.oauthMs, policy.retentionMs));
       h.consumeAlarm();
-      yield* h.alarm();
+      yield* h.alarm;
       expect(yield* h.enrollment.status(renewed.session)).toEqual({
         kind: "ready",
         login: "public_channel",
@@ -1032,7 +1059,7 @@ test(
       h.control.listGate = yield* Deferred.make<void>();
       h.control.listStarted = yield* Deferred.make<void>();
       h.time(initial + 1);
-      const repair = yield* h.alarm().pipe(Effect.forkChild);
+      const repair = yield* h.alarm.pipe(Effect.forkChild);
       yield* Deferred.await(h.control.listStarted);
       const input = yield* enrollmentInput();
       yield* h.enrollment.begin(input);
@@ -1047,7 +1074,7 @@ test(
       expect(recovery(h, "500")).toEqual(newer);
       expect(snapshot(h).subscriptions["500"]).toBeUndefined();
       h.time(newer.due);
-      yield* h.alarm();
+      yield* h.alarm;
       expect(yield* h.enrollment.status(input.session)).toEqual({
         kind: "ready",
         login: "new_public_channel",
@@ -1077,7 +1104,7 @@ test(
       expect(lease).not.toBeNull();
       h.time(initial + 1);
       const creates = h.control.creates;
-      yield* h.alarm();
+      yield* h.alarm;
       expect(h.control.creates).toBe(creates);
       expect(snapshot(h).setupLease).toEqual(lease);
       expect(h.nativeAlarmAt()).toBe((lease?.until ?? 0) + 1);
@@ -1089,7 +1116,7 @@ test(
       });
       const proof = snapshot(h).subscriptions["400"];
       h.time((lease?.until ?? 0) + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       expect(snapshot(h).subscriptions["400"]).toEqual(proof);
       expect(h.control.creates).toBe(creates + 1);
       expect(snapshot(h).repair).toEqual({ kind: "idle" });
@@ -1121,18 +1148,22 @@ test(
         condition: { ...other.condition, user_id: "other-sender" },
       });
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       expect(yield* h.enrollment.status(input.session)).toEqual({
         kind: "ready",
         login: "public_channel",
       });
       expect(
-        h.control.remote.some(
-          (record) => record.id === "other-application-callback",
+        Arr.some(
+          h.control.remote,
+          (record) => !!(record.id === "other-application-callback"),
         ),
       ).toBeTrue();
       expect(
-        h.control.remote.some((record) => record.id === "other-sender"),
+        Arr.some(
+          h.control.remote,
+          (record) => !!(record.id === "other-sender"),
+        ),
       ).toBeTrue();
       expect(h.control.removes).toBe(0);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
@@ -1154,7 +1185,7 @@ test(
         outcome: { kind: "accepted", code: "second" },
       });
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       const pending = yield* enrollmentInput();
       yield* h.enrollment.begin(pending);
       const preRevocation = yield* enrollmentInput();
@@ -1202,7 +1233,7 @@ test(
       });
       const reinstalled = yield* enroll(h);
       h.time(h.now() + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       expect(yield* h.enrollment.status(reinstalled.session)).toEqual({
         kind: "ready",
         login: "public_channel",
@@ -1224,7 +1255,7 @@ test(
       yield* h.authorize();
       yield* enroll(h);
       h.time(initial + 1);
-      yield* h.alarm();
+      yield* h.alarm;
       const record = snapshot(h).subscriptions["400"];
 
       if (!record) return yield* Effect.die("Missing public receipt");
@@ -1384,13 +1415,16 @@ test(
       h.control.createStarted = yield* Deferred.make<void>();
       const creates = h.control.creates;
       h.time(initial + 1);
-      const repair = yield* h.alarm().pipe(Effect.forkChild);
+      const repair = yield* h.alarm.pipe(Effect.forkChild);
 
       yield* Deferred.await(h.control.createStarted);
       expect(h.control.creates).toBe(creates + 1);
 
-      const remote = h.control.remote.find(
-        (record) => record.condition.broadcaster_user_id === "400",
+      const remote = Option.getOrUndefined(
+        Arr.findFirst(
+          h.control.remote,
+          (record) => !!(record.condition.broadcaster_user_id === "400"),
+        ),
       );
 
       if (!remote) return yield* Effect.die("Missing delayed remote create");

@@ -1,8 +1,16 @@
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect, test } from "bun:test";
 
 import { botOrigin, websiteOrigin } from "@arctools/bot-contracts/origins";
 import * as Test from "alchemy/Test/Bun";
-import { ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  ConfigProvider,
+  Effect,
+  Layer,
+  Redacted,
+  Schema,
+  String as Str,
+} from "effect";
 
 import { cloudSettings } from "../../../scripts/cloud-settings.js";
 import { botRequestObservation } from "../../../tests/cloud/bot-composition.js";
@@ -25,7 +33,7 @@ const fixture = {
   channelLogins: ["fixture_channel"],
   twitchClientId: "fixture-twitch",
   discordApplicationId: "fixture-discord",
-} as const satisfies typeof EnvironmentConfig.Type;
+} as const satisfies EnvironmentConfig;
 
 const decode = Schema.decodeUnknownSync(EnvironmentConfig);
 
@@ -125,10 +133,10 @@ test("cloud settings reject local emulation, stage aliases and missing run ident
 });
 
 test("tenant partitions use verified transport IDs and command names come from the registry", () => {
-  const guildId = Schema.decodeUnknownSync(GuildId)("1234");
+  const guildId = Schema.decodeSync(GuildId)("1234");
   expect(tenantName({ transport: "discord", guildId })).toBe("discord:1234");
   expect(
-    Schema.decodeUnknownSync(CommandInput)({
+    Schema.decodeSync(CommandInput)({
       command: "active",
       input: "",
       deadline: 1000,
@@ -198,7 +206,7 @@ for (const stage of ["local-enrollment", "staging"]) {
             TWITCH_CLIENT_SECRET: "controlled-client-secret",
             TWITCH_SIGNING_SECRET: "controlled-signing-secret",
             DISCORD_BOT_TOKEN: "controlled-discord-token",
-            DISCORD_PUBLIC_KEY: "a".repeat(64),
+            DISCORD_PUBLIC_KEY: Str.repeat(64)("a"),
             OPERATOR_SECRET: "controlled-operator-secret",
           }),
         ),
@@ -323,7 +331,7 @@ test("Website defaults to localhost outside prod and only prod pins its actual s
     ).toBe("http://localhost:3000");
   }
 
-  await expect(
+  expect(
     Effect.runPromise(
       configuredWebsiteOrigin.pipe(
         Effect.provideService(

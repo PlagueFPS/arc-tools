@@ -1,3 +1,9 @@
+/* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
+/* oxlint-disable effecttsgo/node-builtin-import -- The host adapter uses Node filesystem, path, or process APIs before an Effect runtime is available. */
+/* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect, spyOn } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +20,8 @@ import {
   Layer,
   Predicate,
   Schema,
+  Array as Arr,
+  String as Str,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -158,7 +166,7 @@ test(
       });
 
       const result = yield* Effect.exit(
-        client.get(url, Schema.Struct({ value: Schema.Number })),
+        client.get(url, Schema.Struct({ value: Schema.Finite })),
       );
 
       expect(Exit.isFailure(result)).toBeTrue();
@@ -192,7 +200,7 @@ test(
       new Uint8Array(yield* Effect.promise(() => response.arrayBuffer())),
     ).toEqual(bytes);
     expect(
-      yield* client.get(url, Schema.Struct({ value: Schema.Number })),
+      yield* client.get(url, Schema.Struct({ value: Schema.Finite })),
     ).toEqual({ value: 42 });
   }),
 );
@@ -268,7 +276,7 @@ test(
 test(
   "probe snapshot failures retain their explanation without retrying or exposing other response bodies",
   Effect.gen(function* () {
-    const snapshot = url.replace("/arm", "/snapshot");
+    const snapshot = Str.replace("/arm", "/snapshot")(url);
 
     for (const [target, method, marker, expected] of [
       [snapshot, "GET", "v1", "fixture-failure"],
@@ -297,7 +305,7 @@ test(
 
       if (
         Predicate.isTagged(result, "Failure") &&
-        result.failure instanceof FixtureRequestError
+        Schema.is(FixtureRequestError)(result.failure)
       ) {
         expect(result.failure.diagnostic).toMatchObject({ status: 500 });
         expect(
@@ -305,9 +313,11 @@ test(
             ? result.failure.diagnostic.probeError
             : undefined,
         ).toBe(expected);
-        expect(JSON.stringify(result.failure.diagnostic)).not.toContain(
-          "SECRET",
-        );
+        expect(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            result.failure.diagnostic,
+          ).pipe(Effect.orDie),
+        ).not.toContain("SECRET");
       } else throw new Error("Expected a fixture HTTP failure");
     }
   }),
@@ -359,7 +369,9 @@ test(
         },
         (event) =>
           Effect.sync(() => {
-            events.push(JSON.stringify(event));
+            events.push(
+              Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(event),
+            );
           }),
       );
 
@@ -368,7 +380,7 @@ test(
           auditedObservation(
             "provider",
             "https://provider.invalid/snapshot",
-            Schema.Struct({ value: Schema.Number }),
+            Schema.Struct({ value: Schema.Finite }),
           ),
           { until: () => true, budgetMs: 1000 },
         )
@@ -379,7 +391,7 @@ test(
       const transient = code === "ECONNRESET" || code === "EAI_AGAIN";
       expect(Exit.isSuccess(result)).toBe(transient);
       expect(calls).toBe(transient ? 3 : 1);
-      expect(events.join("\n")).not.toContain("CANARY");
+      expect(Arr.join(events, "\n")).not.toContain("CANARY");
     }
   }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
 );
@@ -511,7 +523,9 @@ test(
       },
       (event) =>
         Effect.sync(() => {
-          events.push(JSON.stringify(event));
+          events.push(
+            Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(event),
+          );
         }),
     );
 
@@ -525,11 +539,16 @@ test(
     if (!Exit.isFailure(exit))
       return yield* Effect.die("Expected sanitized failure");
 
-    const rendered = [
-      Cause.pretty(exit.cause),
-      JSON.stringify(exit),
-      ...events,
-    ].join("\n");
+    const rendered = Arr.join(
+      [
+        Cause.pretty(exit.cause),
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          exit,
+        ).pipe(Effect.orDie),
+        ...events,
+      ],
+      "\n",
+    );
 
     expect(rendered).not.toContain(canary);
     expect(rendered).toContain("ECONNRESET");
@@ -576,20 +595,24 @@ test(
           ),
         (event) =>
           Effect.sync(() => {
-            events.push(JSON.stringify(event));
+            events.push(
+              Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(event),
+            );
           }),
       );
 
       const responseExit = yield* responseClient
-        .get(url, Schema.Struct({ value: Schema.Number }))
+        .get(url, Schema.Struct({ value: Schema.Finite }))
         .pipe(Effect.exit);
 
       if (!Exit.isFailure(responseExit))
         return yield* Effect.die("Expected response failure");
       expect(
         Cause.pretty(responseExit.cause) +
-          JSON.stringify(responseExit) +
-          events.join("\n"),
+          (yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            responseExit,
+          ).pipe(Effect.orDie)) +
+          Arr.join(events, "\n"),
       ).not.toContain(canary);
     }
   }),
@@ -669,10 +692,12 @@ test(
 
       expect(
         Cause.pretty(exit.cause) +
-          JSON.stringify(exit) +
+          (yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            exit,
+          ).pipe(Effect.orDie)) +
           journal +
           cleanup +
-          lines.join("\n"),
+          Arr.join(lines, "\n"),
       ).not.toContain("CANARY-SECRET");
       expect(journal).toContain("ECONNRESET");
       expect(cleanup).toContain('"state":"confirmed"');
@@ -753,7 +778,7 @@ test(
           auditedObservation(
             "provider",
             "https://provider.invalid/snapshot",
-            Schema.Struct({ value: Schema.Number }),
+            Schema.Struct({ value: Schema.Finite }),
           ),
           { until: () => true, budgetMs: 1000 },
         )
@@ -801,7 +826,11 @@ test(
       expect(metadata?.tenant.fallbackCode).toBe(
         code === "CANARY" ? "unknown" : code,
       );
-      expect(JSON.stringify(metadata)).not.toContain("CANARY");
+      expect(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          metadata,
+        ).pipe(Effect.orDie),
+      ).not.toContain("CANARY");
     }
   }),
 );

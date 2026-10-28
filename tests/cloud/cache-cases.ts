@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 
-import { Effect, Fiber, Option, Schema } from "effect";
+import { Effect, Fiber, Option, Schema, Record as Rec } from "effect";
 
 import { EncodedRead } from "../../packages/arc-data/src/cache.js";
 import {
@@ -91,12 +91,12 @@ export function registerCacheTests({
       const input = query("persist");
       const first = yield* successful(url, input);
       const before = yield* snapshot(url);
-      expect(Object.keys(before.rows)).toEqual([
+      expect(Rec.keys(before.rows)).toEqual([
         "entry:v1:json:/items?id=persist",
       ]);
       expect(first.provenance).toEqual({ freshness: "fresh", fetchedAt: 0 });
 
-      const decoded = yield* Schema.decodeUnknownEffect(
+      const decoded = yield* Schema.decodeEffect(
         Schema.fromJsonString(ItemAPIResponse),
       )(first.body);
 
@@ -128,7 +128,12 @@ export function registerCacheTests({
         freshness: "fresh",
         fetchedAt: day,
       });
-      expect(JSON.parse(refreshed.body).data[0]).toEqual({
+      expect(
+        (yield* Schema.decodeEffect(
+          Schema.fromJsonString(Schema.toEncoded(ItemAPIResponse)),
+          { onExcessProperty: "error" },
+        )(refreshed.body).pipe(Effect.orDie)).data[0],
+      ).toEqual({
         id: "persist",
         name: "Updated",
         value: 20,
@@ -272,7 +277,12 @@ export function registerCacheTests({
           if (old.kind === "failure")
             expect(old.error.reason).toBe("superseded");
           expect(yield* successful(url, lateInput)).toEqual(newer);
-          expect(JSON.parse(newer.body).data[0].name).toBe("Current");
+          expect(
+            (yield* Schema.decodeEffect(
+              Schema.fromJsonString(Schema.toEncoded(ItemAPIResponse)),
+              { onExcessProperty: "error" },
+            )(newer.body).pipe(Effect.orDie)).data[0]?.name,
+          ).toBe("Current");
           yield* post(`${url}/reconstruct`);
           expect(
             (yield* snapshot(url)).rows["entry:v1:json:/items?id=late"]?.value
@@ -338,7 +348,12 @@ export function registerCacheTests({
       ).toBe(1);
       yield* configure(source, { key: "/items?id=empty", body: { data: [] } });
       const empty = yield* successful(url, query("empty"));
-      expect(JSON.parse(empty.body)).toEqual({ data: [] });
+      expect(
+        yield* Schema.decodeEffect(
+          Schema.fromJsonString(Schema.toEncoded(ItemAPIResponse)),
+          { onExcessProperty: "error" },
+        )(empty.body).pipe(Effect.orDie),
+      ).toEqual({ data: [] });
       expect(yield* successful(url, query("empty"))).toEqual(empty);
       expect((yield* observations(source))["/items?id=empty"]).toBe(1);
     }),

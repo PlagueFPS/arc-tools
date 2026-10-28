@@ -8,7 +8,14 @@ import {
   enrollmentTiming,
 } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
-import { Effect, Schema, Struct } from "effect";
+import {
+  Effect,
+  Schema,
+  Struct,
+  Array as Arr,
+  String as Str,
+  Option,
+} from "effect";
 
 import type { WebsiteUnavailable } from "./errors.js";
 
@@ -39,9 +46,12 @@ const BrowserSession = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 const CallbackCode = Schema.NonEmptyString.check(Schema.isMaxLength(2048));
 
 const randomCredential = () =>
-  Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  Arr.join(
+    Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+      Str.padStart(2, "0")(byte.toString(16)),
+    ),
+    "",
+  );
 
 const readSession = Effect.fnUntraced(function* (request: Request) {
   const policy = enrollmentCookiePolicy(request);
@@ -51,21 +61,27 @@ const readSession = Effect.fnUntraced(function* (request: Request) {
 
   if (cookie.length > 4096) return yield* new AccountError({ code: "input" });
 
-  const values = cookie
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.split("=", 1)[0] === policy.name);
+  const values = Arr.filter(
+    Arr.map(Str.split(cookie, ";"), (entry) => Str.trim(entry)),
+    // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Native split preserves the limit argument.
+    (entry) => !!(entry.split("=", 1)[0] === policy.name),
+  );
 
   if (values.length === 0) return null;
 
   if (values.length !== 1) return yield* new AccountError({ code: "input" });
-  const value = values[0]?.slice(policy.name.length + 1);
+
+  const value = Option.getOrUndefined(
+    Option.map(Option.fromNullishOr(values[0]), (effectNativeValue0) =>
+      Str.slice(policy.name.length + 1)(effectNativeValue0),
+    ),
+  );
 
   const valid = yield* Schema.decodeUnknownEffect(BrowserSession)(value).pipe(
     Effect.mapError(() => new AccountError({ code: "input" })),
   );
 
-  return yield* Schema.decodeUnknownEffect(EnrollmentSession)(
+  return yield* Schema.decodeEffect(EnrollmentSession)(
     yield* digest(valid),
   ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
 });
@@ -268,7 +284,15 @@ export const websiteHttp = <R>(
             { status: 400, headers },
           );
 
-        if (url.searchParams.get("state")?.startsWith("enroll."))
+        if (
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(url.searchParams.get("state")),
+              (effectNativeValue1) =>
+                Str.startsWith("enroll.")(effectNativeValue1),
+            ),
+          )
+        )
           return yield* handlers
             .completeEnrollment(request, url)
             .pipe(Effect.timeout(enrollmentTiming.callbackMs));

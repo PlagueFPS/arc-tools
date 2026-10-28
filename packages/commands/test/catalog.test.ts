@@ -5,12 +5,26 @@ import {
   CommandExecution,
   CommandName as CommandNameSchema,
 } from "@arctools/commands/schemas";
-import { Schema } from "effect";
+import {
+  Schema,
+  Option,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+} from "effect";
 
 test("usage shows provider syntax for item, event and argument-free commands", () => {
-  const sell = commandCatalog.find((command) => command.name === "sell");
-  const event = commandCatalog.find((command) => command.name === "event");
-  const active = commandCatalog.find((command) => command.name === "active");
+  const sell = Option.getOrUndefined(
+    Arr.findFirst(commandCatalog, (command) => !!(command.name === "sell")),
+  );
+
+  const event = Option.getOrUndefined(
+    Arr.findFirst(commandCatalog, (command) => !!(command.name === "event")),
+  );
+
+  const active = Option.getOrUndefined(
+    Arr.findFirst(commandCatalog, (command) => !!(command.name === "active")),
+  );
 
   expect(sell?.exampleArguments).toEqual({ item: "sensors" });
   expect(sell?.usage).toEqual({
@@ -34,7 +48,7 @@ test("usage shows provider syntax for item, event and argument-free commands", (
 });
 
 test("catalog names drive runtime recognition and every example fills its options", () => {
-  const names = commandCatalog.map((command) => command.name);
+  const names = Arr.map(commandCatalog, (command) => command.name);
 
   expect(new Set(names).size).toBe(names.length);
 
@@ -47,12 +61,13 @@ test("catalog names drive runtime recognition and every example fills its option
         deadline: 0,
       }),
     ).toBe(true);
-    expect(Object.keys(command.exampleArguments).sort()).toEqual(
-      command.slashOptions.map((option) => option.name).sort(),
+    expect(Rec.keys<string, string>(command.exampleArguments).sort()).toEqual(
+      Arr.map(command.slashOptions, (option) => option.name).sort(),
     );
     expect(
-      Object.values(command.exampleArguments).every(
-        (value) => value.length > 0,
+      Arr.every(
+        Rec.values<string, string>(command.exampleArguments),
+        (value) => !!(value.length > 0),
       ),
     ).toBe(true);
   }
@@ -64,7 +79,7 @@ test("catalog names drive runtime recognition and every example fills its option
   expect(
     Schema.is(CommandExecution)({
       command: "sell",
-      input: "x".repeat(257),
+      input: Str.repeat(257)("x"),
       deadline: 0,
     }),
   ).toBe(false);
@@ -73,7 +88,7 @@ test("catalog names drive runtime recognition and every example fills its option
   ).toBe(false);
 });
 
-test("the public catalog builds for browsers without server or runtime dependencies", async () => {
+test("the public catalog builds for browsers without server dependencies", async () => {
   const inputs: string[] = [];
 
   const result = await Bun.build({
@@ -97,8 +112,8 @@ test("the public catalog builds for browsers without server or runtime dependenc
     new URL("../src/catalog.ts", import.meta.url).pathname,
   );
   expect(
-    inputs.some((path) =>
-      /node_modules|handlers|arc-data|execute|schemas|config|alchemy/.test(
+    Arr.some(inputs, (path) =>
+      /(?:[/\\]src[/\\](?:handlers|execute|schemas|config)|arc-data|alchemy)/.test(
         path,
       ),
     ),

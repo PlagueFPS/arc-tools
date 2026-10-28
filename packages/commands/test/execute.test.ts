@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import { DataUnavailable } from "@arctools/arc-data";
@@ -11,6 +12,7 @@ import {
   Effect,
   Fiber,
   Layer,
+  String as Str,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -273,7 +275,7 @@ describe("cached command execution", () => {
       fixture.respond((url) =>
         Effect.succeed(
           Response.json({
-            data: url.pathname.endsWith("/traders")
+            data: Str.endsWith("/traders")(url.pathname)
               ? {
                   Apollo: [],
                   Celeste: [],
@@ -283,7 +285,7 @@ describe("cached command execution", () => {
                   ],
                   TianWen: [],
                 }
-              : url.pathname.endsWith("/arcs")
+              : Str.endsWith("/arcs")(url.pathname)
                 ? [
                     {
                       id: "bastion",
@@ -291,7 +293,7 @@ describe("cached command execution", () => {
                       loot: [{ item: { id: "sensors", name: "Sensors" } }],
                     },
                   ]
-                : url.pathname.endsWith("/events-schedule")
+                : Str.endsWith("/events-schedule")(url.pathname)
                   ? [
                       {
                         name: "Harvester",

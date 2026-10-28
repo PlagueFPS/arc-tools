@@ -1,6 +1,6 @@
 import { getTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
-import { Effect } from "effect";
+import { Effect, Array as Arr, Record as Rec, String as Str } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 
@@ -12,20 +12,21 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
       );
     }
 
-    const potentialId = query.toLowerCase().replace(/ /g, "-");
+    const potentialId = Str.replace(/ /g, "-")(Str.toLowerCase(query));
+
     const normalizedQuery = normalize(query);
     const traders = yield* getTraders();
 
     const matches: { traderName: string; itemName: string; price: number }[] =
       [];
 
-    for (const [traderName, inventory] of Object.entries(traders)) {
-      inventory.forEach((item) => {
-        const matchesId = item.id.toLowerCase() === potentialId;
+    for (const [traderName, inventory] of Rec.toEntries(traders)) {
+      Arr.forEach(inventory, (item) => {
+        const matchesId = Str.toLowerCase(item.id) === potentialId;
 
         const matchesName =
-          item.name.toLowerCase().includes(query.toLowerCase()) ||
-          normalize(item.name).includes(normalizedQuery);
+          Str.includes(Str.toLowerCase(query))(Str.toLowerCase(item.name)) ||
+          Str.includes(normalizedQuery)(normalize(item.name));
 
         if (matchesId || matchesName) {
           matches.push({
@@ -41,8 +42,8 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
       return yield* Effect.succeed(`[Warn] No trader sells: ${query}`);
     }
 
-    const response = matches
-      .map((m) => {
+    const response = Arr.join(
+      Arr.map(matches, (m) => {
         switch (m.traderName) {
           case "Shani":
             return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} cred.`;
@@ -51,8 +52,9 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
           default:
             return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} coins`;
         }
-      })
-      .join(", ");
+      }),
+      ", ",
+    );
 
     return yield* Effect.succeed(response);
   },

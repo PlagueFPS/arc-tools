@@ -3,7 +3,7 @@ import * as Alchemy from "alchemy";
 import { AlchemyContext } from "alchemy/AlchemyContext";
 import type { StackProps, StackServices } from "alchemy/Stack";
 import { Stage } from "alchemy/Stage";
-import { Config, Effect, Schema } from "effect";
+import { Config, Effect, Schema, String as Str } from "effect";
 
 import { Stage as StageSchema, TestStage } from "./apps/bot/src/config.js";
 import BotLive, { Bot } from "./apps/bot/src/worker.js";
@@ -19,7 +19,7 @@ export const makeStack = (
     options,
     Effect.gen(function* () {
       const stage = yield* Stage;
-      yield* Schema.decodeUnknownEffect(StageSchema)(stage).pipe(Effect.orDie);
+      yield* Schema.decodeEffect(StageSchema)(stage).pipe(Effect.orDie);
       const configuredStage = yield* Config.schema(StageSchema, "ARC_STAGE");
 
       if (stage !== configuredStage) {
@@ -30,7 +30,7 @@ export const makeStack = (
         return yield* Effect.die("Local development cannot select prod");
       }
 
-      if (stage.startsWith("test-tenant-")) {
+      if (Str.startsWith("test-tenant-")(stage)) {
         const { MetaforgeWorker } = yield* Effect.promise(
           () => import("./tests/cloud/metaforge.js"),
         );
@@ -53,9 +53,9 @@ export const makeStack = (
         const probe = yield* ProbeWorker;
 
         if (
-          stage.startsWith("test-cache-") ||
-          stage.startsWith("test-account-") ||
-          stage.startsWith("test-tenant-")
+          Str.startsWith("test-cache-")(stage) ||
+          Str.startsWith("test-account-")(stage) ||
+          Str.startsWith("test-tenant-")(stage)
         ) {
           const { CacheFixtureWorker } = yield* Effect.promise(
             () => import("./tests/cloud/cache-fixture.js"),
@@ -69,8 +69,8 @@ export const makeStack = (
           const cache = yield* CacheFixtureWorker;
 
           if (
-            stage.startsWith("test-account-") ||
-            stage.startsWith("test-tenant-")
+            Str.startsWith("test-account-")(stage) ||
+            Str.startsWith("test-tenant-")(stage)
           ) {
             const { TwitchProviderFixture } = yield* Effect.promise(
               () => import("./tests/cloud/twitch-provider-fixture.js"),
@@ -83,7 +83,7 @@ export const makeStack = (
             const provider = yield* TwitchProviderFixture;
             const account = yield* AccountFixtureWorker;
 
-            const tenant = stage.startsWith("test-tenant-")
+            const tenant = Str.startsWith("test-tenant-")(stage)
               ? yield* Effect.promise(
                   () => import("./tests/cloud/tenant-fixture.js"),
                 ).pipe(
@@ -148,6 +148,7 @@ export const makeStack = (
         workerName: bot.workerName,
         websiteUrl: website.url,
       };
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This CLI or deployment entry point owns the composed layer scope.
     }).pipe(Effect.provide(BotLive)),
   );
 

@@ -1,7 +1,15 @@
 import { expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Predicate, Effect, Fiber, Layer } from "effect";
+import {
+  Predicate,
+  Effect,
+  Fiber,
+  Layer,
+  Array as Arr,
+  Option,
+  String as Str,
+} from "effect";
 
 import { fixture, observation, responseGate } from "./subscription-fixture.js";
 
@@ -31,7 +39,7 @@ test(
       first: Predicate.isTagged(first, "Failure")
         ? first.failure.code
         : first.success.status.setup,
-      links: second.authorizations.map((entry) => entry.login).sort(),
+      links: Arr.map(second.authorizations, (entry) => entry.login).sort(),
       sender: second.status.sender?.authorized,
       channel: second.status.channels[0]?.authorized,
       calls: f.control.calls,
@@ -87,15 +95,16 @@ test(
       codes.push(
         Predicate.isTagged(result, "Failure") ? result.failure.code : "success",
       );
-      credentials.push((yield* a.service.status()).credential);
+      credentials.push((yield* a.service.status).credential);
     }
 
     expect({
       codes,
       credentials,
       sameGeneration: generations[0] === generations[1],
-      tokenPosts: f.control.requests.filter(
-        (entry) => entry.path === "/token" && entry.method === "POST",
+      tokenPosts: Arr.filter(
+        f.control.requests,
+        (entry) => !!(entry.path === "/token" && entry.method === "POST"),
       ).length,
       sends: f.control.calls.send,
     }).toEqual({
@@ -118,14 +127,14 @@ test(
     f.control.remote.clear();
     f.control.response = { status: 403, body: "forbidden" };
     expect((yield* a.service.setup("operator")).status.setup).toBe("pending");
-    expect((yield* a.service.status()).sender?.authorized).toBeTrue();
+    expect((yield* a.service.status).sender?.authorized).toBeTrue();
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "authorization_revoked"),
     );
     const repair = yield* a.service.setup("operator");
-    expect(repair.authorizations.map((entry) => entry.login).sort()).toEqual([
-      "fixture_channel",
-    ]);
+    expect(
+      Arr.map(repair.authorizations, (entry) => entry.login).sort(),
+    ).toEqual(["fixture_channel"]);
     expect(repair.status.channels).toEqual([]);
     yield* f.authorize(a.service, repair.authorizations);
     const generation = f.snapshot().authGeneration;
@@ -253,7 +262,7 @@ test(
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "notification_failures_exceeded"),
     );
-    expect((yield* a.service.status()).sender?.authorized).toBeTrue();
+    expect((yield* a.service.status).sender?.authorized).toBeTrue();
     yield* a.service.observeSubscription(
       observation(a.config, "created-1", "authorization_revoked"),
     );
@@ -323,8 +332,11 @@ test(
     const initial = yield* a.service.setup("operator");
     yield* f.grants(a.service);
 
-    const authorization = initial.authorizations.find(
-      (entry) => entry.login === "fixture_channel",
+    const authorization = Option.getOrUndefined(
+      Arr.findFirst(
+        initial.authorizations,
+        (entry) => !!(entry.login === "fixture_channel"),
+      ),
     );
 
     if (!authorization) throw new Error("missing fixture sender authorization");
@@ -337,7 +349,12 @@ test(
       return Response.json({
         client_id: a.config.identity.twitchClientId,
         expires_in: 3600,
-        scopes: params.get("scope")?.split(" "),
+        scopes: Option.getOrUndefined(
+          Option.map(
+            Option.fromNullishOr(params.get("scope")),
+            (effectNativeValue0) => Str.split(effectNativeValue0, " "),
+          ),
+        ),
         user_id: "200",
         login: "fixture_channel",
       });
@@ -405,9 +422,9 @@ test(
       });
     });
 
-    const validating = yield* reconstructed
-      .credentialAlarm()
-      .pipe(Effect.forkChild);
+    const validating = yield* reconstructed.credentialAlarm.pipe(
+      Effect.forkChild,
+    );
 
     yield* Effect.promise(() => gate.entered.promise);
     f.control.responses.set(
@@ -421,7 +438,7 @@ test(
     f.control.responses.delete("GET /users");
     gate.release.resolve();
     yield* Fiber.join(validating);
-    expect((yield* a.service.status()).credential).toBe("absent");
+    expect((yield* a.service.status).credential).toBe("absent");
     expect(f.snapshot().session).toBeNull();
     const ready = yield* a.service.setup("operator");
     expect({
@@ -429,8 +446,9 @@ test(
       credential: ready.status.credential,
       links: ready.authorizations.length,
       sameGeneration: f.snapshot().session?.generation === generation,
-      posts: f.control.requests.filter(
-        (entry) => entry.method === "POST" && entry.path === "/token",
+      posts: Arr.filter(
+        f.control.requests,
+        (entry) => !!(entry.method === "POST" && entry.path === "/token"),
       ).length,
       sends: f.control.calls.send,
     }).toEqual({
@@ -457,10 +475,11 @@ test(
     expect((yield* a.service.setup("operator").pipe(Effect.flip)).code).toBe(
       "provider",
     );
-    expect((yield* a.service.status()).credential).toBe("valid");
+    expect((yield* a.service.status).credential).toBe("valid");
     expect(f.snapshot().session?.generation).toBe(generation);
     expect(
-      f.control.requests.filter((entry) => entry.method === "POST").length,
+      Arr.filter(f.control.requests, (entry) => !!(entry.method === "POST"))
+        .length,
     ).toBe(3);
     expect(f.control.calls.send).toBe(0);
   }),
@@ -513,11 +532,13 @@ test(
       setup: ready.status.setup,
       credential: ready.status.credential,
       links: ready.authorizations.length,
-      posts: f.control.requests.filter(
-        (entry) => entry.method === "POST" && entry.path === "/token",
+      posts: Arr.filter(
+        f.control.requests,
+        (entry) => !!(entry.method === "POST" && entry.path === "/token"),
       ).length,
-      sends: f.control.requests.filter(
-        (entry) => entry.path === "/chat/messages",
+      sends: Arr.filter(
+        f.control.requests,
+        (entry) => !!(entry.path === "/chat/messages"),
       ).length,
     }).toEqual({
       setup: "ready",

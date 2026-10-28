@@ -9,6 +9,7 @@ import {
   Dispatch,
   TwitchAccount,
 } from "@arctools/twitch/server";
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import {
   Layer,
@@ -22,6 +23,8 @@ import {
   Result,
   Schema,
   Semaphore,
+  Array as Arr,
+  Record as Rec,
 } from "effect";
 
 import {
@@ -156,17 +159,17 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
           code: "command-error" as const,
         }),
       ),
-      Effect.catchCause((cause) =>
-        Cause.hasInterrupts(cause) || !Cause.hasDies(cause)
-          ? Effect.failCause(cause)
-          : Effect.logError("Command execution failed").pipe(
-              Effect.annotateLogs({ phase: "command", code: "command-defect" }),
-              Effect.as({
-                text: friendlyFailure,
-                failed: true,
-                code: "command-defect" as const,
-              }),
-            ),
+      Effect.catchCauseIf(
+        (cause) => !Cause.hasInterrupts(cause) && Cause.hasDies(cause),
+        () =>
+          Effect.logError("Command execution failed").pipe(
+            Effect.annotateLogs({ phase: "command", code: "command-defect" }),
+            Effect.as({
+              text: friendlyFailure,
+              failed: true,
+              code: "command-defect" as const,
+            }),
+          ),
       ),
     );
 
@@ -306,7 +309,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
 
       if (now >= work.claim.until) return false;
 
-      let plan = twitchParts(reply.text).map((text, index) => ({
+      let plan = Arr.map(twitchParts(reply.text), (text, index) => ({
         attemptId: AttemptId.make(`${work.id}:${index}`),
         source: work.source,
         broadcasterId: work.broadcasterId,
@@ -330,6 +333,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
           },
         ];
 
+      // oxlint-disable-next-line effecttsgo/schema-sync -- The atomic state-update callback must validate its plan synchronously before committing.
       const validPlan = Schema.decodeUnknownSync(
         Schema.NonEmptyArray(Dispatch),
       )(plan);
@@ -468,7 +472,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
         joining: Effect.fnUntraced(function* (action) {
           yield* Deferred.await(action.done).pipe(
             Effect.timeout(Math.max(1, action.deadline - now)),
-            Effect.catch(() => Effect.void),
+            Effect.ignore,
           );
           yield* run(id);
         }),
@@ -485,7 +489,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     const result = yield* store.update((state) => {
       reclaim(state, now);
 
-      for (const [id, work] of Object.entries(state.works))
+      for (const [id, work] of Rec.toEntries(state.works))
         if (
           work.transport === "discord" &&
           work.kind === "computing" &&
@@ -501,7 +505,7 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
       if (Predicate.isNotNull(state.tenant) && state.tenant !== tenant)
         return { kind: "input" } as const;
 
-      const previous = Object.hasOwn(state.works, receipt.id)
+      const previous = Rec.has(state.works, receipt.id)
         ? state.works[receipt.id]
         : undefined;
 
@@ -583,9 +587,9 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
   const acceptTwitch = Effect.fn("Tenant.acceptTwitch")(function* (
     input: TwitchReceipt,
   ) {
-    const receipt = yield* Schema.decodeUnknownEffect(TwitchReceipt)(
-      input,
-    ).pipe(Effect.mapError(() => new TenantError({ code: "input" })));
+    const receipt = yield* Schema.decodeEffect(TwitchReceipt)(input).pipe(
+      Effect.mapError(() => new TenantError({ code: "input" })),
+    );
 
     const result = yield* admit(receipt, "twitch");
 
@@ -605,9 +609,9 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
   const respondDiscord = Effect.fn("Tenant.respondDiscord")(function* (
     input: DiscordReceipt,
   ) {
-    const receipt = yield* Schema.decodeUnknownEffect(DiscordReceipt)(
-      input,
-    ).pipe(Effect.mapError(() => new TenantError({ code: "input" })));
+    const receipt = yield* Schema.decodeEffect(DiscordReceipt)(input).pipe(
+      Effect.mapError(() => new TenantError({ code: "input" })),
+    );
 
     const result = yield* admit(receipt, "discord");
 
@@ -722,20 +726,23 @@ export const makeTenant = Effect.fnUntraced(function* (options: {
     const ids = yield* store.update((state) => {
       reclaim(state, now);
 
-      return Object.values(state.works)
-        .filter(
+      return Arr.map(
+        Arr.filter(
+          Rec.values(state.works),
           (work) =>
-            work.transport === "twitch" &&
-            work.kind !== "terminal" &&
-            (now >= work.deadline ||
-              work.kind === "accepted" ||
-              (work.kind === "ready"
-                ? now >= work.retryAt
-                : work.claim.activation !== options.activation ||
-                  now >= work.claim.until)),
-        )
-        .slice(0, 4)
-        .map((work) => work.id);
+            !!(
+              work.transport === "twitch" &&
+              work.kind !== "terminal" &&
+              (now >= work.deadline ||
+                work.kind === "accepted" ||
+                (work.kind === "ready"
+                  ? now >= work.retryAt
+                  : work.claim.activation !== options.activation ||
+                    now >= work.claim.until))
+            ),
+        ).slice(0, 4),
+        (work) => work.id,
+      );
     });
 
     yield* Effect.forEach(ids, run, { concurrency: 4, discard: true });
@@ -757,7 +764,11 @@ export type TenantStorage = Pick<
   ) => Effect.Effect<void, never, RuntimeContext>;
   readonly transaction: <A, R>(
     effect: Effect.Effect<A, never, R>,
-  ) => Effect.Effect<A, unknown, R | RuntimeContext>;
+  ) => Effect.Effect<
+    A,
+    Cloudflare.DurableObjectStorageError,
+    R | RuntimeContext
+  >;
 };
 
 export const makeTenantStorage = Effect.fnUntraced(function* (
@@ -790,7 +801,7 @@ export const makeTenantStorage = Effect.fnUntraced(function* (
 
             const result = f(state);
 
-            if (Object.keys(state.works).length === 0) {
+            if (Rec.keys(state.works).length === 0) {
               yield* storage.setAlarm((yield* Clock.currentTimeMillis) + 1000);
 
               return { result, empty: true };
@@ -819,7 +830,7 @@ export const makeTenantStorage = Effect.fnUntraced(function* (
               ? storage.deleteAll().pipe(Effect.as(result))
               : Effect.succeed(result),
           ),
-          writes.withPermit,
+          (effect) => writes.withPermit(effect),
           Effect.provideService(RuntimeContext, runtime),
           Effect.orDie,
         ),
@@ -833,16 +844,15 @@ export class TenantDO extends Cloudflare.DurableObject<TenantDO>()(
     const dataClient = yield* bindData;
     const accountClient = yield* bindAccount;
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
       const data = yield* dataClient;
       const account = yield* accountClient;
       const runtime = yield* RuntimeContext;
 
-      const store = yield* TenantStore.pipe(
-        Effect.provide(tenantStorageLayer(state.storage)),
-      );
+      const store = yield* makeTenantStorage(state.storage);
 
-      const activation = crypto.randomUUID();
+      const activation = yield* secureRandomUUID;
 
       const tenant = yield* makeTenant({
         activation,
@@ -903,6 +913,7 @@ export class TenantDO extends Cloudflare.DurableObject<TenantDO>()(
 export const bindTenants = Effect.gen(function* () {
   const objects = yield* TenantDO;
 
+  // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
   return Effect.gen(function* () {
     const runtime = yield* RuntimeContext;
     const observer = yield* TenantBoundaryObserver;

@@ -4,8 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "build": "tsrs -p tsconfig.build.json",
+    "typecheck": "tsrs --noEmit"
   },
   "exports": {
     ".": "./src/index.ts"

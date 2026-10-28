@@ -1,8 +1,23 @@
+/* oxlint-disable effecttsgo/new-promise -- Native event and callback APIs require Promise resolvers at this interoperability boundary. */
+/* oxlint-disable effecttsgo/run-effect-inside-effect -- Native fixture callbacks need synchronous values or Promises from the simulated Effect services. */
+/* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
+/* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect } from "bun:test";
 
+import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Test from "alchemy/Test/Bun";
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, Schema } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Schema,
+  Array as Arr,
+  String as Str,
+} from "effect";
 
 import { EnvironmentConfig } from "../../apps/bot/src/config.js";
 import { fixtureControl } from "./fixture-control.js";
@@ -18,7 +33,7 @@ import { makeProviderFixture } from "./twitch-provider-fixture.js";
 
 const { test } = Test.make({ providers: Layer.empty });
 
-const config = Schema.decodeUnknownSync(EnvironmentConfig)({
+const config = Schema.decodeSync(EnvironmentConfig)({
   kind: "test",
   stage: "test-account-0123456789ab",
   applicationStage: "test-account-0123456789ab",
@@ -62,7 +77,7 @@ for (const mode of [
           config,
         );
 
-        const id = crypto.randomUUID();
+        const id = yield* secureRandomUUID;
         let bodyStarted = false;
         const release = provider.retire(id).pipe(Effect.orDie);
 
@@ -110,7 +125,7 @@ for (const mode of [
             }),
         ).pipe(Effect.exit);
 
-        expect(bodyStarted).toBe(!mode.startsWith("acquisition"));
+        expect(bodyStarted).toBe(!Str.startsWith("acquisition")(mode));
         expect(Exit.isSuccess(exit)).toBe(mode === "success");
 
         if (Exit.isSuccess(exit)) expect(exit.value).toBe(42);
@@ -145,7 +160,7 @@ for (const phase of ["activation", "body"] as const) {
         const cleanupReady = yield* Deferred.make<void>();
         const finishCleanup = yield* Deferred.make<void>();
         const order: string[] = [];
-        const id = crypto.randomUUID();
+        const id = yield* secureRandomUUID;
 
         const fiber = yield* withTemporaryControl(
           {
@@ -188,7 +203,8 @@ for (const phase of ["activation", "body"] as const) {
               );
               yield* Deferred.await(childReady);
               yield* Deferred.succeed(ready, undefined);
-              yield* Effect.never;
+
+              return yield* Effect.never;
             }),
         ).pipe(Effect.forkScoped);
 
@@ -216,7 +232,7 @@ test(
   run(
     Effect.gen(function* () {
       const source = yield* makeSourceFixture(yield* fixtureStorage());
-      const id = crypto.randomUUID();
+      const id = yield* secureRandomUUID;
       const order: string[] = [];
       const started = yield* Deferred.make<void>();
 
@@ -281,14 +297,17 @@ test(
     Effect.gen(function* () {
       const storage = yield* fixtureStorage();
       let provider = yield* makeProviderFixture(storage, config);
-      const id = crypto.randomUUID();
+      const id = yield* secureRandomUUID;
       yield* provider.activate({ id, patch: { holdSend: true } });
       const first = yield* send(provider).pipe(Effect.forkScoped);
       yield* Effect.yieldNow;
       yield* provider.activate({ id, patch: { holdSend: true } });
       expect(
         (yield* provider
-          .activate({ id: crypto.randomUUID(), patch: { appClient: "wrong" } })
+          .activate({
+            id: yield* secureRandomUUID,
+            patch: { appClient: "wrong" },
+          })
           .pipe(Effect.flip)).code,
       ).toBe("overlap");
       yield* provider.retire(id);
@@ -300,7 +319,7 @@ test(
           .activate({ id, patch: { holdSend: true } })
           .pipe(Effect.flip)).code,
       ).toBe("retired");
-      const next = crypto.randomUUID();
+      const next = yield* secureRandomUUID;
       yield* provider.activate({ id: next, patch: { holdSend: true } });
       yield* provider.retire(id);
       expect((yield* provider.controlState(next)).gates).toEqual(["send"]);
@@ -322,7 +341,7 @@ test(
   run(
     Effect.gen(function* () {
       const storage = yield* fixtureStorage();
-      const id = crypto.randomUUID();
+      const id = yield* secureRandomUUID;
       const source = yield* makeSourceFixture(storage);
       yield* source.retire(id);
       const rebuilt = yield* makeSourceFixture(storage);
@@ -357,12 +376,16 @@ for (const mode of ["lost-release", "unavailable", "dirty"] as const) {
           async (url, init) => {
             const parsed = new URL(url);
 
-            if (parsed.pathname.endsWith("activate")) {
+            if (Str.endsWith("activate")(parsed.pathname)) {
               activations++;
 
               const input = Schema.decodeUnknownSync(
                 Schema.Struct({ id: Schema.String }),
-              )(JSON.parse(String(init.body)));
+              )(
+                Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(
+                  init.body,
+                ),
+              );
 
               await Effect.runPromise(
                 protocol
@@ -373,12 +396,16 @@ for (const mode of ["lost-release", "unavailable", "dirty"] as const) {
               return new Response(null, { status: 204 });
             }
 
-            if (parsed.pathname.endsWith("retire")) {
+            if (Str.endsWith("retire")(parsed.pathname)) {
               retirements++;
 
               const input = Schema.decodeUnknownSync(
                 Schema.Struct({ id: Schema.String }),
-              )(JSON.parse(String(init.body)));
+              )(
+                Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(
+                  init.body,
+                ),
+              );
 
               if (mode !== "dirty")
                 await Effect.runPromise(
@@ -405,7 +432,9 @@ for (const mode of ["lost-release", "unavailable", "dirty"] as const) {
           },
           (event) =>
             Effect.sync(() => {
-              events.push(JSON.stringify(event));
+              events.push(
+                Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(event),
+              );
             }),
         );
 
@@ -426,8 +455,8 @@ for (const mode of ["lost-release", "unavailable", "dirty"] as const) {
 
         if (Exit.isFailure(result))
           expect(Cause.pretty(result.cause)).toContain("FixtureCleanupError");
-        expect(events.join("\n")).toContain("ECONNRESET");
-        expect(events.join("\n")).not.toContain("CANARY");
+        expect(Arr.join(events, "\n")).toContain("ECONNRESET");
+        expect(Arr.join(events, "\n")).not.toContain("CANARY");
       }),
     ),
   );
@@ -450,10 +479,14 @@ test(
         async (url, init) => {
           const parsed = new URL(url);
 
-          if (parsed.pathname.endsWith("activate")) {
+          if (Str.endsWith("activate")(parsed.pathname)) {
             const input = Schema.decodeUnknownSync(
               Schema.Struct({ id: Schema.String }),
-            )(JSON.parse(String(init.body)));
+            )(
+              Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(
+                init.body,
+              ),
+            );
 
             await Effect.runPromise(
               provider
@@ -469,12 +502,16 @@ test(
             );
           }
 
-          if (parsed.pathname.endsWith("retire")) {
+          if (Str.endsWith("retire")(parsed.pathname)) {
             retirementSignalWasAborted = init.signal?.aborted ?? true;
 
             const input = Schema.decodeUnknownSync(
               Schema.Struct({ id: Schema.String }),
-            )(JSON.parse(String(init.body)));
+            )(
+              Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(
+                init.body,
+              ),
+            );
 
             retiredId = input.id;
             await Effect.runPromise(
@@ -534,10 +571,14 @@ test(
         async (url, init) => {
           const parsed = new URL(url);
 
-          if (parsed.pathname.endsWith("activate")) {
+          if (Str.endsWith("activate")(parsed.pathname)) {
             const input = Schema.decodeUnknownSync(
               Schema.Struct({ id: Schema.String }),
-            )(JSON.parse(String(init.body)));
+            )(
+              Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(
+                init.body,
+              ),
+            );
 
             await Effect.runPromise(
               protocol
@@ -548,12 +589,16 @@ test(
             return new Response(null, { status: 204 });
           }
 
-          if (parsed.pathname.endsWith("retire")) {
+          if (Str.endsWith("retire")(parsed.pathname)) {
             retirements++;
 
             const input = Schema.decodeUnknownSync(
               Schema.Struct({ id: Schema.String }),
-            )(JSON.parse(String(init.body)));
+            )(
+              Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(
+                init.body,
+              ),
+            );
 
             await Effect.runPromise(
               protocol
@@ -575,7 +620,7 @@ test(
         () => Effect.void,
       );
 
-      const next = crypto.randomUUID();
+      const next = yield* secureRandomUUID;
       yield* makeJourneyControls(client).withProviderControl(
         "https://provider.invalid",
         {},
@@ -598,7 +643,7 @@ test(
     Effect.gen(function* () {
       const a = yield* makeProviderFixture(yield* fixtureStorage(), config);
       const b = yield* makeProviderFixture(yield* fixtureStorage(), config);
-      const id = crypto.randomUUID();
+      const id = yield* secureRandomUUID;
 
       const failed = yield* withTemporaryControl(
         {
@@ -667,7 +712,7 @@ test(
       ] satisfies ReadonlyArray<
         import("./twitch-provider-fixture.js").TemporaryProviderPatch
       >) {
-        const id = crypto.randomUUID();
+        const id = yield* secureRandomUUID;
         yield* provider.activate({ id, patch });
 
         if ("appClient" in patch)
@@ -705,7 +750,9 @@ test(
           yield* provider.request(
             "PUT",
             "/applications/fixture-discord/commands",
-            JSON.stringify([{ name: "sell", description: "sell" }]),
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([
+              { name: "sell", description: "sell" },
+            ]).pipe(Effect.orDie),
             "",
           );
           expect(
@@ -717,7 +764,7 @@ test(
           const created = yield* provider.request(
             "POST",
             "/helix/eventsub/subscriptions",
-            JSON.stringify({
+            yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
               type: "channel.chat.message",
               version: "1",
               condition: { broadcaster_user_id: "200", user_id: "100" },
@@ -726,7 +773,7 @@ test(
                 callback: "https://fixture.invalid/webhooks/twitch",
                 secret: "synthetic",
               },
-            }),
+            }).pipe(Effect.orDie),
             "",
           );
 
@@ -767,14 +814,14 @@ test(
     Effect.gen(function* () {
       const client = makeFixtureHttp(
         async (url) => {
-          if (url.endsWith("activate"))
+          if (Str.endsWith("activate")(url))
             return new Response(null, { status: 204 });
           throw Object.assign(new TypeError(""), {
-            code: url.endsWith("retire") ? "ECONNRESET" : "EHOSTUNREACH",
+            code: Str.endsWith("retire")(url) ? "ECONNRESET" : "EHOSTUNREACH",
           });
         },
         (event) =>
-          event.route.endsWith("/retire")
+          Str.endsWith("/retire")(event.route)
             ? Effect.die("retirement-evidence-write-failed")
             : Effect.void,
       );
@@ -809,10 +856,10 @@ test(
         async (url) => {
           const parsed = new URL(url);
 
-          if (parsed.pathname.endsWith("activate"))
+          if (Str.endsWith("activate")(parsed.pathname))
             return new Response(null, { status: 204 });
 
-          if (parsed.pathname.endsWith("retire"))
+          if (Str.endsWith("retire")(parsed.pathname))
             throw Object.assign(new TypeError(""), { code: "ECONNRESET" });
 
           const id = parsed.searchParams.get("id");

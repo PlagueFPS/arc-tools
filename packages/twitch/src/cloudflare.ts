@@ -1,7 +1,17 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { providerTransport } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import { Context, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  Context,
+  Effect,
+  Layer,
+  Redacted,
+  Schema,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Option,
+} from "effect";
 
 import {
   AccountService,
@@ -54,7 +64,11 @@ export type AccountStorage = Pick<
   ) => Effect.Effect<boolean, never, RuntimeContext>;
   readonly transaction: <A, R>(
     effect: Effect.Effect<A, never, R>,
-  ) => Effect.Effect<A, unknown, R | RuntimeContext>;
+  ) => Effect.Effect<
+    A,
+    Cloudflare.DurableObjectStorageError,
+    R | RuntimeContext
+  >;
 };
 
 const sharedKey = "account:shared:v1";
@@ -95,7 +109,11 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     );
 
     if (
-      new TextEncoder().encode(JSON.stringify(encoded)).byteLength >
+      new TextEncoder().encode(
+        yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          encoded,
+        ).pipe(Effect.orDie),
+      ).byteLength >
       120 * 1024
     )
       return yield* Effect.die("Account record storage capacity exceeded");
@@ -112,7 +130,12 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       Effect.orDie,
     );
 
-    if (before !== JSON.stringify(normalized))
+    if (
+      before !==
+      (yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        normalized,
+      ).pipe(Effect.orDie))
+    )
       yield* write(key, schema, normalized);
   });
 
@@ -130,41 +153,55 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     yield* changed(
       oauthKey,
       AccountState.fields.oauth,
-      JSON.stringify(before.oauth),
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        before.oauth,
+      ).pipe(Effect.orDie),
       after.oauth,
     );
     yield* changed(
       attemptsKey,
       AccountState.fields.attempts,
-      JSON.stringify(before.attempts),
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        before.attempts,
+      ).pipe(Effect.orDie),
       after.attempts,
     );
     yield* changed(
       enrollmentsKey,
       AccountState.fields.enrollments,
-      JSON.stringify(
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
         yield* read(enrollmentsKey, AccountState.fields.enrollments),
-      ),
-      after.enrollments.filter((entry) => entry.phase.kind !== "left"),
+      ).pipe(Effect.orDie),
+      Arr.filter(after.enrollments, (entry) => !!(entry.phase.kind !== "left")),
     );
 
     const beforeLeft = new Map(
-      before.enrollments
-        .filter((entry) => entry.phase.kind === "left")
-        .map((entry) => [entry.session, entry]),
+      Arr.map(
+        Arr.filter(
+          before.enrollments,
+          (entry) => !!(entry.phase.kind === "left"),
+        ),
+        (entry) => [entry.session, entry],
+      ),
     );
 
     const afterLeft = new Map(
-      after.enrollments
-        .filter((entry) => entry.phase.kind === "left")
-        .map((entry) => [entry.session, entry]),
+      Arr.map(
+        Arr.filter(
+          after.enrollments,
+          (entry) => !!(entry.phase.kind === "left"),
+        ),
+        (entry) => [entry.session, entry],
+      ),
     );
 
     for (const [session, entry] of afterLeft)
       yield* changed(
         leftPrefix + session,
         AccountState.fields.enrollments.value,
-        JSON.stringify(yield* storage.get(leftPrefix + session)) ?? "",
+        (yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          (yield* storage.get(leftPrefix + session)) ?? null,
+        ).pipe(Effect.orDie)) ?? "",
         entry,
       );
 
@@ -175,7 +212,9 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       yield* changed(
         channelPrefix + encodeURIComponent(id),
         ChannelRecord,
-        JSON.stringify(before.channels.get(id)) ?? "",
+        (yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          before.channels.get(id) ?? null,
+        ).pipe(Effect.orDie)) ?? "",
         record,
       );
 
@@ -183,16 +222,18 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       if (!after.channels.has(id))
         yield* storage.delete(channelPrefix + encodeURIComponent(id));
 
-    for (const [id, tombstone] of Object.entries(after.revoked))
+    for (const [id, tombstone] of Rec.toEntries(after.revoked))
       yield* changed(
         tombstonePrefix + encodeURIComponent(id),
         AccountState.fields.revoked.value,
-        JSON.stringify(before.revoked[id]) ?? "",
+        (yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+          before.revoked[id] ?? null,
+        ).pipe(Effect.orDie)) ?? "",
         tombstone,
       );
 
-    for (const id of Object.keys(before.revoked))
-      if (!Object.hasOwn(after.revoked, id))
+    for (const id of Rec.keys(before.revoked))
+      if (!Rec.has(after.revoked, id))
         yield* storage.delete(tombstonePrefix + encodeURIComponent(id));
   });
 
@@ -231,7 +272,11 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       .transaction(
         Effect.gen(function* () {
           const shared = yield* authority();
-          const before = JSON.stringify(shared);
+
+          const before = yield* Schema.encodeEffect(
+            Schema.fromJsonString(Schema.Unknown),
+          )(shared).pipe(Effect.orDie);
+
           const result = yield* f(shared);
           yield* changed(sharedKey, SharedAccount, before, shared);
           yield* alarm(shared);
@@ -246,7 +291,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     const tombstones: [string, AccountState["revoked"][string]][] = [];
 
     const suffix = (key: string, prefix: string) => {
-      const id = decodeURIComponent(key.slice(prefix.length));
+      const id = decodeURIComponent(Str.slice(prefix.length)(key));
 
       if (key !== prefix + encodeURIComponent(id))
         throw new Error("Noncanonical account record key");
@@ -273,7 +318,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
     return {
       shared,
       channels,
-      revoked: Object.fromEntries(tombstones),
+      revoked: Rec.fromEntries(tombstones),
       oauth: yield* read(oauthKey, AccountState.fields.oauth),
       attempts: yield* read(attemptsKey, AccountState.fields.attempts),
       enrollments: [
@@ -305,13 +350,20 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
   ) =>
     Effect.gen(function* () {
       const attempts = yield* read(attemptsKey, AccountState.fields.attempts);
-      const before = JSON.stringify(attempts);
+
+      const before = yield* Schema.encodeEffect(
+        Schema.fromJsonString(Schema.Unknown),
+      )(attempts).pipe(Effect.orDie);
+
       const state = { ...shared, attempts };
       const result = yield* f(state);
       state.nextCleanupAt = Math.min(
         state.nextCleanupAt ?? Infinity,
-        ...Object.values(state.attempts).map((entry) => entry.retainUntil),
-        ...state.reservations.map((entry) => entry.at + policy.globalWindowMs),
+        ...Arr.map(Rec.values(state.attempts), (entry) => entry.retainUntil),
+        ...Arr.map(
+          state.reservations,
+          (entry) => entry.at + policy.globalWindowMs,
+        ),
       );
 
       if (!Number.isFinite(state.nextCleanupAt)) state.nextCleanupAt = null;
@@ -346,8 +398,9 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
 
             if (
               record &&
-              [...record.configured, ...record.public].some(
-                (entry) => entry.member.id !== id,
+              Arr.some(
+                [...record.configured, ...record.public],
+                (entry) => !!(entry.member.id !== id),
               )
             )
               return yield* Effect.die("Conflicting channel membership key");
@@ -372,8 +425,22 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
 
             const slice: ChannelDispatchState = {
               ...state,
-              channels: record?.configured.map((entry) => entry.member) ?? [],
-              publicMembers: record?.public.map((entry) => entry.member) ?? [],
+              channels:
+                Option.getOrUndefined(
+                  Option.map(
+                    Option.fromNullishOr(record?.configured),
+                    (effectNativeValue0) =>
+                      Arr.map(effectNativeValue0, (entry) => entry.member),
+                  ),
+                ) ?? [],
+              publicMembers:
+                Option.getOrUndefined(
+                  Option.map(
+                    Option.fromNullishOr(record?.public),
+                    (effectNativeValue1) =>
+                      Arr.map(effectNativeValue1, (entry) => entry.member),
+                  ),
+                ) ?? [],
               lifecycle: record?.lifecycle ? { [id]: record.lifecycle } : {},
               subscriptions: subscription ? { [id]: subscription } : {},
               revoked:
@@ -412,15 +479,15 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
         Effect.fnUntraced(function* (shared) {
           const before = yield* directory(shared);
 
-          const state: AccountState = yield* Schema.decodeUnknownEffect(
-            AccountState,
-          )(yield* joinDirectory(before).pipe(Effect.orDie)).pipe(Effect.orDie);
+          const state: AccountState = yield* Schema.decodeEffect(AccountState)(
+            yield* joinDirectory(before).pipe(Effect.orDie),
+          ).pipe(Effect.orDie);
 
           const result = f(state);
           state.nextCleanupAt = nextCleanup(state);
 
           const recoveryDue = Math.min(
-            ...Object.values(state.lifecycle).map((value) =>
+            ...Arr.map(Rec.values(state.lifecycle), (value) =>
               value.kind === "installed"
                 ? (value.recovery?.due ?? Infinity)
                 : Infinity,
@@ -449,8 +516,8 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
   const accountStore = yield* makeAccountStorage(storage);
 
   const account = yield* AccountService.pipe(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
     Effect.provide(accountServiceLayer(config)),
-  ).pipe(
     Effect.provideService(AccountStore, accountStore),
     Effect.provideService(TwitchProvider, provider),
   );
@@ -479,7 +546,7 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
     completeOAuth: (
       input: Parameters<typeof account.service.completeOAuth>[0],
     ) => reply(account.service.completeOAuth(input), AccountStatus),
-    status: () => reply(account.service.status(), AccountStatus),
+    status: () => reply(account.service.status, AccountStatus),
     observeSubscription: (
       input: Parameters<typeof account.service.observeSubscription>[0],
     ) =>
@@ -495,7 +562,7 @@ export const makeAccountRpc = Effect.fnUntraced(function* (
     enrollmentStatus: (
       session: Parameters<typeof account.enrollment.status>[0],
     ) => reply(account.enrollment.status(session), EnrollmentStatus),
-    alarm: account.credentialAlarm,
+    alarm: () => account.credentialAlarm,
   };
 });
 
@@ -541,6 +608,7 @@ export const makeAccountRuntime = Effect.fnUntraced(function* (
       subscriptionBinding: binding,
     },
     yield* TwitchProvider.pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
       Effect.provide(
         providerLayer(
           {
@@ -557,10 +625,10 @@ export const makeAccountRuntime = Effect.fnUntraced(function* (
   );
 });
 
-type AccountStub = {
+type AccountStub<E> = {
   readonly [K in keyof typeof TwitchAccount.Service]: (
     ...args: Parameters<(typeof AccountRpc.Service)[K]>
-  ) => Effect.Effect<unknown, unknown, RuntimeContext>;
+  ) => Effect.Effect<unknown, E, RuntimeContext>;
 };
 
 const makeReplyDecoder = Effect.fnUntraced(function* () {
@@ -594,15 +662,15 @@ const makeReplyDecoder = Effect.fnUntraced(function* () {
   return decode;
 });
 
-export const makeAccountClient = Effect.fnUntraced(function* (
-  object: AccountStub,
+export const makeAccountClient = Effect.fnUntraced(function* <E>(
+  object: AccountStub<E>,
 ) {
   const decode = yield* makeReplyDecoder();
 
   return TwitchAccount.of({
     dispatch: (input) => decode(object.dispatch(input), DispatchOutcome),
     setup: (operator) => decode(object.setup(operator), SetupResult),
-    status: () => decode(object.status(), AccountStatus),
+    status: decode(object.status(), AccountStatus),
     completeOAuth: (input) =>
       decode(object.completeOAuth(input), AccountStatus),
     observeSubscription: (input) =>
@@ -610,7 +678,7 @@ export const makeAccountClient = Effect.fnUntraced(function* (
   });
 });
 
-type EnrollmentStub = {
+type EnrollmentStub<E> = {
   readonly [
     K in
       | "beginEnrollment"
@@ -619,11 +687,11 @@ type EnrollmentStub = {
       | "leaveEnrollment"
   ]: (
     ...args: Parameters<(typeof AccountRpc.Service)[K]>
-  ) => Effect.Effect<unknown, unknown, RuntimeContext>;
+  ) => Effect.Effect<unknown, E, RuntimeContext>;
 };
 
-export const makeEnrollmentClient = Effect.fnUntraced(function* (
-  object: EnrollmentStub,
+export const makeEnrollmentClient = Effect.fnUntraced(function* <E>(
+  object: EnrollmentStub<E>,
 ) {
   const decode = yield* makeReplyDecoder();
 
@@ -638,6 +706,7 @@ export const makeEnrollmentClient = Effect.fnUntraced(function* (
   });
 });
 
+// oxlint-disable-next-line effecttsgo/lazy-effect -- Alchemy RPC serialization requires callable status and alarm methods.
 export class AccountRpc extends Context.Service<
   AccountRpc,
   Effect.Success<ReturnType<typeof makeAccountRpc>>

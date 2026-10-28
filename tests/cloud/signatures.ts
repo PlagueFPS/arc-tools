@@ -1,4 +1,7 @@
-import { Match, Effect } from "effect";
+/* oxlint-disable effecttsgo/async-function -- Native Bun, Node, and Web callbacks expose Promise contracts at this host boundary. */
+/* oxlint-disable effecttsgo/global-date -- Host timestamps sign requests or record real elapsed-time evidence independently of the application clock. */
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
+import { Match, Effect, Array as Arr, Option, String as Str } from "effect";
 
 import { ingressPolicy } from "../../apps/bot/src/ingress.js";
 import { fixtureRequestMs } from "./fixture-http.js";
@@ -10,14 +13,17 @@ export const discordPublicKey =
   "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 
 const bytes = (hex: string) =>
-  Uint8Array.from(hex.match(/../g) ?? [], (value) =>
+  Uint8Array.from(Option.getOrNull(Str.match(/../g)(hex)) ?? [], (value) =>
     Number.parseInt(value, 16),
   );
 
 const hex = (buffer: ArrayBuffer) =>
-  Array.from(new Uint8Array(buffer), (value) =>
-    value.toString(16).padStart(2, "0"),
-  ).join("");
+  Arr.join(
+    Array.from(new Uint8Array(buffer), (value) =>
+      Str.padStart(2, "0")(value.toString(16)),
+    ),
+    "",
+  );
 
 const concat = (prefix: string, body: Uint8Array) => {
   const first = new TextEncoder().encode(prefix);

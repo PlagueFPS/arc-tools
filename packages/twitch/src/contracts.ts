@@ -54,24 +54,24 @@ export const eventSubTiming = {
   futureSkewMs: 30_000,
 };
 
-export class AccountError extends Schema.TaggedError<AccountError>()(
-  "AccountError",
-  {
-    retryAt: Schema.optional(Schema.Number),
-    code: Schema.Literals([
-      "configuration",
-      "busy",
-      "provider",
-      "identity",
-      "client",
-      "scopes",
-      "state",
-      "capacity",
-      "input",
-      "stale",
-    ]),
-  },
-) {}
+export class AccountError extends Schema.TaggedError<
+  AccountError,
+  { readonly brand: unique symbol }
+>()("AccountError", {
+  retryAt: Schema.optional(Schema.Finite),
+  code: Schema.Literals([
+    "configuration",
+    "busy",
+    "provider",
+    "identity",
+    "client",
+    "scopes",
+    "state",
+    "capacity",
+    "input",
+    "stale",
+  ]),
+}) {}
 
 export const OAuthCompletion = Schema.Struct({
   state: bounded(128),
@@ -120,7 +120,7 @@ export const AccountStatus = Schema.Struct({
     }),
   ),
   attempts: Schema.Int,
-  credentialCheckAt: Schema.NullOr(Schema.Number),
+  credentialCheckAt: Schema.NullOr(Schema.Finite),
 });
 
 export type AccountStatus = typeof AccountStatus.Type;
@@ -148,7 +148,7 @@ export interface Account {
   readonly completeOAuth: (
     input: OAuthCompletion,
   ) => Effect.Effect<AccountStatus, AccountError>;
-  readonly status: () => Effect.Effect<AccountStatus, AccountError>;
+  readonly status: Effect.Effect<AccountStatus, AccountError>;
   readonly observeSubscription: (
     input: SubscriptionObservation,
   ) => Effect.Effect<ChatSource | null, AccountError>;

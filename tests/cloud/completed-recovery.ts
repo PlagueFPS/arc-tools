@@ -1,4 +1,5 @@
 import { policy } from "@arctools/twitch/testing";
+import { Array as Arr } from "effect";
 
 import type {
   AccountAttribution,
@@ -40,7 +41,11 @@ export function selectCompletedRun(
   account: AccountJournal,
   key: string,
 ): CompletedRun {
-  const selected = account.completedRuns.filter((run) => run.key === key);
+  const selected = Arr.filter(
+    account.completedRuns,
+    (run) => !!(run.key === key),
+  );
+
   requireEvidence(
     selected.length === 1 && selected[0] !== undefined,
     "missing or ambiguous completed run",
@@ -54,8 +59,9 @@ export function completedRunKey(
   account: AccountJournal,
   alarmRun: number,
 ): string {
-  const selected = account.completedRuns.filter(
-    (run) => run.alarmRun === alarmRun,
+  const selected = Arr.filter(
+    account.completedRuns,
+    (run) => !!(run.alarmRun === alarmRun),
   );
 
   requireEvidence(
@@ -81,16 +87,16 @@ function checkIntegrity(account: AccountJournal, provider: ProviderJournal) {
     "diagnostic storage failure",
   );
   requireEvidence(
-    provider.events.every((event) => !event.correlationError),
+    Arr.every(provider.events, (event) => !event.correlationError),
     "invalid HTTP correlation",
   );
   requireEvidence(
-    new Set(account.invocations.map((record) => record.id)).size ===
+    new Set(Arr.map(account.invocations, (record) => record.id)).size ===
       account.invocations.length,
     "duplicate invocation UUID",
   );
   requireEvidence(
-    new Set(provider.events.map((event) => event.id)).size ===
+    new Set(Arr.map(provider.events, (event) => event.id)).size ===
       provider.events.length,
     "duplicate HTTP event UUID",
   );
@@ -109,20 +115,26 @@ function runTraffic(
 
   for (const kind of ["alarm-entry", "alarm-complete"] as const)
     requireEvidence(
-      account.events.filter(
+      Arr.filter(
+        account.events,
         (event) =>
-          event.kind === kind &&
-          event.instance === run.instance &&
-          event.alarmRun === run.alarmRun,
+          !!(
+            event.kind === kind &&
+            event.instance === run.instance &&
+            event.alarmRun === run.alarmRun
+          ),
       ).length === 1,
       "missing or ambiguous alarm lifecycle",
     );
 
-  const invocations = account.invocations.filter(
+  const invocations = Arr.filter(
+    account.invocations,
     (record) =>
-      record.instance === run.instance &&
-      record.origin.operation === "alarm" &&
-      record.origin.alarmRun === run.alarmRun,
+      !!(
+        record.instance === run.instance &&
+        record.origin.operation === "alarm" &&
+        record.origin.alarmRun === run.alarmRun
+      ),
   );
 
   requireEvidence(
@@ -131,21 +143,25 @@ function runTraffic(
     "wrong invocation count",
   );
   requireEvidence(
-    invocations.every((record) =>
-      run.validationInvocationIds.includes(record.id),
+    Arr.every(
+      invocations,
+      (record) => !!run.validationInvocationIds.includes(record.id),
     ),
     "inconsistent completion invocation IDs",
   );
   requireEvidence(
-    !provider.events.some(
+    !Arr.some(
+      provider.events,
       (event) =>
-        event.correlation === null &&
-        event.credentialFingerprint === run.credential?.fingerprint,
+        !!(
+          event.correlation === null &&
+          event.credentialFingerprint === run.credential?.fingerprint
+        ),
     ),
     "uncorrelated HTTP for completed credential",
   );
 
-  const events = provider.events.filter((event) => {
+  const events = Arr.filter(provider.events, (event) => {
     const correlation = event.correlation;
 
     return (

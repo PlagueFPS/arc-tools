@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
 import { createMockHttpClientLayer } from "@arctools/testing";

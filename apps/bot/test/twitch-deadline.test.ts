@@ -10,7 +10,16 @@ import {
   TwitchAccount,
 } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
-import { Clock, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  Clock,
+  Effect,
+  Layer,
+  Redacted,
+  Schema,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+} from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
@@ -69,10 +78,9 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
 
   const trustedAccount: Account = {
     ...account.service,
-    status: () =>
-      account.service
-        .status()
-        .pipe(Effect.provideService(Clock.Clock, accountClock)),
+    status: account.service.status.pipe(
+      Effect.provideService(Clock.Clock, accountClock),
+    ),
     observeSubscription: (input) =>
       account.service
         .observeSubscription(input)
@@ -149,10 +157,10 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
     const event = twitchEvent("original-parent", "!sell sensors", callback);
 
     const body = new TextEncoder().encode(
-      JSON.stringify({
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
         ...event,
         subscription: { ...event.subscription, id: subscriptionId },
-      }),
+      }).pipe(Effect.orDie),
     );
 
     const headers = yield* signTwitch(body, "notification", receivedAt);
@@ -186,10 +194,11 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
     dispatch: trustedAccount.dispatch,
     recover: () =>
       tenant.recover().pipe(Effect.provideService(Clock.Clock, tenantClock)),
-    work: () => Object.values(f.snapshot().works)[0],
+    work: () => Rec.values(f.snapshot().works)[0],
     posts: () =>
-      a.control.requests.filter(
-        (r) => r.method === "POST" && r.path === "/chat/messages",
+      Arr.filter(
+        a.control.requests,
+        (r) => !!(r.method === "POST" && r.path === "/chat/messages"),
       ).length,
   };
 });
@@ -219,7 +228,7 @@ for (const [worker, tenant, account] of [
       const observed = {
         work: h.work(),
         posts: h.posts(),
-        ledger: Object.values(h.a.snapshot().attempts),
+        ledger: Rec.values(h.a.snapshot().attempts),
       };
 
       h.clocks.tenant += 100;
@@ -256,7 +265,7 @@ for (const [worker, tenant, account] of [
         },
       ]);
       expect(h.dispatches).toEqual([
-        Schema.decodeUnknownSync(Dispatch)({
+        yield* Schema.decodeUnknownEffect(Dispatch)({
           attemptId: `${h.work()?.id}:0`,
           broadcasterId: "200",
           source: h.dispatches[0]?.source,
@@ -334,7 +343,7 @@ test(
     const frozen = h.dispatches[0];
 
     if (!frozen) return yield* Effect.die("Missing signed Twitch dispatch");
-    expect(Object.values(h.a.snapshot().attempts)).toMatchObject([
+    expect(Rec.values(h.a.snapshot().attempts)).toMatchObject([
       { kind: "waiting", deadline: 10020, retryAt: 1000 },
     ]);
     expect((yield* h.request(120)).status).toBe(204);
@@ -352,7 +361,7 @@ test(
     expect(h.posts()).toBe(2);
     expect(h.dispatches).toEqual([frozen, frozen]);
     expect(h.bodies[1]).toEqual(h.bodies[0]);
-    expect(Object.values(h.a.snapshot().attempts)).toMatchObject([
+    expect(Rec.values(h.a.snapshot().attempts)).toMatchObject([
       { kind: "terminal", deadline: 10020, outcome: { kind: "sent" } },
     ]);
     expect((yield* h.request(220)).status).toBe(204);
@@ -406,8 +415,8 @@ test(
 
     for (const invalid of [
       { ...input, text: "" },
-      { ...input, text: "x".repeat(501) },
-      { ...input, attemptId: AttemptId.make("x".repeat(161)) },
+      { ...input, text: Str.repeat(501)("x") },
+      { ...input, attemptId: AttemptId.make(Str.repeat(161)("x")) },
     ])
       expect((yield* h.dispatch(invalid).pipe(Effect.flip)).code).toBe("input");
     expect(h.posts()).toBe(1);
@@ -417,7 +426,7 @@ test(
       receivedAt: 0,
       deadline: 10000,
     });
-    expect(Object.values(h.a.snapshot().attempts)).toHaveLength(1);
+    expect(Rec.values(h.a.snapshot().attempts)).toHaveLength(1);
   }).pipe(Effect.scoped),
 );
 

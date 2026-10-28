@@ -10,6 +10,7 @@ import {
   SchemaTransformation,
   Schedule,
   Stream,
+  String as Str,
 } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
@@ -30,7 +31,10 @@ const Operation = Schema.Literals([
   "preflight",
 ]);
 
-export class SyncError extends Schema.TaggedError<SyncError>()("SyncError", {
+export class SyncError extends Schema.TaggedError<
+  SyncError,
+  { readonly brand: unique symbol }
+>()("SyncError", {
   code: Schema.Literals([
     "provider",
     "network",
@@ -89,7 +93,10 @@ export const RetryAfter = Schema.Number.check(
   ),
 );
 
-class Retryable extends Schema.TaggedError<Retryable>()("DiscordRetryable", {
+class Retryable extends Schema.TaggedError<
+  Retryable,
+  { readonly brand: unique symbol }
+>()("DiscordRetryable", {
   failure: SyncError,
   delay: Schema.NullOr(Schema.Duration),
 }) {}
@@ -138,11 +145,9 @@ const readBody = Effect.fnUntraced(function* (
 
   if (bytes.byteLength === 0) return null;
 
-  return yield* Schema.decodeUnknownEffect(
-    Schema.fromJsonString(Schema.Unknown),
-  )(new TextDecoder().decode(bytes)).pipe(
-    Effect.mapError(() => failure(context, "body", response.status)),
-  );
+  return yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(
+    new TextDecoder().decode(bytes),
+  ).pipe(Effect.mapError(() => failure(context, "body", response.status)));
 });
 
 const call = Effect.fnUntraced(function* <A, I>(
@@ -306,7 +311,7 @@ const readHealth = Effect.fnUntraced(function* (
 
   const health = yield* call(
     client,
-    HttpClientRequest.get(`${release.endpoint.replace(/\/$/, "")}/health`),
+    HttpClientRequest.get(`${Str.replace(/\/$/, "")(release.endpoint)}/health`),
     ReleaseHealth,
     context,
   );

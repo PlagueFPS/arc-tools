@@ -1,4 +1,11 @@
-import { Context, Effect, Schema, Struct } from "effect";
+import {
+  Context,
+  Effect,
+  Schema,
+  Struct,
+  Array as Arr,
+  Record as Rec,
+} from "effect";
 
 import type { AccountIdentity } from "./account.js";
 import {
@@ -22,12 +29,12 @@ const Identity = Schema.Struct({ login: bounded(25), id: bounded(64) });
 
 const Session = Schema.Struct({
   token: bounded(4096),
-  expiresAt: Schema.Number,
-  validatedAt: Schema.Number,
+  expiresAt: Schema.Finite,
+  validatedAt: Schema.Finite,
   generation: Schema.String,
 });
 
-const Lease = Schema.Struct({ owner: Schema.String, until: Schema.Number });
+const Lease = Schema.Struct({ owner: Schema.String, until: Schema.Finite });
 
 const OAuthState = Schema.Struct({
   digest: Schema.String,
@@ -41,7 +48,7 @@ const OAuthState = Schema.Struct({
   login: Schema.String,
   roles: Schema.Array(Schema.Literals(["sender", "broadcaster"])),
   scopes: Schema.Array(Schema.String),
-  expiresAt: Schema.Number,
+  expiresAt: Schema.Finite,
 });
 
 const Attempt = Schema.Union([
@@ -50,17 +57,17 @@ const Attempt = Schema.Union([
     channel: Schema.optional(BroadcasterId),
     source: Schema.optional(Schema.NullOr(ChatSource)),
     fingerprint: Schema.String,
-    deadline: Schema.Number,
-    retainUntil: Schema.Number,
-    retryAt: Schema.Number,
+    deadline: Schema.Finite,
+    retainUntil: Schema.Finite,
+    retryAt: Schema.Finite,
   }),
   Schema.Struct({
     kind: Schema.Literal("sending"),
     channel: Schema.optional(BroadcasterId),
     source: Schema.optional(Schema.NullOr(ChatSource)),
     fingerprint: Schema.String,
-    deadline: Schema.Number,
-    retainUntil: Schema.Number,
+    deadline: Schema.Finite,
+    retainUntil: Schema.Finite,
     owner: Schema.String,
     instance: Schema.String,
   }),
@@ -69,8 +76,8 @@ const Attempt = Schema.Union([
     channel: Schema.optional(BroadcasterId),
     source: Schema.optional(Schema.NullOr(ChatSource)),
     fingerprint: Schema.String,
-    deadline: Schema.Number,
-    retainUntil: Schema.Number,
+    deadline: Schema.Finite,
+    retainUntil: Schema.Finite,
     outcome: DispatchOutcome,
     privateCode: Schema.NullOr(bounded(128)),
   }),
@@ -82,7 +89,7 @@ const Enrollment = Schema.Struct({
   revision: Schema.String,
   generation: Schema.Int,
   publicRevocationGeneration: Schema.Int,
-  expiresAt: Schema.Number,
+  expiresAt: Schema.Finite,
   phase: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("pending") }),
     Schema.Struct({ kind: Schema.Literal("exchanging"), lease: Lease }),
@@ -107,7 +114,7 @@ const Repair = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("scheduled"),
     id: Schema.String,
-    due: Schema.Number,
+    due: Schema.Finite,
     attempts: Schema.Int,
   }),
   Schema.Struct({ kind: Schema.Literal("required") }),
@@ -119,7 +126,7 @@ const PublicMember = Schema.Struct({
   login: bounded(25),
   id: BroadcasterId,
   revocationGeneration: Schema.Int,
-  cleanupAfter: Schema.NullOr(Schema.Number).pipe(
+  cleanupAfter: Schema.NullOr(Schema.Finite).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(legacyCleanupAt)),
   ),
 });
@@ -135,10 +142,10 @@ export const Lifecycle = Schema.Union([
     ),
     version: Schema.Int,
     recovery: Schema.NullOr(
-      Schema.Struct({ due: Schema.Number, stage: Schema.Int }),
+      Schema.Struct({ due: Schema.Finite, stage: Schema.Int }),
     ),
     create: Schema.NullOr(
-      Schema.Struct({ owner: Schema.String, until: Schema.Number }),
+      Schema.Struct({ owner: Schema.String, until: Schema.Finite }),
     ),
   }),
 ]);
@@ -165,25 +172,25 @@ export const AccountState = Schema.Struct({
   sweepLease: Schema.NullOr(Lease).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
-  sweepAt: Schema.NullOr(Schema.Number).pipe(
+  sweepAt: Schema.NullOr(Schema.Finite).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
-  nextRecoveryAt: Schema.NullOr(Schema.Number).pipe(
+  nextRecoveryAt: Schema.NullOr(Schema.Finite).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
   grants: Schema.Record(Schema.String, Schema.Array(Schema.String)),
   oauth: Schema.Array(OAuthState),
   session: Schema.NullOr(Session),
   tokenLease: Schema.NullOr(Lease),
-  tokenRetryAt: Schema.Number,
-  nextCredentialCheck: Schema.NullOr(Schema.Number),
-  nextCleanupAt: Schema.NullOr(Schema.Number).pipe(
+  tokenRetryAt: Schema.Finite,
+  nextCredentialCheck: Schema.NullOr(Schema.Finite),
+  nextCleanupAt: Schema.NullOr(Schema.Finite).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(legacyCleanupAt)),
   ),
   setupLease: Schema.NullOr(
     Schema.Struct({
       owner: Schema.String,
-      until: Schema.Number,
+      until: Schema.Finite,
       revision: Schema.String,
       generation: Schema.Int,
     }),
@@ -202,23 +209,24 @@ export const AccountState = Schema.Struct({
   revoked: Schema.Record(
     Schema.String,
     Schema.Struct({
-      until: Schema.Number,
+      until: Schema.Finite,
       reason: Schema.Literals(["retired", "revoked", "authorization-revoked"]),
       deleteVersion: Schema.optional(Schema.Int),
       deleteClaim: Schema.optional(Schema.NullOr(bounded(128))),
-      deleteDue: Schema.NullOr(Schema.Number).pipe(
+      deleteDue: Schema.NullOr(Schema.Finite).pipe(
         Schema.withDecodingDefaultKey(Effect.succeed(null)),
       ),
     }),
   ),
   attempts: Schema.Record(Schema.String, Attempt),
   reservations: Schema.Array(
-    Schema.Struct({ channel: Schema.String, at: Schema.Number }),
+    Schema.Struct({ channel: Schema.String, at: Schema.Finite }),
   ),
-  apiBlockedUntil: Schema.Number,
+  apiBlockedUntil: Schema.Finite,
   credentialFailures: Schema.Int,
 });
 
+// oxlint-disable-next-line effecttsgo/unnecessary-typeof-type -- This captures the schema type before the public mapped alias; using that alias here is circular.
 type Persisted = typeof AccountState.Type;
 
 export type AccountState = {
@@ -291,17 +299,17 @@ export function splitAccount(state: AccountState) {
       lifecycle: null,
     };
 
-  for (const [id, value] of Object.entries(lifecycle))
+  for (const [id, value] of Rec.toEntries(lifecycle))
     records.set(id, { ...entry(id), lifecycle: value });
 
-  channels.forEach((member, position) => {
+  Arr.forEach(channels, (member, position) => {
     const prior = entry(member.id);
     records.set(member.id, {
       ...prior,
       configured: [...prior.configured, { position, member }],
     });
   });
-  publicMembers.forEach((member, position) => {
+  Arr.forEach(publicMembers, (member, position) => {
     const prior = entry(member.id);
     records.set(member.id, {
       ...prior,
@@ -309,7 +317,7 @@ export function splitAccount(state: AccountState) {
     });
   });
 
-  for (const [key, subscription] of Object.entries(subscriptions))
+  for (const [key, subscription] of Rec.toEntries(subscriptions))
     records.set(key, { ...entry(key), subscription });
 
   return { shared, channels: records, revoked, oauth, attempts, enrollments };
@@ -317,27 +325,29 @@ export function splitAccount(state: AccountState) {
 
 export type AccountDirectory = ReturnType<typeof splitAccount>;
 
-export class DirectoryValidationError extends Schema.TaggedError<DirectoryValidationError>()(
-  "DirectoryValidationError",
-  {
-    reason: Schema.Literals(["positions", "key"]),
-    message: Schema.String,
-  },
-) {}
+export class DirectoryValidationError extends Schema.TaggedError<
+  DirectoryValidationError,
+  { readonly brand: unique symbol }
+>()("DirectoryValidationError", {
+  reason: Schema.Literals(["positions", "key"]),
+  message: Schema.String,
+}) {}
 
 export const joinDirectory = Effect.fnUntraced(function* (
   directory: AccountDirectory,
 ): Effect.fn.Return<AccountState, DirectoryValidationError> {
-  const configured = [...directory.channels.values()]
-    .flatMap((record) => record.configured)
-    .sort((a, b) => a.position - b.position);
+  const configured = Arr.flatMap(
+    [...directory.channels.values()],
+    (record) => record.configured,
+  ).sort((a, b) => a.position - b.position);
 
-  const members = [...directory.channels.values()]
-    .flatMap((record) => record.public)
-    .sort((a, b) => a.position - b.position);
+  const members = Arr.flatMap(
+    [...directory.channels.values()],
+    (record) => record.public,
+  ).sort((a, b) => a.position - b.position);
 
   for (const entries of [configured, members])
-    if (entries.some((entry, index) => entry.position !== index))
+    if (Arr.some(entries, (entry, index) => !!(entry.position !== index)))
       return yield* new DirectoryValidationError({
         reason: "positions",
         message: "Conflicting channel membership positions",
@@ -345,8 +355,9 @@ export const joinDirectory = Effect.fnUntraced(function* (
 
   for (const [key, record] of directory.channels)
     if (
-      [...record.configured, ...record.public].some(
-        (entry) => entry.member.id !== key,
+      Arr.some(
+        [...record.configured, ...record.public],
+        (entry) => !!(entry.member.id !== key),
       )
     )
       return yield* new DirectoryValidationError({
@@ -356,15 +367,15 @@ export const joinDirectory = Effect.fnUntraced(function* (
 
   return {
     ...directory.shared,
-    lifecycle: Object.fromEntries(
-      [...directory.channels].flatMap(([id, record]) =>
+    lifecycle: Rec.fromEntries(
+      Arr.flatMap([...directory.channels], ([id, record]) =>
         record.lifecycle === null ? [] : [[id, record.lifecycle]],
       ),
     ),
-    channels: configured.map((entry) => entry.member),
-    publicMembers: members.map((entry) => entry.member),
-    subscriptions: Object.fromEntries(
-      [...directory.channels].flatMap(([key, record]) =>
+    channels: Arr.map(configured, (entry) => entry.member),
+    publicMembers: Arr.map(members, (entry) => entry.member),
+    subscriptions: Rec.fromEntries(
+      Arr.flatMap([...directory.channels], ([key, record]) =>
         record.subscription === null ? [] : [[key, record.subscription]],
       ),
     ),
@@ -454,28 +465,30 @@ export const isAuthorizationLoss = (status: string) =>
   status === "authorization_revoked" || status === "user_removed";
 
 export function reclaimSend(state: SendAttemptState, now: number) {
-  state.reservations = state.reservations.filter(
-    (entry) => entry.at + policy.globalWindowMs > now,
+  state.reservations = Arr.filter(
+    state.reservations,
+    (entry) => !!(entry.at + policy.globalWindowMs > now),
   );
 
-  for (const [key, attempt] of Object.entries(state.attempts)) {
+  for (const [key, attempt] of Rec.toEntries(state.attempts)) {
     if (attempt.retainUntil <= now) delete state.attempts[key];
   }
 }
 
 export function reclaim(state: AccountState, now: number) {
   reclaimSend(state, now);
-  state.oauth = state.oauth.filter((entry) => entry.expiresAt > now);
-  state.enrollments = state.enrollments.filter(
-    (entry) => entry.expiresAt > now,
+  state.oauth = Arr.filter(state.oauth, (entry) => !!(entry.expiresAt > now));
+  state.enrollments = Arr.filter(
+    state.enrollments,
+    (entry) => !!(entry.expiresAt > now),
   );
 
-  for (const [key, tombstone] of Object.entries(state.revoked)) {
+  for (const [key, tombstone] of Rec.toEntries(state.revoked)) {
     if (tombstone.until <= now && tombstone.deleteDue === null)
       delete state.revoked[key];
   }
 
-  state.publicMembers = state.publicMembers.flatMap((member) => {
+  state.publicMembers = Arr.flatMap(state.publicMembers, (member) => {
     if (member.cleanupAfter === legacyCleanupAt) {
       const record = state.subscriptions[member.id];
 
@@ -484,12 +497,12 @@ export function reclaim(state: AccountState, now: number) {
         isAuthorizationLoss(record.status) &&
         !state.grants[member.id]?.includes("channel:bot") &&
         state.sender?.id !== member.id &&
-        !state.channels.some((channel) => channel.id === member.id)
+        !Arr.some(state.channels, (channel) => !!(channel.id === member.id))
           ? now + Math.max(policy.oauthMs, policy.retentionMs)
           : null;
 
       if (cleanupAfter !== null)
-        state.enrollments = state.enrollments.map((entry) =>
+        state.enrollments = Arr.map(state.enrollments, (entry) =>
           entry.phase.kind === "member" &&
           entry.phase.broadcasterId === member.id
             ? { ...entry, expiresAt: Math.min(entry.expiresAt, cleanupAfter) }
@@ -505,7 +518,7 @@ export function reclaim(state: AccountState, now: number) {
     if (
       state.grants[member.id]?.includes("channel:bot") ||
       state.sender?.id === member.id ||
-      state.channels.some((channel) => channel.id === member.id)
+      Arr.some(state.channels, (channel) => !!(channel.id === member.id))
     )
       return [{ ...member, cleanupAfter: null }];
 
@@ -518,14 +531,18 @@ export function reclaim(state: AccountState, now: number) {
 
 export function nextCleanup(state: AccountState): number | null {
   const due = Math.min(
-    ...state.oauth.map((entry) => entry.expiresAt),
-    ...state.enrollments.map((entry) => entry.expiresAt),
-    ...state.publicMembers.map((member) => member.cleanupAfter ?? Infinity),
-    ...Object.values(state.revoked).map(
+    ...Arr.map(state.oauth, (entry) => entry.expiresAt),
+    ...Arr.map(state.enrollments, (entry) => entry.expiresAt),
+    ...Arr.map(
+      state.publicMembers,
+      (member) => member.cleanupAfter ?? Infinity,
+    ),
+    ...Arr.map(
+      Rec.values(state.revoked),
       (entry) => entry.deleteDue ?? entry.until,
     ),
-    ...Object.values(state.attempts).map((entry) => entry.retainUntil),
-    ...state.reservations.map((entry) => entry.at + policy.globalWindowMs),
+    ...Arr.map(Rec.values(state.attempts), (entry) => entry.retainUntil),
+    ...Arr.map(state.reservations, (entry) => entry.at + policy.globalWindowMs),
   );
 
   return Number.isFinite(due) ? due : null;
@@ -536,13 +553,17 @@ export function reserveAt(
   channel: string,
   now: number,
 ): number {
-  const recent = state.reservations.filter(
-    (entry) => entry.at + policy.globalWindowMs > now,
+  const recent = Arr.filter(
+    state.reservations,
+    (entry) => !!(entry.at + policy.globalWindowMs > now),
   );
 
   const oldest = recent[recent.length - policy.globalMessages];
   const global = oldest === undefined ? now : oldest.at + policy.globalWindowMs;
-  const last = recent.filter((entry) => entry.channel === channel).at(-1);
+
+  const last = Arr.filter(recent, (entry) => !!(entry.channel === channel)).at(
+    -1,
+  );
 
   return Math.max(
     now,
@@ -557,7 +578,7 @@ export function desiredChannels(
   senderKind: AccountIdentity["senderKind"],
 ) {
   const channels = new Map<string, AccountState["channels"][number]>(
-    (senderKind === "bot" ? state.publicMembers : []).map((channel) => [
+    Arr.map(senderKind === "bot" ? state.publicMembers : [], (channel) => [
       channel.id,
       channel,
     ]),
@@ -565,8 +586,9 @@ export function desiredChannels(
 
   for (const channel of state.channels) channels.set(channel.id, channel);
 
-  return [...channels.values()].filter(
-    (channel) => state.lifecycle[channel.id]?.kind !== "removed",
+  return Arr.filter(
+    [...channels.values()],
+    (channel) => !!(state.lifecycle[channel.id]?.kind !== "removed"),
   );
 }
 

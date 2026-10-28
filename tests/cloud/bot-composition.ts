@@ -1,6 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { AccountEndpoints } from "@arctools/twitch/cloudflare";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema, String as Str } from "effect";
 
 import type { EnvironmentConfig } from "../../apps/bot/src/config.js";
 import type {
@@ -61,7 +61,10 @@ export function botRequestObservation(identity: EnvironmentConfig) {
 export const botTestBindings = Effect.fnUntraced(function* (
   identity: EnvironmentConfig,
 ) {
-  if (identity.kind !== "test" || !identity.stage.startsWith("test-tenant-"))
+  if (
+    identity.kind !== "test" ||
+    !Str.startsWith("test-tenant-")(identity.stage)
+  )
     return yield* Effect.die(
       "Bot fixtures require an isolated synthetic tenant test stage",
     );
@@ -83,7 +86,7 @@ export const botTestBindings = Effect.fnUntraced(function* (
         if (
           !Schema.is(Schema.String)(baseUrl) ||
           !(
-            baseUrl.startsWith("https://") ||
+            Str.startsWith("https://")(baseUrl) ||
             /^http:\/\/localhost:\d+$/.test(baseUrl)
           )
         )
@@ -99,7 +102,7 @@ export const botTestBindings = Effect.fnUntraced(function* (
         if (
           !Schema.is(Schema.String)(baseUrl) ||
           !(
-            baseUrl.startsWith("https://") ||
+            Str.startsWith("https://")(baseUrl) ||
             /^http:\/\/localhost:\d+$/.test(baseUrl)
           )
         )

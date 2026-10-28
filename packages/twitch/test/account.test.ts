@@ -9,7 +9,17 @@ import {
 } from "@arctools/twitch/testing";
 import type { SendResult } from "@arctools/twitch/testing";
 import * as Test from "alchemy/Test/Bun";
-import { Clock, Deferred, Effect, Fiber, Layer, Schema } from "effect";
+import {
+  Clock,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Schema,
+  Array as Arr,
+  Option,
+  String as Str,
+} from "effect";
 
 import { fixtureConfig, harness, initial } from "./account-fixture.js";
 
@@ -21,20 +31,20 @@ test(
     const h = yield* harness();
     yield* Effect.gen(function* () {
       yield* h.authorize();
-      const persisted = Schema.decodeUnknownSync(AccountState)(h.snapshot());
+      const persisted = yield* Schema.decodeEffect(AccountState)(h.snapshot());
       const until = initial + 10_000;
       h.restore({ ...persisted, tokenLease: { owner: "interrupted", until } });
       const recovered = yield* h.construct();
       const validations = h.control.validations;
       h.time(initial + 1);
       h.consumeAlarm();
-      yield* recovered.credentialAlarm();
+      yield* recovered.credentialAlarm;
       expect(h.control.validations).toBe(validations);
       expect(h.alarmAt()).toBe(until);
       expect(h.nativeAlarmAt()).toBe(until);
       h.time(until);
       h.consumeAlarm();
-      yield* recovered.credentialAlarm();
+      yield* recovered.credentialAlarm;
       expect(h.control.validations).toBe(validations + 1);
       expect(h.alarmAt()).toBeGreaterThan(until);
       expect(h.nativeAlarmAt()).toBe(nextAlarm(h.snapshot()));
@@ -50,7 +60,7 @@ test(
       yield* h.authorize();
       const intended = h.alarmAt();
       h.consumeAlarm();
-      yield* h.alarm();
+      yield* h.alarm;
       expect(h.alarmAt()).toBe(intended);
       expect(h.nativeAlarmAt()).toBe(nextAlarm(h.snapshot()));
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
@@ -81,16 +91,16 @@ test(
       h.control.validationGate = yield* Deferred.make<void>();
       h.control.validationStarted = yield* Deferred.make<void>();
       const before = h.control.validations;
-      const checking = yield* h.alarm().pipe(Effect.forkChild);
+      const checking = yield* h.alarm.pipe(Effect.forkChild);
 
       yield* Deferred.await(h.control.validationStarted);
       expect(h.control.validations).toBe(before + 1);
       yield* Deferred.succeed(h.control.sendGate, undefined);
       yield* Fiber.join(send);
-      expect((yield* h.account.status()).credential).toBe("absent");
+      expect((yield* h.account.status).credential).toBe("absent");
       yield* Deferred.succeed(h.control.validationGate, undefined);
       yield* Fiber.join(checking);
-      expect((yield* h.account.status()).credential).toBe("absent");
+      expect((yield* h.account.status).credential).toBe("absent");
       h.control.validationGate = null;
       h.control.sendGate = null;
       h.control.result = { kind: "sent", messageId: "fresh-session" };
@@ -118,8 +128,9 @@ test(
           "pending",
         );
         expect(
-          h.control.remote.some(
-            (sub) => h.control.remoteBindings[sub.id] === binding,
+          Arr.some(
+            h.control.remote,
+            (sub) => !!(h.control.remoteBindings[sub.id] === binding),
           ),
         ).toBeTrue();
       }
@@ -129,7 +140,7 @@ test(
       const final = yield* h.construct("binding-d", "binding-d");
       expect((yield* h.authorize(final.service)).status.setup).toBe("ready");
       expect(
-        h.control.remote.map((sub) => h.control.remoteBindings[sub.id]),
+        Arr.map(h.control.remote, (sub) => h.control.remoteBindings[sub.id]),
       ).toEqual(["binding-d", "binding-d"]);
       const creates = h.control.creates;
       const reconstructed = yield* h.construct("binding-d", "binding-d");
@@ -155,11 +166,13 @@ test(
       expect(
         (yield* recovered.service.setup("operator-digest")).status.setup,
       ).toBe("ready");
-      expect(h.control.remote.some((sub) => sub.id === existing)).toBeFalse();
+      expect(
+        Arr.some(h.control.remote, (sub) => !!(sub.id === existing)),
+      ).toBeFalse();
       expect(h.control.creates).toBe(4);
       expect(h.control.removes).toBe(2);
       expect(
-        h.control.remote.map((sub) => h.control.remoteBindings[sub.id]),
+        Arr.map(h.control.remote, (sub) => h.control.remoteBindings[sub.id]),
       ).toEqual(["fixture-binding", "fixture-binding"]);
       const persisted = yield* h.construct();
       yield* persisted.service.setup("operator-digest");
@@ -178,7 +191,7 @@ test(
       expect(
         (yield* h.account.setup("operator-digest").pipe(Effect.flip)).code,
       ).toBe("client");
-      expect((yield* h.account.status()).credential).toBe("absent");
+      expect((yield* h.account.status).credential).toBe("absent");
       h.control.failUsers = false;
       expect(
         (yield* h.account.setup("operator-digest")).authorizations.length,
@@ -218,13 +231,13 @@ test(
       expect(h.control.mints).toBe(2);
       yield* Deferred.succeed(h.control.usersGate, undefined);
       expect((yield* Fiber.join(setup)).code).toBe("client");
-      expect((yield* h.account.status()).credential).toBe("valid");
+      expect((yield* h.account.status).credential).toBe("valid");
       h.control.usersGate = null;
       h.control.usersFailure = "provider";
       expect(
         (yield* h.account.setup("operator-digest").pipe(Effect.flip)).code,
       ).toBe("provider");
-      expect((yield* h.account.status()).credential).toBe("valid");
+      expect((yield* h.account.status).credential).toBe("valid");
       expect(h.control.mints).toBe(2);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
@@ -251,10 +264,10 @@ test(
         state.sweepAt = initial + 7_200_000;
       });
       h.time(initial + 3_600_000);
-      yield* h.alarm();
+      yield* h.alarm;
       yield* Deferred.succeed(h.control.sendGate, undefined);
       yield* Fiber.join(send);
-      expect((yield* h.account.status()).credential).toBe("absent");
+      expect((yield* h.account.status).credential).toBe("absent");
       h.control.sendGate = null;
       h.control.result = { kind: "sent", messageId: "minted" };
       expect(
@@ -282,13 +295,22 @@ test(
         const setup = yield* h.account.setup("operator-digest");
         expect(setup.authorizations.length).toBe(33);
         expect(
-          new Set(setup.authorizations.map((auth) => auth.login)).size,
+          new Set(Arr.map(setup.authorizations, (auth) => auth.login)).size,
         ).toBe(33);
-        const persisted = Schema.decodeUnknownSync(AccountState)(h.snapshot());
+
+        const persisted = yield* Schema.decodeEffect(AccountState)(
+          h.snapshot(),
+        );
+
         expect(persisted.oauth.length).toBe(33);
         expect(
-          persisted.oauth.every((state) =>
-            setup.authorizations.some((auth) => auth.login === state.login),
+          Arr.every(
+            persisted.oauth,
+            (state) =>
+              !!Arr.some(
+                setup.authorizations,
+                (auth) => !!(auth.login === state.login),
+              ),
           ),
         ).toBeTrue();
       }
@@ -300,14 +322,14 @@ test(
           .length,
       ).toBe(33);
       expect(
-        Schema.decodeUnknownSync(AccountState)(h.snapshot()).oauth.length,
+        (yield* Schema.decodeEffect(AccountState)(h.snapshot())).oauth.length,
       ).toBe(33);
       expect((yield* h.authorize(recovered.service)).status.setup).toBe(
         "ready",
       );
       expect(h.control.remote.length).toBe(32);
       expect(
-        Schema.decodeUnknownSync(AccountState)(h.snapshot()).oauth.length,
+        (yield* Schema.decodeEffect(AccountState)(h.snapshot())).oauth.length,
       ).toBe(0);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
@@ -324,7 +346,13 @@ test(
         const params = new URL(auth.url).searchParams;
         h.control.grantUser = auth.login === "fixture_sender" ? "100" : "200";
         h.control.grantLogin = auth.login;
-        h.control.grantScopes = params.get("scope")?.split(" ") ?? [];
+        h.control.grantScopes =
+          Option.getOrUndefined(
+            Option.map(
+              Option.fromNullishOr(params.get("scope")),
+              (effectNativeValue0) => Str.split(effectNativeValue0, " "),
+            ),
+          ) ?? [];
         yield* h.account.completeOAuth({
           state: params.get("state") ?? "",
           code: "code",
@@ -355,8 +383,11 @@ test(
         "ready",
       );
 
-      const subscription = h.control.remote.find(
-        (sub) => sub.condition.broadcaster_user_id === "200",
+      const subscription = Option.getOrUndefined(
+        Arr.findFirst(
+          h.control.remote,
+          (sub) => !!(sub.condition.broadcaster_user_id === "200"),
+        ),
       );
 
       if (!subscription)
@@ -370,12 +401,13 @@ test(
         status: "authorization_revoked",
       });
       expect(
-        (yield* h.account.setup("operator-digest")).authorizations.map(
+        Arr.map(
+          (yield* h.account.setup("operator-digest")).authorizations,
           (auth) => auth.login,
         ),
       ).toEqual(["fixture_channel"]);
       expect(
-        Schema.decodeUnknownSync(AccountState)(h.snapshot()).oauth.length,
+        (yield* Schema.decodeEffect(AccountState)(h.snapshot())).oauth.length,
       ).toBe(1);
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
@@ -425,7 +457,7 @@ for (const [name, change, code] of [
       expect(
         (yield* h.account.completeOAuth(input).pipe(Effect.flip)).code,
       ).toBe("state");
-      expect((yield* h.account.status()).sender?.authorized).toBeFalse();
+      expect((yield* h.account.status).sender?.authorized).toBeFalse();
     }),
   );
 }
@@ -501,7 +533,11 @@ test(
     const final = yield* h.authorize();
     expect(final.status.setup).toBe("ingress-required");
     expect(h.control.creates).toBe(0);
-    expect(JSON.stringify(final.status)).not.toContain("canary");
+    expect(
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        final.status,
+      ).pipe(Effect.orDie),
+    ).not.toContain("canary");
   }),
 );
 
@@ -520,19 +556,19 @@ test(
       if (!original) return yield* Effect.die("missing fixture subscription");
       yield* h.account.observeSubscription({
         id: original.id,
-        broadcasterId: Schema.decodeUnknownSync(Dispatch.fields.broadcasterId)(
-          "200",
-        ),
+        broadcasterId: yield* Schema.decodeEffect(
+          Dispatch.fields.broadcasterId,
+        )("200"),
         senderId: "100",
         binding: "fixture-binding",
         callback: "https://fixture.invalid/webhooks/twitch",
         status: "authorization_revoked",
       });
-      expect((yield* h.account.status()).sender?.authorized).toBeTrue();
+      expect((yield* h.account.status).sender?.authorized).toBeTrue();
       expect(yield* h.account.dispatch(h.send("revoked"))).toEqual({
         kind: "rejected",
       });
-      h.control.remote = h.control.remote.map((sub) =>
+      h.control.remote = Arr.map(h.control.remote, (sub) =>
         sub.id === original.id
           ? { ...sub, status: "authorization_revoked" }
           : sub,
@@ -626,9 +662,11 @@ for (const result of [
           kind: result.kind,
         });
         expect(h.control.sends).toBe(1);
-        expect(JSON.stringify(yield* h.account.status())).not.toContain(
-          "canary",
-        );
+        expect(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+            yield* h.account.status,
+          ).pipe(Effect.orDie),
+        ).not.toContain("canary");
       }).pipe(Effect.provideService(Clock.Clock, h.clock));
     }),
   );
@@ -702,7 +740,7 @@ test(
         ).toBe("sent");
       }
 
-      const status = yield* h.account.status();
+      const status = yield* h.account.status;
       expect(status.attempts).toBeLessThanOrEqual(21);
       expect(yield* h.account.dispatch(first)).toEqual({ kind: "expired" });
       expect(h.control.sends).toBe(64);
@@ -718,8 +756,12 @@ test(
     expect(
       (yield* h.account.setup("operator-digest").pipe(Effect.flip)).code,
     ).toBe("client");
-    expect((yield* h.account.status()).credential).toBe("absent");
-    expect(JSON.stringify(h.snapshot())).not.toContain("canary-app-token");
+    expect((yield* h.account.status).credential).toBe("absent");
+    expect(
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(
+        h.snapshot(),
+      ).pipe(Effect.orDie),
+    ).not.toContain("canary-app-token");
     expect(h.control.sends).toBe(0);
   }),
 );
@@ -775,11 +817,12 @@ test(
       yield* Deferred.succeed(h.control.exchangeGate, undefined);
       expect((yield* Fiber.join(completing))._tag).toBe("Success");
       expect(
-        (yield* h.account.status()).channels.some(
-          (entry) => entry.id === "200",
+        Arr.some(
+          (yield* h.account.status).channels,
+          (entry) => !!(entry.id === "200"),
         ),
       ).toBeFalse();
-      expect((yield* h.account.status()).sender?.authorized).toBeTrue();
+      expect((yield* h.account.status).sender?.authorized).toBeTrue();
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -816,7 +859,7 @@ test(
 
       if (!subscription)
         return yield* Effect.die("missing fixture subscription");
-      h.control.remote = h.control.remote.map((sub) => ({
+      h.control.remote = Arr.map(h.control.remote, (sub) => ({
         ...sub,
         status: "webhook_callback_verification_pending",
       }));

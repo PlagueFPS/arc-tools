@@ -1,3 +1,4 @@
+/* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import { manifestHash, RemoteCommands } from "@arctools/discord/server";
 import { subscriptionBinding } from "@arctools/twitch/server";
@@ -12,6 +13,10 @@ import {
   Layer,
   Redacted,
   Schema,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+  Option,
 } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 import {
@@ -78,7 +83,7 @@ const Retirement = Schema.Struct({ id: ControlId });
 export const ProviderSnapshot = Schema.Struct({
   messages: Schema.Array(
     Schema.Struct({
-      at: Schema.Number,
+      at: Schema.Finite,
       body: Schema.Struct({
         broadcaster_id: Schema.String,
         sender_id: Schema.String,
@@ -156,16 +161,18 @@ export const makeProviderFixture = (
             Effect.gen(function* () {
               return {
                 messages: (yield* storage.get("messages")) ?? [],
-                calls: Object.fromEntries(
-                  [...(yield* storage.list<number>({ prefix: "call:" }))].map(
-                    ([key, value]) => [key.slice(5), value],
+                calls: Rec.fromEntries(
+                  Arr.map(
+                    [...(yield* storage.list<number>({ prefix: "call:" }))],
+                    ([key, value]) => [Str.slice(5)(key), value],
                   ),
                 ),
                 remote: (yield* storage.get<Subscription[]>("remote")) ?? [],
-                bindings: Object.fromEntries(
-                  [
-                    ...(yield* storage.list<string>({ prefix: "binding:" })),
-                  ].map(([key, value]) => [key.slice(8), value]),
+                bindings: Rec.fromEntries(
+                  Arr.map(
+                    [...(yield* storage.list<string>({ prefix: "binding:" }))],
+                    ([key, value]) => [Str.slice(8)(key), value],
+                  ),
                 ),
                 logs: (yield* storage.get<string[]>("logs")) ?? [],
                 validations: yield* readProviderAttribution(storage),
@@ -187,7 +194,9 @@ export const makeProviderFixture = (
 
         const fingerprint =
           url.pathname === "/oauth/validate"
-            ? yield* credentialFingerprint(authorization.replace(/^OAuth /, ""))
+            ? yield* credentialFingerprint(
+                Str.replace(/^OAuth /, "")(authorization),
+              )
             : null;
 
         const count = yield* observation(key, fingerprint, {
@@ -217,7 +226,7 @@ export const makeProviderFixture = (
 
         if (url.pathname === "/applications/fixture-discord/commands") {
           if (method === "PUT") {
-            const commands = yield* Schema.decodeUnknownEffect(
+            const commands = yield* Schema.decodeEffect(
               Schema.fromJsonString(RemoteCommands),
             )(body).pipe(Effect.orDie);
 
@@ -246,19 +255,31 @@ export const makeProviderFixture = (
               ? []
               : full
                 ? commands
-                : commands.map((command) => ({
+                : Arr.map(commands, (command) => ({
                     ...command,
                     name_localizations: undefined,
                     description_localizations: undefined,
-                    options: command.options?.map((option) => ({
-                      ...option,
-                      name_localizations: undefined,
-                      description_localizations: undefined,
-                      choices: option.choices?.map((choice) => ({
-                        ...choice,
-                        name_localizations: undefined,
-                      })),
-                    })),
+                    options: Option.getOrUndefined(
+                      Option.map(
+                        Option.fromNullishOr(command.options),
+                        (effectNativeValue0) =>
+                          Arr.map(effectNativeValue0, (option) => ({
+                            ...option,
+                            name_localizations: undefined,
+                            description_localizations: undefined,
+                            choices: Option.getOrUndefined(
+                              Option.map(
+                                Option.fromNullishOr(option.choices),
+                                (effectNativeValue1) =>
+                                  Arr.map(effectNativeValue1, (choice) => ({
+                                    ...choice,
+                                    name_localizations: undefined,
+                                  })),
+                              ),
+                            ),
+                          })),
+                      ),
+                    ),
                   })),
           };
         }
@@ -287,7 +308,9 @@ export const makeProviderFixture = (
           return {
             status: 200,
             body: {
-              access_token: JSON.stringify(grant),
+              access_token: yield* Schema.encodeEffect(
+                Schema.fromJsonString(Schema.Unknown),
+              )(grant).pipe(Effect.orDie),
               refresh_token: "CANARY-USER-REFRESH",
               token_type: "bearer",
               expires_in: 3600,
@@ -296,9 +319,9 @@ export const makeProviderFixture = (
         }
 
         if (url.pathname === "/oauth/validate") {
-          const token = authorization.replace(/^OAuth /, "");
+          const token = Str.replace(/^OAuth /, "")(authorization);
 
-          if (token.startsWith("synthetic-app-"))
+          if (Str.startsWith("synthetic-app-")(token))
             return {
               status: 200,
               body: {
@@ -308,7 +331,7 @@ export const makeProviderFixture = (
               },
             };
 
-          const grant = yield* Schema.decodeUnknownEffect(
+          const grant = yield* Schema.decodeEffect(
             Schema.fromJsonString(Grant),
           )(token).pipe(Effect.orDie);
 
@@ -328,7 +351,7 @@ export const makeProviderFixture = (
           return {
             status: 200,
             body: {
-              data: url.searchParams.getAll("login").map((login) => ({
+              data: Arr.map(url.searchParams.getAll("login"), (login) => ({
                 login,
                 id: Match.value(login).pipe(
                   Match.when("fixture_sender", () => "100"),
@@ -363,9 +386,10 @@ export const makeProviderFixture = (
 
                   yield* storage.put(
                     "remote",
-                    remote.filter(
+                    Arr.filter(
+                      remote,
                       (subscription) =>
-                        subscription.id !== url.searchParams.get("id"),
+                        !!(subscription.id !== url.searchParams.get("id")),
                     ),
                   );
                 }),
@@ -375,7 +399,7 @@ export const makeProviderFixture = (
             return { status: 204, body: null };
           }
 
-          const input = yield* Schema.decodeUnknownEffect(
+          const input = yield* Schema.decodeEffect(
             Schema.fromJsonString(
               Schema.Struct({
                 type: Schema.String,
@@ -397,16 +421,19 @@ export const makeProviderFixture = (
                   (yield* storage.get<Subscription[]>("remote")) ?? [];
 
                 if (
-                  remote.some(
+                  Arr.some(
+                    remote,
                     (subscription) =>
-                      subscription.type === input.type &&
-                      subscription.version === input.version &&
-                      subscription.transport.method ===
-                        input.transport.method &&
-                      subscription.condition.broadcaster_user_id ===
-                        input.condition.broadcaster_user_id &&
-                      subscription.condition.user_id ===
-                        input.condition.user_id,
+                      !!(
+                        subscription.type === input.type &&
+                        subscription.version === input.version &&
+                        subscription.transport.method ===
+                          input.transport.method &&
+                        subscription.condition.broadcaster_user_id ===
+                          input.condition.broadcaster_user_id &&
+                        subscription.condition.user_id ===
+                          input.condition.user_id
+                      ),
                   )
                 )
                   return { status: 409, body: {} };
@@ -442,7 +469,7 @@ export const makeProviderFixture = (
         }
 
         if (url.pathname === "/helix/chat/messages") {
-          const payload = yield* Schema.decodeUnknownEffect(
+          const payload = yield* Schema.decodeEffect(
             Schema.fromJsonString(
               ProviderSnapshot.fields.messages.value.fields.body,
             ),
@@ -478,6 +505,7 @@ export class ProviderFixtureState extends Cloudflare.DurableObject<ProviderFixtu
     const { storage } = yield* Cloudflare.DurableObjectState;
     const { identity } = yield* runtimeConfig.pipe(Effect.orDie);
 
+    // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return makeProviderFixture(storage, identity);
   }),
 ) {}

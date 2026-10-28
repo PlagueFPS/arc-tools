@@ -1,4 +1,12 @@
-import { Effect, Redacted, Schedule, Schema } from "effect";
+import {
+  Effect,
+  Redacted,
+  Schedule,
+  Schema,
+  Option,
+  Array as Arr,
+  String as Str,
+} from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import {
@@ -15,7 +23,7 @@ const healthMismatch =
 
 const Comments = Schema.Array(
   Schema.Struct({
-    id: Schema.Number,
+    id: Schema.Finite,
     body: Schema.NullOr(Schema.String),
     user: Schema.Struct({ login: Schema.String }),
   }),
@@ -27,10 +35,10 @@ const Health = Schema.Struct({
   revision: CheckedPreview.fields.revision,
 });
 
-export class PreviewHttpError extends Schema.TaggedError<PreviewHttpError>()(
-  "PreviewHttpError",
-  { message: Schema.String, cause: Schema.Defect() },
-) {}
+export class PreviewHttpError extends Schema.TaggedError<
+  PreviewHttpError,
+  { readonly brand: unique symbol }
+>()("PreviewHttpError", { message: Schema.String, cause: Schema.Defect() }) {}
 
 export const makePreviewHttp = Effect.fnUntraced(function* (options: {
   preview: PreviewIdentity;
@@ -127,10 +135,21 @@ export const makePreviewHttp = Effect.fnUntraced(function* (options: {
         Comments,
       );
 
-      existing = comments.find(
-        (comment) =>
-          comment.user.login === "github-actions[bot]" &&
-          comment.body?.includes(marker),
+      existing = Option.getOrUndefined(
+        Arr.findFirst(
+          comments,
+          (comment) =>
+            !!(
+              comment.user.login === "github-actions[bot]" &&
+              Option.getOrUndefined(
+                Option.map(
+                  Option.fromNullishOr(comment.body),
+                  (effectNativeValue0) =>
+                    Str.includes(marker)(effectNativeValue0),
+                ),
+              )
+            ),
+        ),
       )?.id;
 
       if (existing || comments.length < 100) break;
