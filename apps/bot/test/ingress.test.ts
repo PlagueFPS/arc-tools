@@ -14,6 +14,7 @@ import {
 import * as Test from "alchemy/Test/Bun";
 import {
   Result,
+  Option,
   Clock,
   Effect,
   Fiber,
@@ -464,10 +465,17 @@ describe("signed HttpApi ingress", () => {
           },
         ]);
         expect(f.observations).toHaveLength(4);
-        expect(parseTwitchCommand("!recycleto  heavy gun parts")).toEqual({
-          command: "recycleto",
-          input: "heavy gun parts",
-        });
+        expect(parseTwitchCommand("ordinary chat")).toEqual(Option.none());
+        expect(parseTwitchCommand("!unknown")).toEqual(Option.none());
+        expect(parseTwitchCommand(`!sell ${Str.repeat(257)("x")}`)).toEqual(
+          Option.none(),
+        );
+        expect(parseTwitchCommand("!recycleto  heavy gun parts")).toEqual(
+          Option.some({
+            command: "recycleto",
+            input: "heavy gun parts",
+          }),
+        );
       }),
     ),
   );

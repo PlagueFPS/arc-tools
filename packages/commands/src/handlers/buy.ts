@@ -1,6 +1,13 @@
 import { getTraders } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
-import { Effect, Array as Arr, Record as Rec, String as Str } from "effect";
+import {
+  pipe,
+  Effect,
+  Match,
+  Array as Arr,
+  Record as Rec,
+  String as Str,
+} from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 
@@ -12,7 +19,7 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
       );
     }
 
-    const potentialId = Str.replace(/ /g, "-")(Str.toLowerCase(query));
+    const potentialId = pipe(query, Str.toLowerCase, Str.replace(/ /g, "-"));
 
     const normalizedQuery = normalize(query);
     const traders = yield* getTraders();
@@ -25,8 +32,11 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
         const matchesId = Str.toLowerCase(item.id) === potentialId;
 
         const matchesName =
-          Str.includes(Str.toLowerCase(query))(Str.toLowerCase(item.name)) ||
-          Str.includes(normalizedQuery)(normalize(item.name));
+          pipe(
+            item.name,
+            Str.toLowerCase,
+            Str.includes(Str.toLowerCase(query)),
+          ) || pipe(item.name, normalize, Str.includes(normalizedQuery));
 
         if (matchesId || matchesName) {
           matches.push({
@@ -42,18 +52,27 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
       return yield* Effect.succeed(`[Warn] No trader sells: ${query}`);
     }
 
-    const response = Arr.join(
-      Arr.map(matches, (m) => {
-        switch (m.traderName) {
-          case "Shani":
-            return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} cred.`;
-          case "Celeste":
-            return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} seeds`;
-          default:
-            return `${m.itemName} can be purchased from ${m.traderName} for ${m.price} coins`;
-        }
+    const response = pipe(
+      matches,
+      Arr.map((m) => {
+        return Match.value(m.traderName).pipe(
+          Match.when(
+            "Shani",
+            () =>
+              `${m.itemName} can be purchased from ${m.traderName} for ${m.price} cred.`,
+          ),
+          Match.when(
+            "Celeste",
+            () =>
+              `${m.itemName} can be purchased from ${m.traderName} for ${m.price} seeds`,
+          ),
+          Match.orElse(
+            () =>
+              `${m.itemName} can be purchased from ${m.traderName} for ${m.price} coins`,
+          ),
+        );
       }),
-      ", ",
+      Arr.join(", "),
     );
 
     return yield* Effect.succeed(response);

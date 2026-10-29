@@ -8,6 +8,7 @@ import {
 import {
   Context,
   Effect,
+  Option,
   Match,
   Schema,
   Array as Arr,
@@ -171,7 +172,7 @@ export function fits(state: TenantState) {
   );
 }
 
-export function nextAlarm(state: TenantState): number | null {
+export function nextAlarm(state: TenantState): Option.Option<number> {
   let next = Infinity;
 
   for (const work of Rec.values(state.works)) {
@@ -191,7 +192,7 @@ export function nextAlarm(state: TenantState): number | null {
     next = Math.min(next, action, work.deadline);
   }
 
-  return Number.isFinite(next) ? next : null;
+  return Number.isFinite(next) ? Option.some(next) : Option.none();
 }
 
 export interface Store {

@@ -19,6 +19,7 @@ import {
   Deferred,
   Effect,
   Match,
+  Option,
   Predicate,
   Result,
   Schema,
@@ -814,7 +815,7 @@ export const makeTenantStorage = Effect.fnUntraced(function* (
             if (encodedBytes(encoded) > tenantPolicy.bytes)
               return yield* Effect.die("Tenant capacity exceeded");
             yield* storage.put("tenant:v1", encoded);
-            const alarm = nextAlarm(state);
+            const alarm = Option.getOrNull(nextAlarm(state));
 
             if ((yield* storage.getAlarm()) !== alarm)
               yield* Predicate.isNull(alarm)

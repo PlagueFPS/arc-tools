@@ -1,6 +1,13 @@
 import { layerUncached } from "@arctools/arc-data";
 import { BASE_API_URL } from "@arctools/utils";
-import { Effect, Layer, Array as Arr, String as Str, Schema } from "effect";
+import {
+  pipe,
+  Effect,
+  Layer,
+  Array as Arr,
+  String as Str,
+  Schema,
+} from "effect";
 import {
   HttpClient,
   type HttpClientRequest,
@@ -93,7 +100,7 @@ export function createMockHttpClientLayer(mock: MockData) {
           );
         }
 
-        const path = Str.split(Str.slice(baseUrl.length)(url), "?")[0];
+        const path = pipe(url, Str.slice(baseUrl.length), Str.split("?"))[0];
 
         if (path === "traders") {
           return HttpClientResponse.fromWeb(
@@ -122,13 +129,16 @@ export function createMockHttpClientLayer(mock: MockData) {
               (i) => !!(Str.toLowerCase(i.id) === Str.toLowerCase(id)),
             );
           } else if (search) {
-            const norm = Str.replace(/\s/g, "")(Str.toLowerCase(search));
+            const norm = pipe(search, Str.toLowerCase, Str.replace(/\s/g, ""));
 
             matched = Arr.filter(
               items,
               (i: MockItem) =>
-                !!Str.includes(norm)(
-                  Str.replace(/\s/g, "")(Str.toLowerCase(i.name)),
+                !!pipe(
+                  i.name,
+                  Str.toLowerCase,
+                  Str.replace(/\s/g, ""),
+                  Str.includes(norm),
                 ),
             );
           }
@@ -159,13 +169,16 @@ export function createMockHttpClientLayer(mock: MockData) {
               (a) => !!(Str.toLowerCase(a.id) === Str.toLowerCase(id)),
             );
           } else if (search) {
-            const norm = Str.replace(/\s/g, "")(Str.toLowerCase(search));
+            const norm = pipe(search, Str.toLowerCase, Str.replace(/\s/g, ""));
 
             matched = Arr.filter(
               arcs,
               (a: MockArc) =>
-                !!Str.includes(norm)(
-                  Str.replace(/\s/g, "")(Str.toLowerCase(a.name)),
+                !!pipe(
+                  a.name,
+                  Str.toLowerCase,
+                  Str.replace(/\s/g, ""),
+                  Str.includes(norm),
                 ),
             );
           }

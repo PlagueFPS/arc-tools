@@ -2,11 +2,16 @@ import { expect } from "bun:test";
 
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Test from "alchemy/Test/Bun";
-import { Cause, Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, Layer, Schema } from "effect";
 
 import { acknowledgeReconstruction } from "./fixture-response.js";
 
 const { test } = Test.make({ providers: Layer.empty });
+
+class ForeignRpcCallError extends Schema.TaggedError<
+  ForeignRpcCallError,
+  { readonly brand: unique symbol }
+>()("RpcCallError", { cause: Schema.Unknown }) {}
 
 const reason = "foundation reconstruction probe";
 
@@ -22,6 +27,22 @@ test(
     );
 
     expect(response.status).toBe(204);
+
+    const structural = yield* acknowledgeReconstruction(
+      new ForeignRpcCallError({ cause: new Error(reason) }),
+      reason,
+    );
+
+    expect(structural.status).toBe(204);
+
+    const malformed = yield* Effect.exit(
+      acknowledgeReconstruction(
+        new ForeignRpcCallError({ cause: null }),
+        reason,
+      ),
+    );
+
+    expect(Exit.isFailure(malformed)).toBeTrue();
 
     for (const reset of [
       new Cloudflare.RpcCallError({

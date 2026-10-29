@@ -8,6 +8,7 @@ import { RuntimeContext } from "alchemy/RuntimeContext";
 import {
   Context,
   Effect,
+  Option,
   Exit,
   Schema,
   Array as Arr,
@@ -305,7 +306,7 @@ export const recordCompletedAlarm = Effect.fnUntraced(function* (
           completedAt: Date.now(),
           lease: record.tokenLease,
           intended: record.nextCredentialCheck,
-          scheduled: nextAlarm(record),
+          scheduled: Option.getOrNull(nextAlarm(record)),
           native: yield* storage.getAlarm(),
           credential:
             record.session === null

@@ -115,7 +115,7 @@ describe("preview identity and boundaries", () => {
     expect(preview.stage).toMatch(/^test-tenant-[a-f0-9]{8}-[a-f0-9]{12}$/);
     expect(Str.endsWith(`-${preview.run}`)(preview.stage)).toBeTrue();
     expect(
-      new Set(
+      Arr.dedupe(
         Array.from(
           { length: 200 },
           (_, index) =>
@@ -124,7 +124,7 @@ describe("preview identity and boundaries", () => {
               number: index + 1,
             }).stage,
         ),
-      ).size,
+      ).length,
     ).toBe(200);
 
     for (const number of [0, -1, 1.5, NaN, Infinity, "10"])

@@ -16,7 +16,7 @@ import {
   localWebsiteOrigin,
   websiteOAuthOrigin,
 } from "@arctools/bot-contracts/origins";
-import { ConfigProvider, Effect, Schema } from "effect";
+import { ConfigProvider, Effect, Match, Predicate, Schema } from "effect";
 
 import { runtimeConfig } from "../apps/bot/src/config.js";
 
@@ -140,29 +140,28 @@ export function plan(action: LocalAction, settings: LocalSettings): string[][] {
 
   const ops = [process.execPath, join(root, "scripts/ops.ts")];
 
-  switch (action) {
-    case "dev":
-      return [
-        [
-          process.execPath,
-          join(root, "node_modules/alchemy/bin/cli.js"),
-          "dev",
-          "--stage",
-          settings.stage,
-          "--env-file",
-          join(root, ".env.local"),
-          ...(settings.profile === undefined
-            ? []
-            : ["--profile", settings.profile]),
-        ],
-      ];
-    case "setup":
-      return [sync, [...ops, "setup", ...target]];
-    case "status":
-      return [[...ops, "status", ...target, "--discord", ...revision]];
-    case "sync":
-      return [sync];
-  }
+  return Match.value(action).pipe(
+    Match.when("dev", () => [
+      [
+        process.execPath,
+        join(root, "node_modules/alchemy/bin/cli.js"),
+        "dev",
+        "--stage",
+        settings.stage,
+        "--env-file",
+        join(root, ".env.local"),
+        ...(settings.profile === undefined
+          ? []
+          : ["--profile", settings.profile]),
+      ],
+    ]),
+    Match.when("setup", () => [sync, [...ops, "setup", ...target]]),
+    Match.when("status", () => [
+      [...ops, "status", ...target, "--discord", ...revision],
+    ]),
+    Match.when("sync", () => [sync]),
+    Match.exhaustive,
+  );
 }
 
 export async function runPlan(
@@ -181,7 +180,11 @@ export async function runPlan(
       else process.kill(-active.pid, signal);
     } catch (error) {
       if (
-        !(error instanceof Error && "code" in error && error.code === "ESRCH")
+        !(
+          Predicate.isError(error) &&
+          Predicate.hasProperty(error, "code") &&
+          error.code === "ESRCH"
+        )
       )
         throw error;
     }
@@ -246,7 +249,7 @@ if (import.meta.main) {
     process.exitCode = await runPlan(commands, { cwd: root, env });
   } catch (error) {
     console.error(
-      error instanceof Error
+      Predicate.isError(error)
         ? error.message
         : "Local command failed. Details are omitted.",
     );

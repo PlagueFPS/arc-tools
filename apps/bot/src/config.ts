@@ -4,7 +4,7 @@ import {
   websiteOAuthOrigin,
   botOrigin,
 } from "@arctools/bot-contracts/origins";
-import { Config, Effect, Redacted, Schema } from "effect";
+import { Config, Effect, Option, Redacted, Schema } from "effect";
 
 export const TestStage = Schema.String.check(
   Schema.isPattern(/^test-[a-z0-9-]{1,24}-[a-f0-9]{12}$/),
@@ -179,7 +179,7 @@ export const configuredWebsiteOrigin = Effect.gen(function* () {
 export const oauthOrigin = Effect.gen(function* () {
   const { identity } = yield* runtimeConfig;
 
-  if (identity.kind === "test") return null;
+  if (identity.kind === "test") return Option.none<string>();
 
-  return yield* configuredWebsiteOrigin;
+  return Option.some(yield* configuredWebsiteOrigin);
 });

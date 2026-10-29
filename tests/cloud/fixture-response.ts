@@ -1,5 +1,4 @@
-import * as Cloudflare from "@alchemy.run/cloudflare";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Predicate } from "effect";
 import { HttpServerResponse } from "effect/http";
 
 import { FixtureInvariantError } from "./fixture-error.js";
@@ -24,8 +23,9 @@ export const acknowledgeReconstruction = Effect.fnUntraced(function* <A, E, R>(
 
   if (
     !(
-      error instanceof Cloudflare.RpcCallError &&
-      error.cause instanceof Error &&
+      Predicate.isTagged(error, "RpcCallError") &&
+      Predicate.hasProperty(error, "cause") &&
+      Predicate.isError(error.cause) &&
       error.cause.message === reason
     )
   )

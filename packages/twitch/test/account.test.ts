@@ -47,7 +47,7 @@ test(
       yield* recovered.credentialAlarm;
       expect(h.control.validations).toBe(validations + 1);
       expect(h.alarmAt()).toBeGreaterThan(until);
-      expect(h.nativeAlarmAt()).toBe(nextAlarm(h.snapshot()));
+      expect(h.nativeAlarmAt()).toBe(Option.getOrNull(nextAlarm(h.snapshot())));
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -62,7 +62,7 @@ test(
       h.consumeAlarm();
       yield* h.alarm;
       expect(h.alarmAt()).toBe(intended);
-      expect(h.nativeAlarmAt()).toBe(nextAlarm(h.snapshot()));
+      expect(h.nativeAlarmAt()).toBe(Option.getOrNull(nextAlarm(h.snapshot())));
     }).pipe(Effect.provideService(Clock.Clock, h.clock));
   }),
 );
@@ -295,7 +295,8 @@ test(
         const setup = yield* h.account.setup("operator-digest");
         expect(setup.authorizations.length).toBe(33);
         expect(
-          new Set(Arr.map(setup.authorizations, (auth) => auth.login)).size,
+          Arr.dedupe(Arr.map(setup.authorizations, (auth) => auth.login))
+            .length,
         ).toBe(33);
 
         const persisted = yield* Schema.decodeEffect(AccountState)(

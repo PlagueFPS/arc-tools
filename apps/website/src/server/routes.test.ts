@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { Server } from "foldkit/experimental";
 import { expect, test, vi } from "vitest";
 
@@ -91,7 +91,7 @@ test("unknown pages remain 404 and unsupported page methods are 405", async () =
         new Request("https://site.invalid/oauth/twitch/unknown"),
       ),
     ),
-  ).toBeUndefined();
+  ).toEqual(Option.none());
 });
 
 test("native page-host negotiation does not advertise a JSON-only API", async () => {

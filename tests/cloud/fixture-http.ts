@@ -1,6 +1,7 @@
 import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import {
   Cause,
+  HashSet,
   Exit,
   Clock,
   Effect,
@@ -54,7 +55,7 @@ const networkCodes = [
   "unknown",
 ] as const;
 
-const transientCodes = new Set<string>([
+const transientCodes = HashSet.fromIterable([
   "ECONNRESET",
   "ETIMEDOUT",
   "EAI_AGAIN",
@@ -218,7 +219,7 @@ export const isRouteNotReady = (
   diagnostic.fixture === null &&
   diagnostic.bodySha256 === placeholderSha256;
 
-const paths = new Set([
+const paths = HashSet.fromIterable([
   "snapshot",
   "control",
   "observations",
@@ -280,7 +281,7 @@ export const safeRoute = (url: URL) => {
 
     if (part === "journeys") return part;
 
-    return paths.has(part) ? part : ":value";
+    return HashSet.has(paths, part) ? part : ":value";
   });
 
   return `${disposableHost.test(url.hostname) ? `${Str.split(url.hostname, ".")[0]}.*.workers.dev` : "external"}${Arr.join(mapped, "/")}`;
@@ -778,7 +779,7 @@ export const makeFixtureHttp = (
             failure.diagnostic.kind === "body-read") &&
             Arr.some(
               failure.diagnostic.causes,
-              (link) => !!transientCodes.has(link.code),
+              (link) => !!HashSet.has(transientCodes, link.code),
             ));
 
         if (!retry || attempt === 3)

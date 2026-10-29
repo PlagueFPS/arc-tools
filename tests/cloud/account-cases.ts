@@ -987,8 +987,9 @@ export function registerAccountTests({
 
         const beforePaired = yield* native();
 
-        const priorInstances = new Set(
-          Arr.map(beforePaired.attribution.events, (event) => event.instance),
+        const priorInstances = Arr.map(
+          beforePaired.attribution.events,
+          (event) => event.instance,
         );
 
         const pairedRuns = (value: typeof snapshotSchema.Type) =>
@@ -997,7 +998,7 @@ export function registerAccountTests({
             (run) =>
               !!(
                 run.alarmRun > beforePaired.liveAlarmRuns &&
-                !priorInstances.has(run.instance) &&
+                !Arr.contains(priorInstances, run.instance) &&
                 run.validationInvocationIds.length > 0
               ),
           );

@@ -3,6 +3,9 @@ import {
   Clock,
   Effect,
   Layer,
+  Match,
+  Option,
+  Result,
   Predicate,
   Schema,
   Semaphore,
@@ -69,8 +72,8 @@ const rowAt = Effect.fnUntraced(function* (storage: CacheStorage, key: string) {
   const row = yield* storage.get(key);
 
   return Predicate.isUndefined(row)
-    ? undefined
-    : yield* decodeRow(row).pipe(Effect.orDie);
+    ? Option.none<CacheRow>()
+    : Option.some(yield* decodeRow(row).pipe(Effect.orDie));
 });
 
 const usable = (row: CacheRow, now: number, policy: CachePolicy) =>
@@ -82,13 +85,13 @@ const fallback = (
   row: CacheRow,
   now: number,
   policy: CachePolicy,
-): EncodedRead | undefined =>
+): Option.Option<EncodedRead> =>
   !row.schedule && Predicate.isNotNull(row.value) && usable(row, now, policy)
-    ? {
+    ? Option.some({
         body: row.value.body,
         provenance: { freshness: "fallback", fetchedAt: row.value.fetchedAt },
-      }
-    : undefined;
+      })
+    : Option.none();
 
 export const makeCache = Effect.fnUntraced(function* (
   storage: CacheStorage,
@@ -123,18 +126,22 @@ export const makeCache = Effect.fnUntraced(function* (
     ).pipe(Effect.orDie);
   });
 
-  const fetch = (query: ResourceQuery) => {
-    switch (query.resource) {
-      case "items":
-        return fetchEncoded(query, ItemAPIResponse);
-      case "arcs":
-        return fetchEncoded(query, ArcsAPIResponse);
-      case "traders":
-        return fetchEncoded(query, TradersAPIResponse);
-      case "events-schedule":
-        return fetchEncoded(query, EventAPIResponse);
-    }
-  };
+  const fetch = (query: ResourceQuery) =>
+    Match.value(query).pipe(
+      Match.when({ resource: "items" }, (query) =>
+        fetchEncoded(query, ItemAPIResponse),
+      ),
+      Match.when({ resource: "arcs" }, (query) =>
+        fetchEncoded(query, ArcsAPIResponse),
+      ),
+      Match.when({ resource: "traders" }, (query) =>
+        fetchEncoded(query, TradersAPIResponse),
+      ),
+      Match.when({ resource: "events-schedule" }, (query) =>
+        fetchEncoded(query, EventAPIResponse),
+      ),
+      Match.exhaustive,
+    );
 
   const read = Effect.fn("ArcCache.read")(function* (input: ResourceQuery) {
     const query = yield* Schema.decodeEffect(ResourceQuery)(input).pipe(
@@ -175,22 +182,25 @@ export const makeCache = Effect.fnUntraced(function* (
               Effect.gen(function* () {
                 const row = yield* rowAt(storage, key);
 
-                if (Predicate.isNotNullish(row?.value)) {
-                  const age = now - row.value.fetchedAt;
+                if (
+                  Option.isSome(row) &&
+                  Predicate.isNotNull(row.value.value)
+                ) {
+                  const age = now - row.value.value.fetchedAt;
 
                   if (
                     age <
-                    (row.schedule
+                    (row.value.schedule
                       ? policy.scheduleFreshMs
                       : policy.metadataFreshMs)
                   ) {
                     return {
                       kind: "ready",
                       result: {
-                        body: row.value.body,
+                        body: row.value.value.body,
                         provenance: {
                           freshness: "fresh",
-                          fetchedAt: row.value.fetchedAt,
+                          fetchedAt: row.value.value.fetchedAt,
                         },
                       },
                     } as const;
@@ -198,17 +208,18 @@ export const makeCache = Effect.fnUntraced(function* (
                 }
 
                 if (
-                  Predicate.isNotUndefined(row) &&
-                  (row.retryAt > now || row.leaseUntil > now)
+                  Option.isSome(row) &&
+                  (row.value.retryAt > now || row.value.leaseUntil > now)
                 ) {
-                  const cached = fallback(row, now, policy);
+                  const cached = fallback(row.value, now, policy);
 
-                  if (Predicate.isNotUndefined(cached))
-                    return { kind: "ready", result: cached } as const;
+                  if (Option.isSome(cached))
+                    return { kind: "ready", result: cached.value } as const;
 
                   return yield* new DataUnavailable({
                     resource: query.resource,
-                    reason: row.leaseUntil > now ? "refreshing" : "source",
+                    reason:
+                      row.value.leaseUntil > now ? "refreshing" : "source",
                   });
                 }
 
@@ -229,7 +240,7 @@ export const makeCache = Effect.fnUntraced(function* (
                   }
                 }
 
-                if (Predicate.isUndefined(row) && count >= policy.maxKeys) {
+                if (Option.isNone(row) && count >= policy.maxKeys) {
                   return yield* new DataUnavailable({
                     resource: query.resource,
                     reason: "capacity",
@@ -247,7 +258,10 @@ export const makeCache = Effect.fnUntraced(function* (
                 yield* storage.put(key, {
                   generation,
                   schedule: query.resource === "events-schedule",
-                  value: row?.value ?? null,
+                  value: Option.match(row, {
+                    onNone: () => null,
+                    onSome: (row) => row.value,
+                  }),
                   retryAt: 0,
                   leaseUntil: now + policy.sourceTimeoutMs + 1_000,
                 } satisfies CacheRow);
@@ -265,8 +279,8 @@ export const makeCache = Effect.fnUntraced(function* (
                 const current = yield* rowAt(storage, key);
 
                 if (
-                  Predicate.isUndefined(current) ||
-                  current.generation !== claim.generation
+                  Option.isNone(current) ||
+                  current.value.generation !== claim.generation
                 ) {
                   return new DataUnavailable({
                     resource: query.resource,
@@ -274,12 +288,8 @@ export const makeCache = Effect.fnUntraced(function* (
                   });
                 }
 
-                let body: string | undefined;
-
-                if (Predicate.isTagged(response, "Success"))
-                  body = response.success;
-
-                if (Predicate.isNotUndefined(body)) {
+                if (Result.isSuccess(response)) {
+                  const body = response.success;
                   const bytes = new TextEncoder().encode(body).byteLength;
                   const entries = yield* storage.entries;
                   let total = bytes;
@@ -295,7 +305,7 @@ export const makeCache = Effect.fnUntraced(function* (
                     total <= policy.maxCacheBytes
                   ) {
                     yield* storage.put(key, {
-                      ...current,
+                      ...current.value,
                       value: { body, bytes, fetchedAt: completedAt },
                       retryAt: 0,
                       leaseUntil: 0,
@@ -312,13 +322,13 @@ export const makeCache = Effect.fnUntraced(function* (
                 }
 
                 yield* storage.put(key, {
-                  ...current,
+                  ...current.value,
                   retryAt: completedAt + policy.retryCooldownMs,
                   leaseUntil: 0,
                 });
-                const cached = fallback(current, completedAt, policy);
+                const cached = fallback(current.value, completedAt, policy);
 
-                if (Predicate.isNotUndefined(cached)) return cached;
+                if (Option.isSome(cached)) return cached.value;
 
                 return new DataUnavailable({
                   resource: query.resource,
