@@ -5,8 +5,10 @@ import {
   request,
 } from "@arctools/utils/http";
 import {
+  HashSet,
   Layer,
   Predicate,
+  Option,
   Clock,
   Context,
   Effect,
@@ -323,27 +325,32 @@ export const makeProvider = Effect.fnUntraced(function* (
     list: Effect.fnUntraced(
       function* (token: string) {
         const subscriptions: Subscription[] = [];
-        const seen = new Set<string>();
-        let cursor: string | undefined;
+        let seen = HashSet.empty<string>();
+        let cursor = Option.none<string>();
 
         do {
           const page = yield* decodeBody(Page)(
             yield* checked(
               HttpClientRequest.get("/eventsub/subscriptions", {
-                urlParams: cursor ? { after: cursor } : {},
+                urlParams: Option.match(cursor, {
+                  onNone: () => ({}),
+                  onSome: (after) => ({ after }),
+                }),
               }),
               token,
             ),
           );
 
           subscriptions.push(...page.data);
-          cursor = page.pagination?.cursor;
+          cursor = Option.fromNullishOr(page.pagination?.cursor).pipe(
+            Option.filter((cursor) => cursor.length > 0),
+          );
 
-          if (cursor && seen.has(cursor))
+          if (Option.isSome(cursor) && HashSet.has(seen, cursor.value))
             return yield* new AccountError({ code: "capacity" });
 
-          if (cursor) seen.add(cursor);
-        } while (cursor);
+          if (Option.isSome(cursor)) seen = HashSet.add(seen, cursor.value);
+        } while (Option.isSome(cursor));
 
         return subscriptions;
       },

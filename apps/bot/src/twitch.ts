@@ -23,7 +23,12 @@ export class TwitchAccountDO extends Cloudflare.DurableObject<TwitchAccountDO>()
     // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
     return Effect.gen(function* () {
       const webhookOrigin = yield* origin;
-      const oauthOrigin = configuredOAuthOrigin ?? webhookOrigin;
+
+      const oauthOrigin = Option.getOrElse(
+        configuredOAuthOrigin,
+        () => webhookOrigin,
+      );
+
       const webhookReady = true;
 
       const revision = yield* accountRevision({

@@ -8,6 +8,7 @@ import {
 } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
 import {
+  pipe,
   Cause,
   Clock,
   Effect,
@@ -243,30 +244,21 @@ const decode = Effect.fnUntraced(function* <A, I>(
 
 export function parseTwitchCommand(
   text: string,
-): typeof Invocation.Type | null {
-  if (!Str.startsWith("!")(text)) return null;
+): Option.Option<typeof Invocation.Type> {
+  if (!Str.startsWith("!")(text)) return Option.none();
 
-  const [name, ...args] = Str.split(Str.trim(Str.slice(1)(text)), /\s+/);
-
-  const command = Option.getOrUndefined(
-    Arr.findFirst(
-      commandCatalog,
-      (entry) =>
-        !!(
-          entry.name ===
-          Option.getOrUndefined(
-            Option.map(Option.fromNullishOr(name), (effectNativeValue0) =>
-              Str.toLowerCase(effectNativeValue0),
-            ),
-          )
-        ),
-    ),
-  );
-
-  if (!command) return null;
+  const [name, ...args] = pipe(text, Str.slice(1), Str.trim, Str.split(/\s+/));
   const input = Arr.join(args, " ");
 
-  return input.length <= 256 ? { command: command.name, input } : null;
+  if (input.length > 256) return Option.none();
+
+  return Option.fromNullishOr(name).pipe(
+    Option.map(Str.toLowerCase),
+    Option.flatMap((name) =>
+      Arr.findFirst(commandCatalog, (entry) => entry.name === name),
+    ),
+    Option.map((command) => ({ command: command.name, input })),
+  );
 }
 
 const Subscription = Schema.Struct({
@@ -373,15 +365,17 @@ export const ingressHandlers = (config: IngressConfig) =>
         const status = yield* account.status;
         const sender = status.sender;
 
-        const channel = Option.getOrUndefined(
-          Arr.findFirst(
-            status.channels,
-            (channel) =>
-              !!(channel.id === subscription.condition.broadcaster_user_id),
-          ),
+        const channel = Arr.findFirst(
+          status.channels,
+          (channel) =>
+            channel.id === subscription.condition.broadcaster_user_id,
         );
 
-        if (!channel || !sender || sender.id !== subscription.condition.user_id)
+        if (
+          Option.isNone(channel) ||
+          !sender ||
+          sender.id !== subscription.condition.user_id
+        )
           return yield* new IngressError({ status: 400 });
 
         const type = yield* Schema.decodeUnknownEffect(TwitchDeliveryType)(
@@ -400,8 +394,8 @@ export const ingressHandlers = (config: IngressConfig) =>
             () =>
               subscription.status === "enabled" &&
               !!envelope.event &&
-              envelope.event.broadcaster_user_id === channel.id &&
-              envelope.event.broadcaster_user_login === channel.login,
+              envelope.event.broadcaster_user_id === channel.value.id &&
+              envelope.event.broadcaster_user_login === channel.value.login,
           ),
           Match.when("revocation", () =>
             [
@@ -419,7 +413,7 @@ export const ingressHandlers = (config: IngressConfig) =>
 
         const source = yield* account.observeSubscription({
           id: subscription.id,
-          broadcasterId: channel.id,
+          broadcasterId: channel.value.id,
           senderId: sender.id,
           status:
             type === "webhook_callback_verification"
@@ -462,24 +456,25 @@ export const ingressHandlers = (config: IngressConfig) =>
                 return HttpServerResponse.empty({ status: 204 });
               const invocation = parseTwitchCommand(event.message.text);
 
-              if (!invocation) return HttpServerResponse.empty({ status: 204 });
+              if (Option.isNone(invocation))
+                return HttpServerResponse.empty({ status: 204 });
 
               const receipt = yield* Schema.decodeEffect(TwitchReceipt)({
-                id: `twitch:${yield* digest(yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([channel.id, event.message_id]).pipe(Effect.orDie))}`,
+                id: `twitch:${yield* digest(yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([channel.value.id, event.message_id]).pipe(Effect.orDie))}`,
                 source,
-                broadcasterId: channel.id,
+                broadcasterId: channel.value.id,
                 replyParentId: event.message_id,
-                invocation,
+                invocation: invocation.value,
                 receivedAt: config.receivedAt,
                 fingerprint: yield* digest(
                   yield* Schema.encodeEffect(
                     Schema.fromJsonString(Schema.Unknown),
                   )([
-                    channel.id,
+                    channel.value.id,
                     source,
                     event.message_id,
                     event.chatter_user_id,
-                    invocation,
+                    invocation.value,
                   ]).pipe(Effect.orDie),
                 ),
               }).pipe(Effect.mapError(() => new IngressError({ status: 400 })));
@@ -524,53 +519,47 @@ export const ingressHandlers = (config: IngressConfig) =>
         if (value.guild_id !== value.authorizing_integration_owners["0"])
           return privateReply("Use a slash command from an installed server.");
 
-        const definition = Option.getOrUndefined(
-          Arr.findFirst(
-            commandCatalog,
-            (entry) => !!(entry.name === value.data.name),
-          ),
+        const definition = Arr.findFirst(
+          commandCatalog,
+          (entry) => entry.name === value.data.name,
         );
 
-        if (!definition) return privateReply("Command not found");
+        if (Option.isNone(definition)) return privateReply("Command not found");
         const options = value.data.options ?? [];
 
         if (
-          options.length !== definition.slashOptions.length ||
+          options.length !== definition.value.slashOptions.length ||
           Arr.some(
             options,
             (option) =>
               !Arr.some(
-                definition.slashOptions,
-                (expected: (typeof definition.slashOptions)[number]) =>
+                definition.value.slashOptions,
+                (expected: (typeof definition.value.slashOptions)[number]) =>
                   !!(expected.name === option.name),
               ),
           ) ||
-          new Set(Arr.map(options, (option) => option.name)).size !==
-            options.length
+          pipe(
+            options,
+            Arr.map((option) => option.name),
+            Arr.dedupe,
+          ).length !== options.length
         )
           return privateReply("Invalid command options.");
 
         const invocation = yield* Schema.decodeEffect(Invocation)({
-          command: definition.name,
+          command: definition.value.name,
           input: Arr.join(
             Arr.flatMap(
-              definition.slashOptions,
-              (option: (typeof definition.slashOptions)[number]) => {
-                const input = Option.getOrUndefined(
-                  Option.map(
-                    Option.fromNullishOr(
-                      Option.getOrUndefined(
-                        Arr.findFirst(
-                          options,
-                          (entry) => !!(entry.name === option.name),
-                        ),
-                      )?.value,
-                    ),
-                    (effectNativeValue1) => Str.trim(effectNativeValue1),
-                  ),
+              definition.value.slashOptions,
+              (option: (typeof definition.value.slashOptions)[number]) => {
+                return Arr.findFirst(
+                  options,
+                  (entry) => entry.name === option.name,
+                ).pipe(
+                  Option.map((entry) => Str.trim(entry.value)),
+                  Option.filter(Str.isNonEmpty),
+                  Option.toArray,
                 );
-
-                return input ? [input] : [];
               },
             ),
             " ",
@@ -613,21 +602,20 @@ export const ingressHandlers = (config: IngressConfig) =>
           Effect.catchCause((cause) => {
             if (Cause.hasInterrupts(cause)) return Effect.interrupt;
 
-            const error = Option.getOrUndefined(
-              Arr.findFirst(
-                cause.reasons,
-                (reason) => !!Predicate.isTagged(reason, "Fail"),
-              ),
+            const code = Cause.findErrorOption(cause).pipe(
+              Option.match({
+                onNone: () =>
+                  Cause.hasDies(cause) ? "rpc-defect" : "rpc-failure",
+                onSome: (error) =>
+                  Match.value(error).pipe(
+                    Match.when(Schema.is(TenantError), (error) => error.code),
+                    Match.when(Cause.isTimeoutError, () => "rpc-timeout"),
+                    Match.orElse(() =>
+                      Cause.hasDies(cause) ? "rpc-defect" : "rpc-failure",
+                    ),
+                  ),
+              }),
             );
-
-            const code =
-              error?._tag === "Fail" && Schema.is(TenantError)(error.error)
-                ? error.error.code
-                : error?._tag === "Fail" && Cause.isTimeoutError(error.error)
-                  ? "rpc-timeout"
-                  : Cause.hasDies(cause)
-                    ? "rpc-defect"
-                    : "rpc-failure";
 
             return Effect.logWarning("Discord Worker fallback").pipe(
               Effect.annotateLogs({ phase: "worker-fallback", code }),
@@ -648,7 +636,7 @@ export const ingressHandlers = (config: IngressConfig) =>
             if (Cause.hasInterrupts(cause)) return Effect.interrupt;
 
             const errors = Arr.flatMap([...cause.reasons], (reason) =>
-              Predicate.isTagged(reason, "Fail") &&
+              Cause.isFailReason(reason) &&
               Schema.is(IngressError)(reason.error)
                 ? [reason.error]
                 : [],

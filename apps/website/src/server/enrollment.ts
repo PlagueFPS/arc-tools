@@ -27,12 +27,12 @@ export const enrollmentCookiePolicy = (request: Request) => {
   const url = new URL(request.url);
 
   if (url.origin === localWebsiteOrigin)
-    return { name: localEnrollmentCookie, secure: false };
+    return Option.some({ name: localEnrollmentCookie, secure: false });
 
   if (url.protocol === "https:")
-    return { name: enrollmentCookie, secure: true };
+    return Option.some({ name: enrollmentCookie, secure: true });
 
-  return null;
+  return Option.none<{ readonly name: string; readonly secure: boolean }>();
 };
 
 const headers = {
@@ -56,7 +56,7 @@ const randomCredential = () =>
 const readSession = Effect.fnUntraced(function* (request: Request) {
   const policy = enrollmentCookiePolicy(request);
 
-  if (!policy) return yield* new AccountError({ code: "input" });
+  if (Option.isNone(policy)) return yield* new AccountError({ code: "input" });
   const cookie = request.headers.get("cookie") ?? "";
 
   if (cookie.length > 4096) return yield* new AccountError({ code: "input" });
@@ -64,34 +64,34 @@ const readSession = Effect.fnUntraced(function* (request: Request) {
   const values = Arr.filter(
     Arr.map(Str.split(cookie, ";"), (entry) => Str.trim(entry)),
     // oxlint-disable-next-line effecttsgo/prefer-effect-string -- Native split preserves the limit argument.
-    (entry) => !!(entry.split("=", 1)[0] === policy.name),
+    (entry) => !!(entry.split("=", 1)[0] === policy.value.name),
   );
 
-  if (values.length === 0) return null;
+  if (values.length === 0) return Option.none<typeof EnrollmentSession.Type>();
 
   if (values.length !== 1) return yield* new AccountError({ code: "input" });
 
-  const value = Option.getOrUndefined(
-    Option.map(Option.fromNullishOr(values[0]), (effectNativeValue0) =>
-      Str.slice(policy.name.length + 1)(effectNativeValue0),
+  const value = Option.fromNullishOr(values[0]).pipe(
+    Option.map(Str.slice(policy.value.name.length + 1)),
+  );
+
+  const valid = yield* Schema.decodeEffect(BrowserSession)(
+    yield* Effect.fromOption(value, () => new AccountError({ code: "input" })),
+  ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
+
+  return Option.some(
+    yield* Schema.decodeEffect(EnrollmentSession)(yield* digest(valid)).pipe(
+      Effect.mapError(() => new AccountError({ code: "input" })),
     ),
   );
-
-  const valid = yield* Schema.decodeUnknownEffect(BrowserSession)(value).pipe(
-    Effect.mapError(() => new AccountError({ code: "input" })),
-  );
-
-  return yield* Schema.decodeEffect(EnrollmentSession)(
-    yield* digest(valid),
-  ).pipe(Effect.mapError(() => new AccountError({ code: "input" })));
 });
 
 const requiredSession = Effect.fnUntraced(function* (request: Request) {
   const session = yield* readSession(request);
 
-  if (!session) return yield* new AccountError({ code: "state" });
+  if (Option.isNone(session)) return yield* new AccountError({ code: "state" });
 
-  return session;
+  return session.value;
 });
 
 export const websiteHttp = <R>(
@@ -110,7 +110,7 @@ export const websiteHttp = <R>(
         const origin = request.headers.get("origin");
 
         if (
-          !enrollmentCookiePolicy(request) ||
+          Option.isNone(enrollmentCookiePolicy(request)) ||
           !origin ||
           origin !== url.origin ||
           (request.headers.has("sec-fetch-site") &&
@@ -152,7 +152,8 @@ export const websiteHttp = <R>(
           return yield* new AccountError({ code: "input" });
         const policy = enrollmentCookiePolicy(request);
 
-        if (!policy) return yield* new AccountError({ code: "input" });
+        if (Option.isNone(policy))
+          return yield* new AccountError({ code: "input" });
         const previousSession = yield* readSession(request);
         const credential = randomCredential();
         const state = `enroll.${randomCredential()}`;
@@ -160,7 +161,7 @@ export const websiteHttp = <R>(
 
         const location = yield* (yield* client).enrollmentBegin({
           session,
-          previousSession,
+          previousSession: Option.getOrNull(previousSession),
           state,
         });
 
@@ -169,7 +170,7 @@ export const websiteHttp = <R>(
           headers: {
             ...headers,
             Location: location,
-            "Set-Cookie": `${policy.name}=${credential}; Path=/${policy.secure ? "; Secure" : ""}; HttpOnly; SameSite=Lax; Max-Age=86400`,
+            "Set-Cookie": `${policy.value.name}=${credential}; Path=/${policy.value.secure ? "; Secure" : ""}; HttpOnly; SameSite=Lax; Max-Age=86400`,
           },
         });
       },
@@ -285,12 +286,8 @@ export const websiteHttp = <R>(
           );
 
         if (
-          Option.getOrUndefined(
-            Option.map(
-              Option.fromNullishOr(url.searchParams.get("state")),
-              (effectNativeValue1) =>
-                Str.startsWith("enroll.")(effectNativeValue1),
-            ),
+          Option.fromNullishOr(url.searchParams.get("state")).pipe(
+            Option.exists(Str.startsWith("enroll.")),
           )
         )
           return yield* handlers

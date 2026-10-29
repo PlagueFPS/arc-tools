@@ -1,4 +1,4 @@
-import { Effect, Option, Array as Arr } from "effect";
+import { pipe, Effect, Option, Array as Arr } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 import { resolveItem } from "./utils.js";
@@ -27,9 +27,10 @@ export const findHandler = Effect.fn("Command.findHandler")(
       Option.isSome(item.value.dropped_by) &&
       item.value.dropped_by.value.length > 0
     ) {
-      const droppedBy = Arr.join(
-        Arr.map(item.value.dropped_by.value, (e) => e.arc.name),
-        ", ",
+      const droppedBy = pipe(
+        item.value.dropped_by.value,
+        Arr.map((e) => e.arc.name),
+        Arr.join(", "),
       );
 
       parts.push(`can be dropped by ${droppedBy}`);

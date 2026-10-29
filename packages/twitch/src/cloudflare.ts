@@ -3,6 +3,7 @@ import { providerTransport } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
 import {
   Context,
+  HashMap,
   Effect,
   Layer,
   Redacted,
@@ -140,7 +141,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
   });
 
   const alarm = Effect.fnUntraced(function* (shared: SharedAccount) {
-    const due = nextAlarm(shared);
+    const due = Option.getOrNull(nextAlarm(shared));
 
     if ((yield* storage.getAlarm()) !== due)
       yield* due === null ? storage.deleteAlarm() : storage.setAlarm(due);
@@ -175,7 +176,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       Arr.filter(after.enrollments, (entry) => !!(entry.phase.kind !== "left")),
     );
 
-    const beforeLeft = new Map(
+    const beforeLeft = HashMap.fromIterable(
       Arr.map(
         Arr.filter(
           before.enrollments,
@@ -185,7 +186,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
       ),
     );
 
-    const afterLeft = new Map(
+    const afterLeft = HashMap.fromIterable(
       Arr.map(
         Arr.filter(
           after.enrollments,
@@ -205,8 +206,9 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
         entry,
       );
 
-    for (const session of beforeLeft.keys())
-      if (!afterLeft.has(session)) yield* storage.delete(leftPrefix + session);
+    for (const session of HashMap.keys(beforeLeft))
+      if (!HashMap.has(afterLeft, session))
+        yield* storage.delete(leftPrefix + session);
 
     for (const [id, record] of after.channels)
       yield* changed(
@@ -484,7 +486,7 @@ export const makeAccountStorage = Effect.fnUntraced(function* (
           ).pipe(Effect.orDie);
 
           const result = f(state);
-          state.nextCleanupAt = nextCleanup(state);
+          state.nextCleanupAt = Option.getOrNull(nextCleanup(state));
 
           const recoveryDue = Math.min(
             ...Arr.map(Rec.values(state.lifecycle), (value) =>

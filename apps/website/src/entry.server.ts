@@ -16,7 +16,7 @@ export const renderDocument: Server.DocumentRenderer = (application, assets) =>
 const render = Effect.fnUntraced(function* (request: Request) {
   const response = yield* enrollmentResponse(request);
 
-  if (response) return Server.Responded(response);
+  if (Option.isSome(response)) return Server.Responded(response.value);
 
   if (request.method !== "GET" && request.method !== "HEAD") {
     return Server.Responded(

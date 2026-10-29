@@ -222,7 +222,9 @@ describe("persistent cache policy", () => {
         { resource: "arcs", params: { id: "sensors", includeLoot: false } },
       ] as const;
 
-      expect(new Set(Arr.map(queries, cacheKey)).size).toBe(queries.length);
+      expect(Arr.dedupe(Arr.map(queries, cacheKey)).length).toBe(
+        queries.length,
+      );
       expect(cacheKey(itemQuery)).toBe("v1:json:/items?id=sensors");
       expect(
         cacheKey({

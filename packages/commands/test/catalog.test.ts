@@ -50,7 +50,7 @@ test("usage shows provider syntax for item, event and argument-free commands", (
 test("catalog names drive runtime recognition and every example fills its options", () => {
   const names = Arr.map(commandCatalog, (command) => command.name);
 
-  expect(new Set(names).size).toBe(names.length);
+  expect(Arr.dedupe(names).length).toBe(names.length);
 
   for (const command of commandCatalog) {
     expect(Schema.is(CommandNameSchema)(command.name)).toBe(true);

@@ -121,6 +121,46 @@ const restoreLegacyCleanupRecords = (
 };
 
 test(
+  "desired channels retain public order while configured members override duplicate IDs",
+  Effect.sync(() => {
+    const first = {
+      id: BroadcasterId.make("400"),
+      login: "first",
+      revocationGeneration: 0,
+      cleanupAfter: null,
+    };
+
+    const second = {
+      id: BroadcasterId.make("500"),
+      login: "second",
+      revocationGeneration: 0,
+      cleanupAfter: null,
+    };
+
+    const configured = { id: first.id, login: "configured" };
+    const extra = { id: BroadcasterId.make("600"), login: "extra" };
+
+    const state = {
+      publicMembers: [first, second],
+      channels: [configured, extra],
+      lifecycle: {},
+    };
+
+    expect(desiredChannels(state, "bot")).toEqual([configured, second, extra]);
+    expect(desiredChannels(state, "personal")).toEqual([configured, extra]);
+    expect(
+      desiredChannels(
+        {
+          ...state,
+          lifecycle: { [second.id]: { kind: "removed", sequence: 1 } },
+        },
+        "bot",
+      ),
+    ).toEqual([configured, extra]);
+  }),
+);
+
+test(
   "a local dedicated bot cannot begin enrollment before sender authorization",
   Effect.gen(function* () {
     const h = yield* harness(bot);

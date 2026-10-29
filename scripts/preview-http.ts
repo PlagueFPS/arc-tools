@@ -125,7 +125,7 @@ export const makePreviewHttp = Effect.fnUntraced(function* (options: {
     );
 
   const publish = Effect.fnUntraced(function* (body: string) {
-    let existing: number | undefined;
+    let existing = Option.none<number>();
 
     for (let page = 1; ; page++) {
       const comments = yield* api(
@@ -135,30 +135,22 @@ export const makePreviewHttp = Effect.fnUntraced(function* (options: {
         Comments,
       );
 
-      existing = Option.getOrUndefined(
-        Arr.findFirst(
-          comments,
-          (comment) =>
-            !!(
-              comment.user.login === "github-actions[bot]" &&
-              Option.getOrUndefined(
-                Option.map(
-                  Option.fromNullishOr(comment.body),
-                  (effectNativeValue0) =>
-                    Str.includes(marker)(effectNativeValue0),
-                ),
-              )
-            ),
-        ),
-      )?.id;
+      existing = Arr.findFirst(
+        comments,
+        (comment) =>
+          comment.user.login === "github-actions[bot]" &&
+          Option.fromNullishOr(comment.body).pipe(
+            Option.exists(Str.includes(marker)),
+          ),
+      ).pipe(Option.map((comment) => comment.id));
 
-      if (existing || comments.length < 100) break;
+      if (Option.isSome(existing) || comments.length < 100) break;
     }
 
     yield* api(
-      HttpClientRequest.make(existing ? "PATCH" : "POST")(
-        existing
-          ? `issues/comments/${existing}`
+      HttpClientRequest.make(Option.isSome(existing) ? "PATCH" : "POST")(
+        Option.isSome(existing)
+          ? `issues/comments/${existing.value}`
           : `issues/${options.preview.number}/comments`,
       ).pipe(HttpClientRequest.bodyJsonUnsafe({ body: `${marker}\n${body}` })),
       Schema.Unknown,

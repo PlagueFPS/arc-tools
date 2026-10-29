@@ -6,7 +6,7 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { Effect, Redacted, Schema, Record as Rec } from "effect";
+import { Effect, Predicate, Redacted, Schema, Record as Rec } from "effect";
 import { FetchHttpClient } from "effect/http";
 
 import { CloudSettings, syntheticEnvironment } from "./cloud-settings.js";
@@ -228,7 +228,7 @@ async function main() {
 
 if (import.meta.main) {
   await main().catch((cause: unknown) => {
-    console.error(cause instanceof Error ? cause.message : "Preview failed");
+    console.error(Predicate.isError(cause) ? cause.message : "Preview failed");
     process.exitCode = 1;
   });
 }

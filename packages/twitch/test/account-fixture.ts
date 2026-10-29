@@ -171,7 +171,7 @@ export const keyedStorage = Effect.fnUntraced(function* (
           "account:tombstone:v1/" + encodeURIComponent(id),
           Schema.encodeSync(AccountState.fields.revoked.value)(tombstone),
         );
-      nativeAlarm = nextAlarm(directory.shared);
+      nativeAlarm = Option.getOrNull(nextAlarm(directory.shared));
     },
     alarm: () => nativeAlarm,
     consumeAlarm: () => {
@@ -534,12 +534,10 @@ export const harness = Effect.fnUntraced(function* (
                 ? "300"
                 : String(
                     400 +
-                      [
-                        ...new Set([
-                          identity.senderLogin,
-                          ...identity.channelLogins,
-                        ]),
-                      ].indexOf(authorization.login),
+                      Arr.dedupe([
+                        identity.senderLogin,
+                        ...identity.channelLogins,
+                      ]).indexOf(authorization.login),
                   );
 
         control.grantUser = user;

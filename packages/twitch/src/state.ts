@@ -1,6 +1,9 @@
 import {
+  pipe,
   Context,
+  HashMap,
   Effect,
+  Option,
   Schema,
   Struct,
   Array as Arr,
@@ -529,7 +532,7 @@ export function reclaim(state: AccountState, now: number) {
   });
 }
 
-export function nextCleanup(state: AccountState): number | null {
+export function nextCleanup(state: AccountState): Option.Option<number> {
   const due = Math.min(
     ...Arr.map(state.oauth, (entry) => entry.expiresAt),
     ...Arr.map(state.enrollments, (entry) => entry.expiresAt),
@@ -545,7 +548,7 @@ export function nextCleanup(state: AccountState): number | null {
     ...Arr.map(state.reservations, (entry) => entry.at + policy.globalWindowMs),
   );
 
-  return Number.isFinite(due) ? due : null;
+  return Number.isFinite(due) ? Option.some(due) : Option.none();
 }
 
 export function reserveAt(
@@ -577,18 +580,30 @@ export function desiredChannels(
   state: Pick<AccountState, "channels" | "publicMembers" | "lifecycle">,
   senderKind: AccountIdentity["senderKind"],
 ) {
-  const channels = new Map<string, AccountState["channels"][number]>(
-    Arr.map(senderKind === "bot" ? state.publicMembers : [], (channel) => [
-      channel.id,
-      channel,
-    ]),
+  const candidates = [
+    ...(senderKind === "bot" ? state.publicMembers : []),
+    ...state.channels,
+  ];
+
+  const channels = pipe(
+    candidates,
+    Arr.map((channel) => [channel.id, channel] as const),
+    HashMap.fromIterable,
   );
 
-  for (const channel of state.channels) channels.set(channel.id, channel);
+  const ids = pipe(
+    candidates,
+    Arr.map((channel) => channel.id),
+    Arr.dedupe,
+  );
 
-  return Arr.filter(
-    [...channels.values()],
-    (channel) => !!(state.lifecycle[channel.id]?.kind !== "removed"),
+  return Arr.flatMap(ids, (id) =>
+    HashMap.get(channels, id).pipe(
+      Option.filter(
+        (channel) => state.lifecycle[channel.id]?.kind !== "removed",
+      ),
+      Option.toArray,
+    ),
   );
 }
 
@@ -601,7 +616,7 @@ export function nextAlarm(
     | "nextRecoveryAt"
     | "sweepAt"
   >,
-): number | null {
+): Option.Option<number> {
   const due = Math.min(
     state.nextRecoveryAt ?? Infinity,
     state.sweepAt ?? Infinity,
@@ -609,5 +624,5 @@ export function nextAlarm(
     state.nextCleanupAt ?? Infinity,
   );
 
-  return Number.isFinite(due) ? due : null;
+  return Number.isFinite(due) ? Option.some(due) : Option.none();
 }

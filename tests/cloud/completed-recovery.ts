@@ -91,12 +91,12 @@ function checkIntegrity(account: AccountJournal, provider: ProviderJournal) {
     "invalid HTTP correlation",
   );
   requireEvidence(
-    new Set(Arr.map(account.invocations, (record) => record.id)).size ===
+    Arr.dedupe(Arr.map(account.invocations, (record) => record.id)).length ===
       account.invocations.length,
     "duplicate invocation UUID",
   );
   requireEvidence(
-    new Set(Arr.map(provider.events, (event) => event.id)).size ===
+    Arr.dedupe(Arr.map(provider.events, (event) => event.id)).length ===
       provider.events.length,
     "duplicate HTTP event UUID",
   );

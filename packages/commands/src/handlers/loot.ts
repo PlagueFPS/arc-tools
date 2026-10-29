@@ -1,6 +1,6 @@
 import { fetchArc } from "@arctools/arc-data";
 import { normalize } from "@arctools/utils";
-import { Effect, Option, Array as Arr, String as Str } from "effect";
+import { pipe, Effect, Option, Array as Arr, String as Str } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 
@@ -12,7 +12,7 @@ export const lootHandler = Effect.fn("Command.lootHandler")(
       );
     }
 
-    const potentialId = Str.replace(/ /g, "-")(Str.toLowerCase(query));
+    const potentialId = pipe(query, Str.toLowerCase, Str.replace(/ /g, "-"));
 
     const arc = yield* Effect.filterOrElse(
       fetchArc({ id: potentialId }),
@@ -33,9 +33,10 @@ export const lootHandler = Effect.fn("Command.lootHandler")(
       return yield* Effect.succeed(`No loot found for ${arc.value.name}`);
     }
 
-    const lootItems = Arr.join(
-      Arr.map(arc.value.loot.value, (value) => value.item.name),
-      ", ",
+    const lootItems = pipe(
+      arc.value.loot.value,
+      Arr.map((value) => value.item.name),
+      Arr.join(", "),
     );
 
     return yield* Effect.succeed(
