@@ -8,11 +8,11 @@ import { Command, given, message, model, story } from "foldkit/story";
 import { fromString } from "foldkit/url";
 import { expect, test } from "vitest";
 
+import { ApplicationBlock } from "./block";
 import {
   CheckEnrollment,
   LeaveChannel,
   leaveChannel,
-  EffectsLayer,
   LoadExternal,
   NavigateInternal,
   ScrollToContent,
@@ -24,6 +24,7 @@ import {
   EnrollmentStatus,
   RequestId,
 } from "./domain/enrollment";
+import { initialModel as initialLanding } from "./landing/model";
 import { init, update } from "./main";
 import { Message } from "./message";
 import type { Model } from "./model";
@@ -53,6 +54,7 @@ test("pending refresh retains data then becomes ready for this channel", () => {
     update,
     given({
       leave: Enrollment.Idle(),
+      landing: initialLanding(),
       route: ApplicationRoute.Connect(),
       enrollment: Enrollment.Success({ data: { kind: "pending" } }),
       requestId: RequestId.make(1),
@@ -245,6 +247,7 @@ test("a content hash moves to main and an in-app link stays inside the page", ()
 test("a duplicate settled response and a stale failure leave the visible status", () => {
   const ready = {
     leave: Enrollment.Idle(),
+    landing: initialLanding(),
     route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "raider" },
@@ -317,7 +320,9 @@ test("leaving Connect aborts the pending browser request", async () => {
   const leaving = update(opening.model, Message.ChangedUrl({ url: url("/") }));
 
   for (const command of leaving.commands ?? [])
-    await Effect.runPromise(command.effect.pipe(Effect.provide(EffectsLayer)));
+    await Effect.runPromise(
+      command.effect.pipe(Effect.provide(ApplicationBlock.EffectsLayer)),
+    );
   const exit = await Effect.runPromise(Fiber.await(fiber));
   expect(aborted).toBe(true);
   expect(Exit.isFailure(exit)).toBe(true);
@@ -326,6 +331,7 @@ test("leaving Connect aborts the pending browser request", async () => {
 test("an absent session followed by an unavailable refresh never restores a former channel", () => {
   const ready: Model = {
     leave: Enrollment.Idle(),
+    landing: initialLanding(),
     route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "former_channel" },

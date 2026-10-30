@@ -3,10 +3,12 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["DISCORD_APPLICATION_ID"],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
       "outputs": ["dist/**", ".output/**"]
     },
     "dev": {
+      "env": ["DISCORD_APPLICATION_ID"],
       "cache": false,
       "persistent": true
     },
@@ -16,6 +18,7 @@
     },
     "test": {
       "dependsOn": [],
+      "env": ["DISCORD_APPLICATION_ID"],
       "outputs": []
     },
     "//#lint": {},

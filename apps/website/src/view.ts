@@ -1,20 +1,19 @@
-import { ApplicationComposition } from "./composition";
-import { cn } from "./lib/utils";
+import { ApplicationComposition, LandingBinding } from "./composition";
 import { ApplicationRoute } from "./route";
 import { view as connection } from "./view/connection";
 import { view as header } from "./view/header";
-import { view as landing } from "./view/landing";
+import { brandMark } from "./view/icons";
 import { view as notFound } from "./view/notFound";
 import { wrap } from "./view/shared";
 
 export const view = ApplicationComposition.makeView((model, h) => ({
   title: ApplicationRoute.match(model.route, {
-    Home: () => "ARC Tools · Your chat, raid ready.",
-    Connect: () => "Connection status · ARC Tools",
-    NotFound: () => "Page not found · ARC Tools",
+    Home: () => "ARCToolsBot · ARC Raiders chat bot",
+    Connect: () => "Connection status · ARCToolsBot",
+    NotFound: () => "Page not found · ARCToolsBot",
   }),
   body: h.div(
-    [h.Class("min-h-screen bg-background")],
+    [h.Class("min-h-screen bg-background pb-[110px]")],
     [
       h.a(
         [
@@ -30,7 +29,13 @@ export const view = ApplicationComposition.makeView((model, h) => ({
         [h.Id("main"), h.Tabindex(-1)],
         [
           ApplicationRoute.match(model.route, {
-            Home: () => landing(h),
+            Home: () =>
+              h.block(
+                LandingBinding.embedView({
+                  slotId: "landing",
+                  model: model.landing,
+                }),
+              ),
             Connect: () => connection(model, h),
             NotFound: () => notFound(h),
           }),
@@ -39,27 +44,20 @@ export const view = ApplicationComposition.makeView((model, h) => ({
       h.footer(
         [
           h.Class(
-            cn(
-              wrap,
-              "flex flex-wrap items-center gap-[14px] border-t border-border py-[25px] text-[11px] text-muted-foreground tablet:gap-[25px] desktop:justify-between",
-            ),
+            `${wrap} flex justify-between gap-6 border-t border-border pt-[25px] text-[13px] text-muted-foreground max-[620px]:flex-col max-[620px]:gap-2`,
           ),
         ],
         [
           h.span(
+            [h.Class("flex items-center gap-1.5")],
             [
-              h.Class(
-                "font-heading text-xs font-semibold tracking-[1px] text-foreground",
-              ),
+              brandMark(h, "size-[18px]"),
+              "ARCToolsBot · Powered by the Metaforge ARC Raiders API",
             ],
-            ["ARC TOOLS"],
           ),
-          h.p([], ["Made for the raid. Built for your community."]),
-          h.p(
-            [h.Class("w-full text-[9px] leading-[1.7] tablet:w-auto")],
-            [
-              "An independent community tool. Not affiliated with Embark Studios or Twitch.",
-            ],
+          h.span(
+            [],
+            ["Community project. Not affiliated with Embark Studios."],
           ),
         ],
       ),

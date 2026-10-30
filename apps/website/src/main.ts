@@ -87,17 +87,24 @@ const startCheck = (model: Model): UpdateReturn => {
   });
 };
 
-export const init = ApplicationComposition.makeInit((url: Url) =>
-  withContentScroll(
-    startCheck({
-      route: urlToApplicationRoute(url),
-      enrollment: Enrollment.Idle(),
+export const init = ApplicationComposition.makeInit((url: Url) => {
+  const route = urlToApplicationRoute(url);
+  const checking = ApplicationRoute.guards.Connect(route);
+  const requestId = RequestId.make(checking ? 1 : 0);
+
+  return {
+    model: {
+      route,
+      enrollment: checking ? Enrollment.Loading() : Enrollment.Idle(),
       leave: Enrollment.Idle(),
-      requestId: RequestId.make(0),
-    }),
-    url,
-  ),
-);
+      requestId,
+    },
+    commands: [
+      ...(checking ? [CheckEnrollment({ requestId })] : []),
+      ...(contentScroll(url) ?? []),
+    ],
+  };
+});
 
 const acceptsResponse = (model: Model, requestId: typeof RequestId.Type) =>
   ApplicationRoute.guards.Connect(model.route) &&

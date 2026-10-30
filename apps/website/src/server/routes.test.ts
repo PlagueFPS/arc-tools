@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, String as Str } from "effect";
 import { Server } from "foldkit/experimental";
 import { expect, test, vi } from "vitest";
 
@@ -32,9 +32,9 @@ test.each(["/", "/connect"])(
 
       const html = await response.text();
       expect(response.status).toBe(200);
-      expect(html).toContain(
+      expect(Str.replace(/<[^>]*>/g, "")(html)).toContain(
         path === "/"
-          ? "Your chat."
+          ? "The best ARC Raiders chat bot."
           : "Checking the connection session in this browser.",
       );
       expect(html).not.toContain("private-fixture");
@@ -46,7 +46,6 @@ test.each(["/", "/connect"])(
 );
 
 test.each([
-  "/install/discord",
   "/oauth/twitch/enroll",
   "/oauth/twitch/enroll/status",
   "/oauth/twitch/callback",
@@ -123,21 +122,4 @@ test("native Leave route enforces POST and rejects missing Origin before loading
 
   expect(response.status).toBe(403);
   expect(response.headers.get("cache-control")).toBe("no-store");
-});
-
-test("the page host dispatches the Discord install link using local configuration", async () => {
-  vi.stubEnv("DISCORD_APPLICATION_ID", "123456789012345678");
-
-  try {
-    const response = await responseFor(
-      new Request("https://site.invalid/install/discord"),
-    );
-
-    expect(response.status).toBe(302);
-    const location = new URL(response.headers.get("Location") ?? "");
-    expect(location.searchParams.get("client_id")).toBe("123456789012345678");
-    expect(location.searchParams.get("integration_type")).toBe("0");
-  } finally {
-    vi.unstubAllEnvs();
-  }
 });

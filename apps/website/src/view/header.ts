@@ -1,19 +1,23 @@
 import { Nav } from "@foldkit/ui";
 import { Array as Arr } from "effect";
-import type { Html, HtmlBuilder } from "foldkit/html";
+import type { Html } from "foldkit/html";
 
+import type { ApplicationViewBuilder } from "../composition";
 import { cn } from "../lib/utils";
-import type { Message } from "../message";
 import { ApplicationRoute, connectRouter, homeRouter } from "../route";
+import { brandMark } from "./icons";
 import { wrap } from "./shared";
 
-export const view = (route: ApplicationRoute, h: HtmlBuilder<Message>): Html =>
+export const view = (
+  route: ApplicationRoute,
+  h: ApplicationViewBuilder,
+): Html =>
   h.header(
     [
       h.Class(
         cn(
           wrap,
-          "flex items-center justify-between border-b border-border py-[22px] tablet:py-8",
+          "flex h-24 items-center justify-between gap-3 border-b border-border max-[620px]:h-[76px]",
         ),
       ),
     ],
@@ -21,53 +25,40 @@ export const view = (route: ApplicationRoute, h: HtmlBuilder<Message>): Html =>
       h.a(
         [
           h.Href(homeRouter()),
-          h.AriaLabel("ARC Tools home"),
+          h.AriaLabel("ARCToolsBot home"),
           h.Class(
-            "flex items-center gap-2 font-heading text-[17px] font-bold tracking-[-0.6px] tablet:text-[21px] max-[380px]:gap-[5px]",
+            "flex items-center gap-2.5 text-2xl font-bold tracking-[-1px] max-[620px]:text-xl",
           ),
         ],
-        [
-          h.span(
-            [
-              h.AriaHidden(true),
-              h.Class(
-                "mr-[5px] grid h-[29px] w-[26px] -skew-x-[9deg] place-items-center bg-primary text-[26px] text-primary-foreground tablet:h-[33px] tablet:w-[31px]",
-              ),
-            ],
-            ["A"],
-          ),
-          "ARC",
-          h.span([h.Class("font-normal text-muted-foreground")], ["TOOLS"]),
-        ],
+        [brandMark(h), "ARCToolsBot"],
       ),
       Nav.view({
-        items: ["Connection status"],
+        items: ApplicationRoute.guards.Home(route)
+          ? ["Commands"]
+          : ["Connection status"],
         ariaLabel: "Main navigation",
-        toHref: () => connectRouter(),
-        isItemCurrent: () => ApplicationRoute.guards.Connect(route),
+        toHref: (item) =>
+          item === "Commands" ? `${homeRouter()}#commands` : connectRouter(),
+        isItemCurrent: (item) =>
+          item === "Connection status" &&
+          ApplicationRoute.guards.Connect(route),
         toView: ({ nav, items }) =>
           h.nav(
-            nav,
+            [...nav, h.Class("flex items-center gap-[30px] text-[15px]")],
             Arr.map(items, (item) =>
               h.a(
                 [
                   ...item.link,
                   h.Class(
                     cn(
-                      "flex items-center gap-2 text-[11px] hover:text-foreground tablet:gap-[21px] tablet:text-[13px]",
+                      "text-[15px] hover:text-foreground max-[620px]:text-sm",
                       item.isCurrent
                         ? "text-foreground underline underline-offset-4"
                         : "text-muted-foreground",
                     ),
                   ),
                 ],
-                [
-                  item.value,
-                  h.span(
-                    [h.AriaHidden(true), h.Class("max-[380px]:hidden")],
-                    ["↗"],
-                  ),
-                ],
+                [item.value],
               ),
             ),
           ),

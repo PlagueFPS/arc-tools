@@ -1,13 +1,13 @@
 import { Array as Arr } from "effect";
-import type { Html, HtmlBuilder } from "foldkit/html";
+import type { Html } from "foldkit/html";
 
 import { buttonVariants } from "../components/ui/button";
+import type { ApplicationViewBuilder } from "../composition";
 import { cn } from "../lib/utils";
-import type { Message } from "../message";
 import { enrollmentPath } from "../route";
 
 export const wrap =
-  "mx-auto w-[calc(100%-40px)] tablet:w-[calc(100%-56px)] desktop:w-[min(1184px,calc(100%-96px))]";
+  "mx-auto w-[min(1180px,calc(100%-80px))] max-[900px]:w-[calc(100%-40px)]";
 
 export const contentPage = cn(
   wrap,
@@ -21,7 +21,7 @@ export const primaryButton = buttonVariants({ size: "lg" });
 
 export const eyebrow = (
   { children }: { children: Html | string | ReadonlyArray<Html | string> },
-  h: HtmlBuilder<Message>,
+  h: ApplicationViewBuilder,
 ): Html =>
   h.p(
     [
@@ -34,7 +34,7 @@ export const eyebrow = (
 
 export const connectLink = (
   { className = "" }: { className?: string },
-  h: HtmlBuilder<Message>,
+  h: ApplicationViewBuilder,
 ): Html =>
   h.a(
     [h.Href(enrollmentPath), h.Class(cn(primaryButton, className))],
