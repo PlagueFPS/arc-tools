@@ -9,6 +9,7 @@ import {
   ReplyId,
   TwitchAccount,
 } from "@arctools/twitch/server";
+import { cryptoLayer } from "@arctools/utils/crypto";
 import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
@@ -150,6 +151,7 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
       ),
       Layer.provide(Layer.succeed(TwitchAccount, trustedAccount)),
       Layer.provide(Layer.succeed(Tenants, tenants)),
+      Layer.provide(cryptoLayer),
       Layer.provide(HttpServer.layerServices),
     );
 

@@ -9,18 +9,25 @@ import {
   type HttpServerError,
   type HttpServerRequest,
   HttpServerResponse,
+  HttpServerRespondable,
 } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
 import { BotApi } from "./api.js";
 import { Stage } from "./config.js";
+import {
+  OperatorUnauthorized,
+  OperatorStageMismatch,
+  OperatorInvalidRequest,
+  OperatorBodyTooLarge,
+  OperatorBusy,
+  OperatorCapacityExceeded,
+  OperatorOperationFailed,
+} from "./operator-errors.js";
+
+export { OperatorBodyTooLarge } from "./operator-errors.js";
 
 export const OperatorRequest = Schema.Struct({ stage: Stage });
-
-export class OperatorBodyTooLarge extends Schema.TaggedError<
-  OperatorBodyTooLarge,
-  { readonly brand: unique symbol }
->()("OperatorBodyTooLarge", {}) {}
 
 type OperatorBodyError = HttpServerError.HttpServerError | OperatorBodyTooLarge;
 
@@ -30,10 +37,13 @@ const headers = {
   "X-Content-Type-Options": "nosniff",
 };
 
-const response = (
-  body: AccountStatus | SetupResult | { readonly error: string },
-  status = 200,
-) => HttpServerResponse.jsonUnsafe(body, { status, headers });
+const response = (body: AccountStatus | SetupResult) =>
+  HttpServerResponse.jsonUnsafe(body, { headers });
+
+const problem = (error: HttpServerRespondable.Respondable) =>
+  HttpServerRespondable.toResponse(error).pipe(
+    Effect.map(HttpServerResponse.setHeaders(headers)),
+  );
 
 export const readOperatorBody = Effect.fnUntraced(function* (
   request: HttpServerRequest.HttpServerRequest,
@@ -76,11 +86,11 @@ export const operatorHandlers = (
       ) =>
         Effect.gen(function* () {
           if (!(yield* authorized(request)))
-            return response({ error: "unauthorized" }, 401);
+            return yield* problem(new OperatorUnauthorized());
           const input = yield* readOperatorBody(request);
 
           if (input.stage !== stage)
-            return response({ error: "stage-mismatch" }, 409);
+            return yield* problem(new OperatorStageMismatch());
 
           const result =
             operation === "setup"
@@ -90,30 +100,25 @@ export const operatorHandlers = (
           return response(result);
         }).pipe(
           Effect.timeout(25_000),
+          Effect.catchTags({
+            OperatorBodyTooLarge: problem,
+            SchemaError: () => problem(new OperatorInvalidRequest()),
+            HttpServerError: () => problem(new OperatorInvalidRequest()),
+          }),
           Effect.catchTag("AccountError", (error) =>
             Match.value(error.code).pipe(
               Match.when("busy", () =>
-                Effect.succeed(
-                  HttpServerResponse.setHeader(
-                    response({ error: "operator-busy" }, 503),
-                    "Retry-After",
-                    "1",
-                  ),
+                problem(new OperatorBusy()).pipe(
+                  Effect.map(HttpServerResponse.setHeader("Retry-After", "1")),
                 ),
               ),
               Match.when("capacity", () =>
-                Effect.succeed(
-                  response({ error: "channel-capacity-exceeded" }, 409),
-                ),
+                problem(new OperatorCapacityExceeded()),
               ),
               Match.orElse(() => error),
             ),
           ),
-          Effect.catchCause(() =>
-            Effect.succeed(
-              response({ error: "operator-operation-failed" }, 503),
-            ),
-          ),
+          Effect.catchCause(() => problem(new OperatorOperationFailed())),
         );
 
       return handlers

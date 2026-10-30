@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@arctools/twitch": "workspace:*",
-    "effect": "4.0.5"
+    "effect": "4.1.0"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",
