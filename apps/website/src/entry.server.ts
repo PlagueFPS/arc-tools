@@ -10,7 +10,7 @@ export const prerenderPaths = ["/", "/connect"];
 
 export const renderDocument: Server.DocumentRenderer = (application, assets) =>
   Server.renderDocument(application, assets, {
-    head: '<meta name="description" content="ARC Raiders answers, right in Twitch chat. Connect your channel to ARC Tools for item, crafting, and event commands."><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#130918"><script>document.documentElement.classList.add("dark")</script>',
+    head: '<meta name="description" content="ARC Raiders answers, right in Twitch chat. Add ARCToolsBot to your Twitch channel or Discord server for item, crafting, and event commands."><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#130918">',
   });
 
 const render = Effect.fnUntraced(function* (request: Request) {

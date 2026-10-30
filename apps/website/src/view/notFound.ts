@@ -1,10 +1,10 @@
-import type { Html, HtmlBuilder } from "foldkit/html";
+import type { Html } from "foldkit/html";
 
-import type { Message } from "../message";
+import type { ApplicationViewBuilder } from "../composition";
 import { homeRouter } from "../route";
 import { contentPage, eyebrow, pageTitle, primaryButton } from "./shared";
 
-export const view = (h: HtmlBuilder<Message>): Html =>
+export const view = (h: ApplicationViewBuilder): Html =>
   h.section(
     [h.Class(contentPage)],
     [
@@ -16,7 +16,7 @@ export const view = (h: HtmlBuilder<Message>): Html =>
       ),
       h.a(
         [h.Href(homeRouter()), h.Class(primaryButton)],
-        ["Back to ARC Tools"],
+        ["Back to ARCToolsBot"],
       ),
     ],
   );

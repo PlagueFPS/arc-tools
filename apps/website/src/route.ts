@@ -25,5 +25,3 @@ export const urlToApplicationRoute: (url: Url) => ApplicationRoute =
   );
 
 export const enrollmentPath = "/oauth/twitch/enroll";
-
-export const discordInstallPath = "/install/discord";

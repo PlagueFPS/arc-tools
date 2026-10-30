@@ -58,6 +58,10 @@
 }
 
 @theme inline {
+  --color-twitch: #9146ff;
+  --color-twitch-hover: #772ce8;
+  --color-discord: #5865f2;
+  --color-discord-hover: #4752c4;
   --font-heading: var(--font-sans);
   --font-sans: "Barlow", sans-serif;
   --font-mono: "Barlow", sans-serif;
@@ -127,7 +131,7 @@
   --accent-foreground: var(--foreground);
   --destructive: #a03131;
   --destructive-foreground: var(--arc-cream);
-  --border: color-mix(in srgb, var(--foreground) 20%, transparent);
+  --border: #c6bcad;
   --input: var(--border);
   --ring: var(--foreground);
   --chart-1: var(--arc-amber);

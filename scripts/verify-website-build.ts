@@ -27,7 +27,10 @@ assert.deepEqual(manifest.prerendered, ["/", "/connect"]);
 assert.equal(manifest.serverEntry, "fetch.js");
 
 for (const { path, copy } of [
-  { path: "index.html", copy: "Your chat." },
+  {
+    path: "index.html",
+    copy: "Give your Twitch chat and Discord server instant answers",
+  },
   {
     path: "connect/index.html",
     copy: "Checking the connection session in this browser.",
@@ -36,7 +39,25 @@ for (const { path, copy } of [
   const html = await readFile(new URL(`client/${path}`, directory), "utf8");
 
   if (path === "index.html") {
-    assert.match(html, /<a[^>]+href="\/install\/discord"[^>]*>Add to Discord/);
+    const discordLink = Option.fromNullishOr(
+      /<a[^>]+href="(https:\/\/discord\.com\/oauth2\/authorize\?[^" ]+)"[^>]*>[\s\S]*?Add to Discord/.exec(
+        html,
+      )?.[1],
+    ).pipe(Option.getOrThrow);
+
+    const install = new URL(Str.replace(/&amp;/g, "&")(discordLink));
+
+    assert.match(install.searchParams.get("client_id") ?? "", /^[1-9][0-9]+$/);
+    assert.equal(
+      install.searchParams.get("scope"),
+      "bot applications.commands",
+    );
+    assert.equal(install.searchParams.get("integration_type"), "0");
+    assert.equal(install.searchParams.get("permissions"), "0");
+    assert.ok(
+      !Str.includes("/install/discord")(html),
+      "Discord installs directly without a website endpoint",
+    );
   }
 
   assert.ok(Str.includes(copy)(html), `${path} has public content`);

@@ -1,5 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import type { InferEnv } from "@alchemy.run/cloudflare/Bridge";
+import { guildInstallUrl } from "@arctools/discord/install";
 import { Stage } from "alchemy/Stage";
 import { Config, Effect } from "effect";
 
@@ -10,6 +11,10 @@ export const Website = Effect.gen(function* () {
   const bot = yield* Bot;
   const stage = yield* Stage;
 
+  const discordInstallUrl = yield* guildInstallUrl({
+    applicationId: yield* Config.NonEmptyString("DISCORD_APPLICATION_ID"),
+  }).pipe(Effect.orDie);
+
   return yield* Cloudflare.Website.Foldkit("Website", {
     name: `arc-tools-website-${stage}`,
     rootDir: "apps/website",
@@ -18,7 +23,7 @@ export const Website = Effect.gen(function* () {
     assets: { htmlHandling: "drop-trailing-slash", notFoundHandling: "none" },
     env: {
       BOT: bot,
-      DISCORD_APPLICATION_ID: Config.NonEmptyString("DISCORD_APPLICATION_ID"),
+      VITE_DISCORD_INSTALL_URL: discordInstallUrl,
       ARC_WEBSITE_URL: configuredWebsiteOrigin,
       ARC_WEBSITE_SELF: Cloudflare.Worker.URL,
       ARC_STAGE: Config.NonEmptyString("ARC_STAGE"),

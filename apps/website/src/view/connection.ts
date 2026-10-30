@@ -1,9 +1,10 @@
 import { Match, Option } from "effect";
 import { AsyncData } from "foldkit";
-import type { Html, HtmlBuilder } from "foldkit/html";
+import type { Html } from "foldkit/html";
 
 import { button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import type { ApplicationViewBuilder } from "../composition";
 import {
   CheckError,
   EnrollmentStatus,
@@ -21,7 +22,7 @@ const heading = (
   label: string,
   title: string,
   copy: string,
-  h: HtmlBuilder<Message>,
+  h: ApplicationViewBuilder,
 ): Html =>
   h.div(
     [],
@@ -38,7 +39,7 @@ const heading = (
     ],
   );
 
-const checking = (h: HtmlBuilder<Message>) =>
+const checking = (h: ApplicationViewBuilder) =>
   heading(
     "CHECKING CONNECTION",
     "Getting your status…",
@@ -46,7 +47,7 @@ const checking = (h: HtmlBuilder<Message>) =>
     h,
   );
 
-const failure = (error: CheckError, h: HtmlBuilder<Message>) =>
+const failure = (error: CheckError, h: ApplicationViewBuilder) =>
   CheckError.match(error, {
     Absent: () =>
       heading(
@@ -64,7 +65,10 @@ const failure = (error: CheckError, h: HtmlBuilder<Message>) =>
       ),
   });
 
-const enrollment = (status: EnrollmentStatus, h: HtmlBuilder<Message>): Html =>
+const enrollment = (
+  status: EnrollmentStatus,
+  h: ApplicationViewBuilder,
+): Html =>
   Match.value(status).pipe(
     Match.discriminatorsExhaustive("kind")({
       pending: () =>
@@ -85,14 +89,14 @@ const enrollment = (status: EnrollmentStatus, h: HtmlBuilder<Message>): Html =>
         heading(
           "CHANNEL LEFT",
           "Your channel has left.",
-          `ARC Tools has left ${status.login}'s Twitch chat. Connect again whenever you are ready.`,
+          `ARCToolsBot has left ${status.login}'s Twitch chat. Connect again whenever you are ready.`,
           h,
         ),
       recovering: (status) =>
         heading(
           "CHAT UNAVAILABLE",
           "Reconnecting automatically.",
-          `ARC Tools is reconnecting to ${status.login}'s Twitch chat. New commands will resume when Twitch confirms access.`,
+          `ARCToolsBot is reconnecting to ${status.login}'s Twitch chat. New commands will resume when Twitch confirms access.`,
           h,
         ),
       "attention-required": (status) =>
@@ -109,7 +113,7 @@ const enrollment = (status: EnrollmentStatus, h: HtmlBuilder<Message>): Html =>
             heading(
               "CHANNEL CONNECTED",
               "You're raid ready.",
-              `ARC Tools is ready in ${status.login}'s Twitch chat.`,
+              `ARCToolsBot is ready in ${status.login}'s Twitch chat.`,
               h,
             ),
             h.div(
@@ -131,7 +135,7 @@ const enrollment = (status: EnrollmentStatus, h: HtmlBuilder<Message>): Html =>
     }),
   );
 
-const statusView = (model: Model, h: HtmlBuilder<Message>) =>
+const statusView = (model: Model, h: ApplicationViewBuilder) =>
   AsyncData.match(model.enrollment, {
     onIdle: () => checking(h),
     onLoading: () => checking(h),
@@ -153,7 +157,7 @@ const statusView = (model: Model, h: HtmlBuilder<Message>) =>
       ),
   });
 
-export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
+export const view = (model: Model, h: ApplicationViewBuilder): Html => {
   const leaving = AsyncData.isPending(model.leave);
   const isPending = AsyncData.isPending(model.enrollment) || leaving;
 
@@ -187,7 +191,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
           h.Href(homeRouter()),
           h.Class("text-xs text-muted-foreground hover:text-foreground"),
         ],
-        ["← Back to ARC Tools"],
+        ["← Back to ARCToolsBot"],
       ),
       h.h1([h.Class(pageTitle)], ["Your channel connection."]),
       h.p(

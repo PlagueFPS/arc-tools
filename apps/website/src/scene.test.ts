@@ -18,6 +18,7 @@ import {
   RequestId,
   guidance,
 } from "./domain/enrollment";
+import { initialModel as initialLanding } from "./landing/model";
 import { update, view } from "./main";
 import { Message } from "./message";
 import type { Model } from "./model";
@@ -25,6 +26,7 @@ import { ApplicationRoute } from "./route";
 
 const connection: Model = {
   leave: Enrollment.Idle(),
+  landing: initialLanding(),
   route: ApplicationRoute.Connect(),
   enrollment: Enrollment.Idle(),
   requestId: RequestId.make(0),
@@ -34,18 +36,21 @@ test("landing explains the bot with real chat commands and Twitch navigation", (
   scene(
     { update, view },
     given({ ...connection, route: ApplicationRoute.Home() }),
-    expect(role("heading", { level: 1 })).toContainText("Raid ready."),
-    expect(role("link", { name: /Connect Twitch/ })).toExist(),
+    expect(role("heading", { level: 1 })).toContainText(
+      "The best ARC Raiders chat bot.",
+    ),
+    expect(role("link", { name: /Add to Twitch/ })).toHaveAttr(
+      "href",
+      "/oauth/twitch/enroll",
+    ),
     expect(role("link", { name: /Add to Discord/ })).toHaveAttr(
       "href",
-      "/install/discord",
+      import.meta.env.VITE_DISCORD_INSTALL_URL,
     ),
     expect(text("!find sensors")).toExist(),
     expect(role("link", { name: "Skip to content" })).toExist(),
     expect(selector("#main")).toHaveAttr("tabIndex", "-1"),
-    expect(
-      role("link", { name: /Connection status/, current: false }),
-    ).toExist(),
+    expect(role("link", { name: "Commands" })).toExist(),
   );
 });
 
@@ -96,7 +101,7 @@ test("pending offers refresh without rotating the active session, then ready nam
         status: { kind: "ready", login: "raider" },
       }),
     ),
-    expect(text("ARC Tools is ready in raider's Twitch chat.")).toExist(),
+    expect(text("ARCToolsBot is ready in raider's Twitch chat.")).toExist(),
     expect(text("!find sensors")).toExist(),
   );
 });
@@ -152,7 +157,7 @@ test("failed refresh labels the prior status as last known", () => {
         error: CheckError.Unavailable(),
       }),
     }),
-    expect(text("ARC Tools is ready in raider's Twitch chat.")).toExist(),
+    expect(text("ARCToolsBot is ready in raider's Twitch chat.")).toExist(),
     expect(text(/The last known status is shown/)).toExist(),
   );
 });
