@@ -9,7 +9,7 @@
   "dependencies": {
     "@arctools/commands": "workspace:*",
     "alchemy": "2.0.0-beta.84",
-    "effect": "4.0.5",
+    "effect": "4.1.0",
     "@arctools/arc-data": "workspace:*",
     "@arctools/twitch": "workspace:*",
     "@arctools/utils": "workspace:*",

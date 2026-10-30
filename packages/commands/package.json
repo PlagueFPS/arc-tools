@@ -17,7 +17,7 @@
   "dependencies": {
     "@arctools/arc-data": "workspace:*",
     "@arctools/utils": "workspace:*",
-    "effect": "4.0.5"
+    "effect": "4.1.0"
   },
   "devDependencies": {
     "@arctools/testing": "workspace:*",

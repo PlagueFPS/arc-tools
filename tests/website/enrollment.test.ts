@@ -16,6 +16,7 @@ import {
   fixtureConfig,
   initial,
 } from "@arctools/twitch/testing/fixtures";
+import { cryptoLayer } from "@arctools/utils/crypto";
 import { digest } from "@arctools/utils/http";
 import * as Test from "alchemy/Test/Bun";
 import {
@@ -136,6 +137,7 @@ const fixture = Effect.fnUntraced(function* (
       }),
     ),
     Layer.provide(Layer.succeed(Clock.Clock, h.clock)),
+    Layer.provide(cryptoLayer),
     Layer.provide(HttpServer.layerServices),
   );
 
@@ -658,8 +660,14 @@ test(
     );
 
     expect(response.status).toBe(409);
+    expect(response.headers.get("content-type")).toBe(
+      "application/problem+json",
+    );
     expect(yield* Effect.promise(() => response.json())).toEqual({
       error: "channel-capacity-exceeded",
+      type: "urn:arctools:problem:operator-capacity-exceeded",
+      title: "The channel capacity has been exceeded.",
+      status: 409,
     });
     privateHeaders(response);
   }),

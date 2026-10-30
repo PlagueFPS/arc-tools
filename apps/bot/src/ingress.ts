@@ -22,6 +22,7 @@ import {
   Array as Arr,
   String as Str,
 } from "effect";
+import { Mac, Signature } from "effect/crypto";
 import { Hex } from "effect/encoding";
 import {
   type HttpServerError,
@@ -147,28 +148,16 @@ export const verifyTwitch = Effect.fnUntraced(function* (
   if (!fresh(Date.parse(timestamp), receivedAt, ingressPolicy.twitchAgeMs))
     return yield* new IngressError({ status: 401 });
 
-  const key = yield* Effect.tryPromise({
-    try: () =>
-      crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(Redacted.value(secret)),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["verify"],
-      ),
-    catch: () => new IngressError({ status: 401 }),
-  });
+  const mac = yield* Mac.Mac;
 
-  const valid = yield* Effect.tryPromise({
-    try: () =>
-      crypto.subtle.verify(
-        "HMAC",
-        key,
-        new Uint8Array(signature),
-        combined(id + timestamp, bytes),
-      ),
-    catch: () => new IngressError({ status: 401 }),
-  });
+  const key = yield* Mac.key(
+    Mac.hmacSha256,
+    new TextEncoder().encode(Redacted.value(secret)),
+  ).pipe(Effect.mapError(() => new IngressError({ status: 401 })));
+
+  const valid = yield* mac
+    .verify(key, signature, combined(id + timestamp, bytes))
+    .pipe(Effect.mapError(() => new IngressError({ status: 401 })));
 
   if (!valid) return yield* new IngressError({ status: 401 });
 
@@ -202,28 +191,15 @@ export const verifyDiscord = Effect.fnUntraced(function* (
   if (!fresh(Number(timestamp) * 1000, receivedAt, ingressPolicy.discordAgeMs))
     return yield* new IngressError({ status: 401 });
 
-  const key = yield* Effect.tryPromise({
-    try: () =>
-      crypto.subtle.importKey(
-        "raw",
-        new Uint8Array(keyBytes),
-        { name: "Ed25519" },
-        false,
-        ["verify"],
-      ),
-    catch: () => new IngressError({ status: 401 }),
-  });
+  const signatures = yield* Signature.Signature;
 
-  const valid = yield* Effect.tryPromise({
-    try: () =>
-      crypto.subtle.verify(
-        "Ed25519",
-        key,
-        new Uint8Array(signature),
-        combined(timestamp, bytes),
-      ),
-    catch: () => new IngressError({ status: 401 }),
-  });
+  const key = yield* Signature.publicKey(Signature.ed25519, keyBytes).pipe(
+    Effect.mapError(() => new IngressError({ status: 401 })),
+  );
+
+  const valid = yield* signatures
+    .verify(key, signature, combined(timestamp, bytes))
+    .pipe(Effect.mapError(() => new IngressError({ status: 401 })));
 
   if (!valid) return yield* new IngressError({ status: 401 });
 });
@@ -340,6 +316,8 @@ export const ingressHandlers = (config: IngressConfig) =>
     Effect.gen(function* () {
       const account = yield* TwitchAccount;
       const tenants = yield* Tenants;
+      const mac = yield* Mac.Mac;
+      const signatures = yield* Signature.Signature;
 
       const twitch = Effect.fnUntraced(function* (
         request: HttpServerRequest.HttpServerRequest,
@@ -350,7 +328,7 @@ export const ingressHandlers = (config: IngressConfig) =>
           bytes,
           config.receivedAt,
           config.twitchSigningSecret,
-        );
+        ).pipe(Effect.provideService(Mac.Mac, mac));
         const envelope = yield* decode(bytes, TwitchEnvelope);
         const subscription = envelope.subscription;
 
@@ -497,7 +475,7 @@ export const ingressHandlers = (config: IngressConfig) =>
           bytes,
           config.receivedAt,
           config.discordPublicKey,
-        );
+        ).pipe(Effect.provideService(Signature.Signature, signatures));
         const header = yield* decode(bytes, DiscordEnvelope);
 
         if (header.application_id !== config.identity.discordApplicationId)
