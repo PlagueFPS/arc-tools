@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 
 import { ArcData } from "@arctools/arc-data";
+import { Suggestions } from "@arctools/arc-data/autocomplete";
 import {
   AttemptId,
   Deadline,
@@ -150,6 +151,9 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
       ),
       Layer.provide(Layer.succeed(TwitchAccount, trustedAccount)),
       Layer.provide(Layer.succeed(Tenants, tenants)),
+      Layer.provide(
+        Layer.succeed(Suggestions, { suggest: () => Effect.succeed([]) }),
+      ),
       Layer.provide(HttpServer.layerServices),
     );
 

@@ -2,6 +2,10 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
+import {
+  Suggestions,
+  type SuggestionKind,
+} from "@arctools/arc-data/autocomplete";
 import { botOrigin } from "@arctools/bot-contracts/origins";
 import {
   type Account,
@@ -13,6 +17,7 @@ import {
 } from "@arctools/twitch/server";
 import * as Test from "alchemy/Test/Bun";
 import {
+  Array as Arr,
   Result,
   Option,
   Clock,
@@ -65,6 +70,7 @@ const encode = (value: Schema.Json) =>
 
 const fixture = Effect.fnUntraced(function* (
   options: {
+    suggestions?: Effect.Success<typeof Suggestions>;
     setupError?: AccountError["code"];
     receivedAt?: number;
     tenants?: Partial<TenantService>;
@@ -165,6 +171,12 @@ const fixture = Effect.fnUntraced(function* (
     ),
     Layer.provide(Layer.succeed(TwitchAccount, account)),
     Layer.provide(Layer.succeed(Tenants, tenants)),
+    Layer.provide(
+      Layer.succeed(
+        Suggestions,
+        options.suggestions ?? { suggest: () => Effect.succeed([]) },
+      ),
+    ),
     Layer.provide(HttpServer.layerServices),
   );
 
@@ -1064,3 +1076,188 @@ for (const transport of ["discord", "twitch"] as const)
       }),
     ),
   );
+
+const autocomplete = (command = "sell", query = "sen") => {
+  const base = discordCommand("autocomplete", command, query || " ");
+
+  return {
+    ...base,
+    type: 4,
+    data: {
+      ...base.data,
+      options: Arr.map(base.data.options, (option) => ({
+        ...option,
+        value: query,
+        focused: true,
+      })),
+    },
+  };
+};
+
+for (const [command, kind] of [
+  ["sell", "items"],
+  ["loot", "arcs"],
+  ["event", "events-maps"],
+] satisfies readonly (readonly [string, SuggestionKind])[]) {
+  test(
+    `signed autocomplete routes ${command} to ${kind} without tenant admission`,
+    Effect.scoped(
+      Effect.gen(function* () {
+        const queries: unknown[] = [];
+
+        const f = yield* fixture({
+          suggestions: {
+            suggest: (kind, query) =>
+              Effect.sync(() => {
+                queries.push({ kind, query });
+
+                return [{ name: "Sensors", value: "sensors" }];
+              }),
+          },
+        });
+
+        const response = yield* f.discord(autocomplete(command, " sen "));
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(yield* json(response)).toEqual({
+          type: 8,
+          data: { choices: [{ name: "Sensors", value: "sensors" }] },
+        });
+        expect(queries).toEqual([{ kind, query: "sen" }]);
+        expect(f.admissions).toEqual([]);
+      }),
+    ),
+  );
+}
+
+test(
+  "autocomplete blank, unavailable and defective caches return empty choices",
+  Effect.scoped(
+    Effect.gen(function* () {
+      let queries = 0;
+
+      const f = yield* fixture({
+        suggestions: {
+          suggest: () =>
+            Effect.sync(() => {
+              queries++;
+            }).pipe(Effect.andThen(Effect.die("cache unavailable"))),
+        },
+      });
+
+      for (const query of ["", "   ", "sensors"]) {
+        expect(
+          yield* json(yield* f.discord(autocomplete("sell", query))),
+        ).toEqual({ type: 8, data: { choices: [] } });
+      }
+
+      expect(queries).toBe(1);
+      expect(f.admissions).toEqual([]);
+      const cold = yield* fixture();
+      expect(yield* json(yield* cold.discord(autocomplete()))).toEqual({
+        type: 8,
+        data: { choices: [] },
+      });
+    }),
+  ),
+);
+
+test(
+  "autocomplete bounds choices and cache latency",
+  Effect.scoped(
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        suggestions: {
+          suggest: () =>
+            Effect.succeed(
+              Array.from({ length: 30 }, (_, index) => ({
+                name: `Item ${index}`,
+                value: String(index),
+              })),
+            ),
+        },
+      });
+
+      const response = yield* json(yield* f.discord(autocomplete()));
+      expect(response.data.choices).toHaveLength(25);
+
+      const slow = yield* fixture({
+        suggestions: { suggest: () => Effect.never },
+      });
+
+      expect(yield* json(yield* slow.discord(autocomplete()))).toEqual({
+        type: 8,
+        data: { choices: [] },
+      });
+      expect(slow.admissions).toEqual([]);
+    }),
+  ),
+);
+
+test(
+  "autocomplete rejects wrong app, context, signature and malformed focused options before cache access",
+  Effect.scoped(
+    Effect.gen(function* () {
+      let queries = 0;
+
+      const f = yield* fixture({
+        suggestions: {
+          suggest: () =>
+            Effect.sync(() => {
+              queries++;
+
+              return [];
+            }),
+        },
+      });
+
+      const base = autocomplete();
+
+      for (const patch of [
+        { context: 1 },
+        { member: {} },
+        { authorizing_integration_owners: { "0": "other" } },
+        { data: { ...base.data, options: [] } },
+        {
+          data: {
+            ...base.data,
+            options: [...base.data.options, ...base.data.options],
+          },
+        },
+        {
+          data: {
+            ...base.data,
+            options: [{ type: 3, name: "wrong", value: "x", focused: true }],
+          },
+        },
+        {
+          data: {
+            ...base.data,
+            options: [{ type: 3, name: "item", value: 1, focused: true }],
+          },
+        },
+      ]) {
+        expect(yield* json(yield* f.discord({ ...base, ...patch }))).toEqual({
+          type: 8,
+          data: { choices: [] },
+        });
+      }
+
+      expect(
+        (yield* json(yield* f.discord({ ...base, application_id: "other" })))
+          .data.flags,
+      ).toBe(64);
+      const body = encode(base);
+      const headers = yield* signDiscord(body, f.receivedAt);
+      expect(
+        (yield* f.request("/interactions/discord", body, {
+          ...headers,
+          "x-signature-ed25519": Str.repeat(128)("0"),
+        })).status,
+      ).toBe(401);
+      expect((yield* f.discord(base, f.receivedAt - 301000)).status).toBe(401);
+      expect(queries).toBe(0);
+      expect(f.admissions).toEqual([]);
+    }),
+  ),
+);
