@@ -4,6 +4,7 @@ import { RuntimeContext } from "alchemy/RuntimeContext";
 import { Context, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/http";
 
+import { Suggestion, Suggestions } from "./autocomplete.js";
 import {
   type CacheStorage,
   dataFromReader,
@@ -72,7 +73,7 @@ export const makeCacheRpc = Effect.fnUntraced(function* (
     );
   });
 
-  return { read, reset: cache.reset };
+  return { read, reset: cache.reset, suggest: cache.suggest };
 });
 
 export class CacheSource extends Context.Service<
@@ -96,7 +97,7 @@ export class ArcCacheDO extends Cloudflare.DurableObject<ArcCacheDO>()(
       const options = Option.isSome(source) ? yield* source.value.options : {};
       const cache = yield* makeCacheRpc(options);
 
-      return { read: cache.read };
+      return { read: cache.read, suggest: cache.suggest };
     });
   }),
 ) {}
@@ -150,3 +151,26 @@ export class CacheRpc extends Context.Service<
 export const cacheRpcLayer = (
   options: Parameters<typeof makeCacheRpc>[0] = {},
 ) => Layer.effect(CacheRpc, makeCacheRpc(options));
+
+export const bindSuggestions = Effect.gen(function* () {
+  const objects = yield* ArcCacheDO;
+
+  // oxlint-disable-next-line effecttsgo/return-effect-in-gen -- Alchemy requires a deferred Effect from this first initialization or binding stage.
+  return Effect.gen(function* () {
+    const runtime = yield* RuntimeContext;
+    const object = objects.getByName("environment");
+
+    return Suggestions.of({
+      suggest: (kind, query) =>
+        object.suggest(kind, query).pipe(
+          Effect.provideService(RuntimeContext, runtime),
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.Array(Suggestion).check(Schema.isMaxLength(25)),
+            ),
+          ),
+          Effect.catchCause(() => Effect.succeed([])),
+        ),
+    });
+  });
+});
