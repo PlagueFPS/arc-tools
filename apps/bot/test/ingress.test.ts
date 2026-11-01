@@ -33,6 +33,7 @@ import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { TestClock } from "effect/testing";
 
+import { makeFixture as cacheFixture } from "../../../packages/arc-data/test/cache-fixture.js";
 import {
   discordCommand,
   discordPublicKey,
@@ -1093,6 +1094,48 @@ const autocomplete = (command = "sell", query = "sen") => {
     },
   };
 };
+
+test(
+  "signed autocomplete reads the persisted catalog without source calls and observes reset",
+  Effect.scoped(
+    Effect.gen(function* () {
+      const source = yield* cacheFixture();
+      source.body({
+        data: [{ name: "Sensors" }, { name: "Advanced Sensors" }],
+        pagination: {
+          page: 1,
+          total: 2,
+          totalPages: 1,
+          hasNextPage: false,
+        },
+      });
+      yield* source.cache.read({ resource: "items-catalog" });
+      const f = yield* fixture({ suggestions: source.cache });
+
+      expect(
+        yield* json(yield* f.discord(autocomplete("sell", "sen"))),
+      ).toEqual({
+        type: 8,
+        data: {
+          choices: [
+            { name: "Sensors", value: "Sensors" },
+            { name: "Advanced Sensors", value: "Advanced Sensors" },
+          ],
+        },
+      });
+      expect(source.calls).toHaveLength(1);
+      yield* source.cache.reset;
+      expect(
+        yield* json(yield* f.discord(autocomplete("sell", "sen"))),
+      ).toEqual({
+        type: 8,
+        data: { choices: [] },
+      });
+      expect(source.calls).toHaveLength(1);
+      expect(f.admissions).toEqual([]);
+    }),
+  ),
+);
 
 for (const [command, kind] of [
   ["sell", "items"],
