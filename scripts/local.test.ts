@@ -53,6 +53,112 @@ afterEach(async () => {
 });
 
 describe("local settings", () => {
+  test("diagnostics identify failed settings and relationships with safe provenance", async () => {
+    const directory = await temporary();
+    const file = join(directory, ".env.local");
+
+    const cases = [
+      {
+        change: { DISCORD_PUBLIC_KEY: undefined },
+        keys: ["DISCORD_PUBLIC_KEY"],
+        reason: "missing",
+        expected: "64 hexadecimal",
+      },
+      {
+        change: { DISCORD_PUBLIC_KEY: "CANARY" },
+        keys: ["DISCORD_PUBLIC_KEY"],
+        reason: "invalid",
+        expected: "64 hexadecimal",
+      },
+      {
+        change: { ARC_BOT_URL: "https://CANARY:password@fixture.invalid" },
+        keys: ["ARC_BOT_URL"],
+        reason: "invalid",
+        expected: "HTTPS origin",
+      },
+      {
+        change: { ARC_STAGE: "CANARY" },
+        keys: ["ARC_STAGE"],
+        reason: "invalid",
+        expected: "local-",
+      },
+      {
+        change: { TWITCH_SENDER_KIND: "bot" },
+        keys: ["ARC_ENVIRONMENT", "TWITCH_SENDER_KIND"],
+        reason: "invalid",
+        expected: "personal",
+      },
+      {
+        change: { APPLICATION_STAGE: "local-other" },
+        keys: ["ARC_STAGE", "APPLICATION_STAGE"],
+        reason: "match",
+        expected: "equal",
+      },
+      {
+        change: { TWITCH_CHANNEL_LOGINS: "other" },
+        keys: ["TWITCH_SENDER_LOGIN", "TWITCH_CHANNEL_LOGINS"],
+        reason: "match",
+        expected: "one channel",
+      },
+    ];
+
+    for (const { change, keys, reason, expected } of cases) {
+      const values = { ...fixtureEnv, ...change };
+
+      const present = Rec.filter(
+        values,
+        (value): value is string => value !== undefined,
+      );
+
+      for (const source of [".env.local", "exported environment"]) {
+        await writeFile(file, source === ".env.local" ? dotenv(present) : "");
+        let message = "";
+
+        try {
+          await localSettings(file, source === ".env.local" ? {} : present);
+        } catch (error) {
+          if (error instanceof Error) message = error.message;
+        }
+
+        expect(message).toContain("Invalid local configuration");
+
+        for (const key of keys) expect(message).toContain(key);
+        expect(message).toContain(reason);
+        expect(message).toContain(expected);
+        expect(message).toContain(
+          change.DISCORD_PUBLIC_KEY === undefined &&
+            "DISCORD_PUBLIC_KEY" in change
+            ? "not set"
+            : source,
+        );
+        expect(message).not.toContain("CANARY");
+        expect(message).not.toContain("fixture-secret");
+        expect(message).not.toContain("fixture-token");
+      }
+    }
+  });
+
+  test("relationship diagnostics retain each key's winning source", async () => {
+    const directory = await temporary();
+    const file = join(directory, ".env.local");
+    await writeFile(file, "ARC_STAGE=local-fixture\n");
+    expect(
+      await localSettings(file, {
+        ...fixtureEnv,
+        ARC_STAGE: "CANARY",
+        APPLICATION_STAGE: "local-other",
+      }).catch((error: Error) => error.message),
+    ).toContain(
+      "ARC_STAGE (.env.local) and APPLICATION_STAGE (exported environment)",
+    );
+    await writeFile(file, "DISCORD_PUBLIC_KEY=CANARY\n");
+    expect(
+      await localSettings(file, fixtureEnv).catch(
+        (error: Error) => error.message,
+      ),
+    ).toContain("DISCORD_PUBLIC_KEY (.env.local)");
+  });
+
   test("file keys replace stale exports, absent keys fall back, and dotenv quotes work", async () => {
     const directory = await temporary();
     const envFile = join(directory, ".env.local");
@@ -282,6 +388,23 @@ describe("local package aliases", () => {
     }
   }, 30000);
 
+  test("unexpected internal failures hide causes and do not blame a setting", async () => {
+    const fixture = await launcherFixture();
+    await writeFile(
+      join(fixture.directory, "apps/bot/src/config.js"),
+      `import { Effect } from "effect";
+export { EnvironmentConfig } from ${JSON.stringify(join(root, "apps/bot/src/config.ts"))};
+export const runtimeConfig = Effect.die(new Error("CANARY-internal-secret"));`,
+    );
+    const result = await fixture.run("dev:local");
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("internal configuration check failed");
+    expect(result.output).not.toContain("CANARY");
+    expect(result.output).not.toContain("ARC_STAGE");
+    expect(result.output).not.toContain("Error:");
+    expect(await fixture.calls()).toEqual([]);
+  });
+
   test("first failure propagates and setup never starts the second child", async () => {
     const fixture = await launcherFixture();
     const result = await fixture.run("setup:local", { FAIL_SYNC: "23" });
@@ -339,6 +462,14 @@ describe("local package aliases", () => {
       expect(result.output).not.toContain("CANARY");
       expect(result.output).not.toContain("fixture-secret");
     }
+
+    const { DISCORD_PUBLIC_KEY: _omitted, ...missingKey } = fixtureEnv;
+    await writeFile(join(fixture.directory, ".env.local"), dotenv(missingKey));
+    const missingSetting = await fixture.run("dev:local");
+    expect(missingSetting.code).toBe(1);
+    expect(missingSetting.output).toContain("DISCORD_PUBLIC_KEY");
+    expect(missingSetting.output).toContain("missing required setting");
+    expect(missingSetting.output).toContain("64 hexadecimal");
 
     await rm(join(fixture.directory, ".env.local"));
     const missing = await fixture.run("setup:local");
@@ -477,7 +608,7 @@ async function launcherFixture() {
   );
   await writeFile(
     join(directory, "apps/bot/src/config.js"),
-    `export { runtimeConfig } from ${JSON.stringify(join(root, "apps/bot/src/config.ts"))};`,
+    `export { EnvironmentConfig, runtimeConfig } from ${JSON.stringify(join(root, "apps/bot/src/config.ts"))};`,
   );
   await copyFile(
     join(root, "scripts/local.ts"),
