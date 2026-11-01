@@ -3,6 +3,7 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
+import { Suggestions } from "@arctools/arc-data/autocomplete";
 import {
   AccountStatus,
   AccountError,
@@ -134,6 +135,9 @@ const fixture = Effect.fnUntraced(function* (
           }),
         respondDiscord: () => Effect.succeed(discordResponse("controlled")),
       }),
+    ),
+    Layer.provide(
+      Layer.succeed(Suggestions, { suggest: () => Effect.succeed([]) }),
     ),
     Layer.provide(Layer.succeed(Clock.Clock, h.clock)),
     Layer.provide(HttpServer.layerServices),
