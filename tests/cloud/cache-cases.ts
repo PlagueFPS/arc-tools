@@ -92,6 +92,13 @@ export function registerCacheTests({
       const first = yield* successful(url, input);
       const before = yield* snapshot(url);
       expect(before.rows["entry:v1:json:/items?id=persist"]).toBeDefined();
+      expect(
+        Rec.keys(before.rows).every(
+          (key) =>
+            key === "entry:v1:json:/items?id=persist" ||
+            key === "entry:v1:json:/items-catalog",
+        ),
+      ).toBe(true);
       expect(first.provenance).toEqual({ freshness: "fresh", fetchedAt: 0 });
 
       const decoded = yield* Schema.decodeEffect(
@@ -109,6 +116,13 @@ export function registerCacheTests({
       );
 
       expect(after.instance).not.toBe(before.instance);
+      expect(
+        Rec.keys(after.rows).every(
+          (key) =>
+            key === "entry:v1:json:/items?id=persist" ||
+            key === "entry:v1:json:/items-catalog",
+        ),
+      ).toBe(true);
       expect(after.rows["entry:v1:json:/items?id=persist"]).toEqual(
         before.rows["entry:v1:json:/items?id=persist"],
       );
