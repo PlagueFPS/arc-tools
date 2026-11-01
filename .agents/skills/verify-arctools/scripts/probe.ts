@@ -170,7 +170,7 @@ if (action === "cleanup") {
       await record("discord-access", observations);
       return result.response;
     }
-    const ping = { application_id: "fixture-discord", type: 1 };
+    const ping = { application_id: "123456789012345678", type: 1 };
     const accepted = await send("signed-ping", ping);
     assert.equal(accepted.status, 200);
     assert.deepEqual(JSON.parse(accepted.body), { type: 1 });
@@ -178,7 +178,7 @@ if (action === "cleanup") {
     assert.equal(rejected.status, 401);
     assert.equal(rejected.body, "");
     const dm = await send("dm-command", {
-      application_id: "fixture-discord",
+      application_id: "123456789012345678",
       type: 2,
       context: 1,
       id: crypto.randomUUID(),

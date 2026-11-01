@@ -9,7 +9,7 @@ Read [the feature map](features/README.md) and choose the affected journeys. The
 
 ## Launch
 
-Run from the repository root with Bun 1.4.3:
+Run from the repository root with the Bun version pinned in `package.json`:
 
 ```bash
 bun install --frozen-lockfile
@@ -21,7 +21,7 @@ printf '%s\n' "$VERIFY_STAGE"
 
 Keep this terminal session and its exact stage. In another terminal, set `VERIFY_STAGE` to that printed value. Evidence is `.cloud-tests/verify-arctools/$VERIFY_STAGE/` relative to this checkout.
 
-The helper runs the documented Alchemy development command with an explicit `local-*` stage, the current Git revision, and public fixture credentials. It passes `/dev/null` as the CLI environment file and overrides application configuration with fixture values. By default the personal sender and its sole channel are `local_probe`. Set `ARC_VERIFY_MODE=bot` for launch, Doctor, drive, and cleanup to exercise the dedicated bot startup profile with the same fixture identities. This adds no real grants or live enrollment proof. The Bot fixture origin is `https://local-verify.example`; Website OAuth uses `http://localhost:3000`. No tunnel, provider grants, or command registration exists in this baseline. No migration or seed is needed for Discord PING and unsupported-context rejection. Durable Objects start empty.
+The helper runs the documented Alchemy development command with an explicit `local-*` stage, the current Git revision, and public fixture credentials. It passes `/dev/null` as the CLI environment file and overrides application configuration with fixture values. The Discord application ID is the public numeric fixture `123456789012345678`, shared by launch configuration and signed probe requests. It satisfies install URL snowflake validation and does not identify an authorized test application. By default the personal sender and its sole channel are `local_probe`. Set `ARC_VERIFY_MODE=bot` for launch, Doctor, drive, and cleanup to exercise the dedicated bot startup profile with the same fixture identities. This adds no real grants or live enrollment proof. The Bot fixture origin is `https://local-verify.example`; Website OAuth uses `http://localhost:3000`. No tunnel, provider grants, or command registration exists in this baseline. No migration or seed is needed for Discord PING and unsupported-context rejection. Durable Objects start empty.
 
 Wait for `[Bot] Started` and the actual HTTP address in `launch.log`, then run Doctor. The default address is `http://localhost:1337`. If Alchemy selects another port, export `ARC_VERIFY_URL` with that exact local HTTP origin in the driving and cleanup terminal. Do not assume the first free port belongs to this run.
 
@@ -69,7 +69,7 @@ test -s ".cloud-tests/verify-arctools/$VERIFY_STAGE/discord-access.json"
 test -s ".cloud-tests/verify-arctools/$VERIFY_STAGE/cleanup.json"
 ```
 
-Cleanup reads every Bot listener address recorded in this stage's launch log and requires TCP connection refusal before it calls Alchemy `Core.destroy`. A live listener, a connection timeout, or a missing listener record stops cleanup before mutation. It uses `dev: true` for this exact local stage, checks absent control-store entries and output, and checks the recorded listeners again before deleting scratch data. `ARC_VERIFY_URL` cannot redirect cleanup to another port. It removes only the stage's bundle and three emulator data directories. It retains logs, proof, and shared Alchemy runtime caches. Never kill by process name or delete shared `.alchemy` state. Run cleanup after failed launch or drive attempts too. A failed cleanup is a failure to report and repair, not a passed proof.
+Cleanup reads every Bot listener address recorded in this stage's launch log and requires TCP connection refusal before it calls Alchemy `Core.destroy`. A live listener, a connection timeout, or a missing listener record stops cleanup before mutation. It uses `dev: true` for this exact local stage, checks absent control-store entries and output, and checks the recorded listeners again before deleting scratch data. `ARC_VERIFY_URL` cannot redirect cleanup to another port. It removes only the stage's bundle and three emulator data directories. It retains logs, proof, and shared Alchemy runtime caches. Never kill by process name or delete shared `.alchemy` state. Run cleanup after failed launch or drive attempts too. If launch fails before recording a Bot listener, cleanup refuses mutation. Retain the launch log, stop only the owned launch session, and report cleanup as blocked. Do not invent a listener record or delete state to bypass this guard. A failed cleanup is a failure to report and repair, not a passed proof.
 
 The legacy `bun run test:cloud` command now runs local integration tests with separate file state. Its `test:cloud:cleanup` command accepts only journals marked `dev: true`. Use `preview:cleanup --pr <number>` for authorized cloud preview cleanup.
 
