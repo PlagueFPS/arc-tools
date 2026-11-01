@@ -5,6 +5,7 @@ export interface SlashOption {
   readonly description: string;
   readonly type: "string";
   readonly required?: boolean;
+  readonly autocomplete?: "items" | "arcs" | "events-maps";
 }
 
 interface CommandMetadata {
@@ -17,6 +18,7 @@ interface CommandMetadata {
 const ITEM_OPTION = {
   name: "item",
   description: "Item name",
+  autocomplete: "items",
   type: "string",
   required: true,
 } as const satisfies SlashOption;
@@ -24,6 +26,7 @@ const ITEM_OPTION = {
 const ARC_OPTION = {
   name: "arc",
   description: "Arc name",
+  autocomplete: "arcs",
   type: "string",
   required: true,
 } as const satisfies SlashOption;
@@ -79,6 +82,7 @@ const definitions = [
       {
         name: "event_or_map",
         description: "Event or map name",
+        autocomplete: "events-maps",
         type: "string",
         required: true,
       },

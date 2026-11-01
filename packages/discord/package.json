@@ -15,6 +15,7 @@
   "dependencies": {
     "@arctools/commands": "workspace:*",
     "@arctools/utils": "workspace:*",
+    "dfx": "1.1.1",
     "effect": "4.0.5"
   },
   "devDependencies": {
