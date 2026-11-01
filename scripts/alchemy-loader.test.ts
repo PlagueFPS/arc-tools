@@ -2,15 +2,18 @@
 import { expect, test } from "bun:test";
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   rm,
+  readdir,
+  realpath,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { nodeLoaderArgs } from "alchemy/Util/Node";
 
@@ -19,6 +22,8 @@ import { nodeLoaderArgs as compiledLoaderArgs } from "../node_modules/alchemy/li
 const node = Bun.which("node");
 
 if (node === null) throw new Error("Node is required to test Alchemy loaders");
+
+const nodeDirectory = dirname(node);
 
 const entry = import.meta.resolve("alchemy/Cli/commands/dev");
 
@@ -111,3 +116,183 @@ test.each([
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+const viteChild = import.meta
+  .resolve("@alchemy.run/cloudflare/Workers/ViteChild");
+
+const compiledViteChild = new URL(
+  "../node_modules/@alchemy.run/cloudflare/lib/Workers/ViteChild.js",
+  import.meta.url,
+).href;
+
+const viteOperations = [
+  { start: "startViteChild", runner: "ViteChildRunner" },
+  { start: "runViteBuildChild", runner: "ViteBuildChildRunner" },
+];
+
+async function viteCommand(
+  helper: string,
+  operation: (typeof viteOperations)[number],
+) {
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "--no-env-file",
+      "-e",
+      `import * as Effect from "effect/Effect";
+       import * as Spawner from "effect/process/ChildProcessSpawner";
+       import { PlatformServices } from "alchemy/Util/PlatformServices";
+       const { ${operation.start}: start } = await import(${JSON.stringify(helper)});
+       const command = await Effect.runPromise(Effect.flip(Effect.scoped(
+         start({ rootDir: process.cwd() }, () => Effect.void).pipe(
+           Effect.provideService(Spawner.ChildProcessSpawner, Spawner.make(command => Effect.fail(command))),
+           Effect.provide(PlatformServices)
+         )
+       )));
+       process.stdout.write([command.command, ...command.args].join(String.fromCharCode(10)));`,
+    ],
+    { env: { PATH: nodeDirectory }, stdout: "pipe", stderr: "pipe" },
+  );
+
+  const [stdout, stderr, exit] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+
+  expect(stderr).toBe("");
+  expect(exit).toBe(0);
+  const [executable, ...args] = stdout.split("\n");
+
+  if (executable === undefined) throw new Error("Missing Vite executable");
+
+  return { executable, args };
+}
+
+for (const operation of viteOperations) {
+  test.each([viteChild, compiledViteChild])(
+    `installed Vite helper %s boots ${operation.runner} on Node`,
+    async (helper) => {
+      const { executable, args } = await viteCommand(helper, operation);
+      const runner = args.at(-1);
+      expect(runner).toEndWith(`/lib/Workers/${operation.runner}.js`);
+
+      if (runner === undefined) throw new Error("Missing Vite runner");
+      expect(executable).toBe(
+        operation.start === "startViteChild" ? node : process.execPath,
+      );
+      const directory = await mkdtemp(join(tmpdir(), "arc-vite-runner-"));
+
+      try {
+        const nodeArgs =
+          operation.start === "startViteChild"
+            ? args
+            : [...nodeLoaderArgs(runner), runner];
+
+        const child = Bun.spawn([node, ...nodeArgs], {
+          cwd: directory,
+          env: {
+            ALCHEMY_RPC_SERVER_ENVIRONMENT: JSON.stringify({
+              stack: { name: "loader-test", stage: "test" },
+              alchemyContext: {},
+            }),
+          },
+          stdin: new Uint8Array(),
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const [stdout, stderr, exit] = await Promise.all([
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text(),
+          child.exited,
+        ]);
+
+        expect(exit).toBe(1);
+        expect(stdout + stderr).toContain("Unable to deserialize cloned data");
+        expect(stdout + stderr).not.toContain(
+          "ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING",
+        );
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+}
+
+test.each(["src", "lib"])(
+  "checkout %s Vite helpers retain their runner format",
+  async (format) => {
+    const directory = await mkdtemp(join(tmpdir(), "arc-vite-checkout-"));
+
+    try {
+      const modules = join(directory, "node_modules");
+      await mkdir(modules);
+
+      const installedModules = fileURLToPath(
+        new URL("../node_modules", import.meta.url),
+      );
+
+      for (const name of await readdir(installedModules)) {
+        if (name === "alchemy" || name === ".bun") continue;
+        await symlink(join(installedModules, name), join(modules, name));
+      }
+
+      const alchemy = join(directory, "alchemy");
+      await cp(join(installedModules, "alchemy"), alchemy, {
+        recursive: true,
+        dereference: true,
+      });
+      await symlink(alchemy, join(modules, "alchemy"));
+      await symlink(
+        dirname(await realpath(join(installedModules, "alchemy"))),
+        join(alchemy, "node_modules"),
+      );
+      const devLoader = join(alchemy, "bin", "register-dev-mode.js");
+      await copyFile(join(alchemy, "bin", "register-oxc.js"), devLoader);
+      const workers = join(directory, "cloudflare", format, "Workers");
+      await mkdir(workers, { recursive: true });
+      const extension = format === "src" ? ".ts" : ".js";
+      const installedHelper = format === "src" ? viteChild : compiledViteChild;
+      await copyFile(
+        fileURLToPath(installedHelper),
+        join(workers, `ViteChild${extension}`),
+      );
+      await copyFile(
+        fileURLToPath(new URL(`ViteChild.shared${extension}`, installedHelper)),
+        join(workers, `ViteChild.shared${extension}`),
+      );
+
+      for (const operation of viteOperations) {
+        const { executable, args } = await viteCommand(
+          join(workers, `ViteChild${extension}`),
+          operation,
+        );
+
+        const runner = join(workers, `${operation.runner}${extension}`);
+        expect(executable).toBe(
+          operation.start === "startViteChild" ? node : process.execPath,
+        );
+        expect(args).toEqual(
+          operation.start === "startViteChild"
+            ? [
+                "--import",
+                pathToFileURL(
+                  join(
+                    alchemy,
+                    "bin",
+                    format === "src"
+                      ? "register-dev-mode.js"
+                      : "register-oxc.js",
+                  ),
+                ).href,
+                runner,
+              ]
+            : ["run", runner],
+        );
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

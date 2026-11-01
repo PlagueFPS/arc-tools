@@ -1,0 +1,40 @@
+diff --git a/lib/Workers/ViteChild.js b/lib/Workers/ViteChild.js
+index a8e750240786a491634d9b65004b9980041f923b..98be48d3fbf9afef405fe9e30ff6c0e42669f98f 100644
+--- a/lib/Workers/ViteChild.js
++++ b/lib/Workers/ViteChild.js
+@@ -23,7 +23,14 @@ import { VITE_CHILD_READY_PREFIX, VITE_CHILD_READY_SUFFIX, } from "./ViteChild.s
+ // does not exist (workerd) — a module-level call would crash the bundle
+ // at startup even though no child is ever spawned there. At spawn time
+ // we are guaranteed to be in Node/bun.
+-const resolveRunner = (basename) => fileURLToPath(import.meta.resolve(`./${basename}${moduleExtension(import.meta.url)}`));
++const resolveRunner = (basename) => fileURLToPath(
++    import.meta.resolve(
++      moduleExtension(import.meta.url) === ".ts" &&
++        nodeLoaderArgs(import.meta.url)[1]?.endsWith("/register-dev-mode.js")
++        ? `./${basename}.ts`
++        : `../../lib/Workers/${basename}.js`,
++    ),
++  );
+ export const startViteChild = (config, onOutput) => Effect.gen(function* () {
+     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+     const runner = resolveRunner("ViteChildRunner");
+diff --git a/src/Workers/ViteChild.ts b/src/Workers/ViteChild.ts
+index 67b9646cf7cf9a5d302b3a67107810e4b0eb500e..d741225f001866293601d354e58ceb7cc70123c5 100644
+--- a/src/Workers/ViteChild.ts
++++ b/src/Workers/ViteChild.ts
+@@ -41,7 +41,14 @@ export interface ViteChildHandle {
+ // at startup even though no child is ever spawned there. At spawn time
+ // we are guaranteed to be in Node/bun.
+ const resolveRunner = (basename: string) =>
+-  fileURLToPath(import.meta.resolve(`./${basename}${moduleExtension(import.meta.url)}`));
++  fileURLToPath(
++    import.meta.resolve(
++      moduleExtension(import.meta.url) === ".ts" &&
++        nodeLoaderArgs(import.meta.url)[1]?.endsWith("/register-dev-mode.js")
++        ? `./${basename}.ts`
++        : `../../lib/Workers/${basename}.js`,
++    ),
++  );
+ 
+ export const startViteChild = (
+   config: ViteChildConfig,
