@@ -50,6 +50,35 @@ const CacheReply = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("failure"), error: DataUnavailable }),
 ]);
 
+export const makeRetainedCacheReader = (
+  cache: Effect.Success<typeof Cache>,
+  retain: (effect: Effect.Effect<void>) => Effect.Effect<void>,
+) => {
+  const pending = new Set<"items-catalog" | "arcs-catalog">();
+
+  return Effect.fn("ArcCache.retainedRead")(function* (query: ResourceQuery) {
+    const result = yield* cache.read(query);
+
+    if (query.resource === "items" || query.resource === "arcs") {
+      const resource = `${query.resource}-catalog` as const;
+
+      if (!pending.has(resource)) {
+        pending.add(resource);
+        yield* retain(
+          cache
+            .read({ resource })
+            .pipe(
+              Effect.ignore,
+              Effect.ensuring(Effect.sync(() => pending.delete(resource))),
+            ),
+        );
+      }
+    }
+
+    return result;
+  });
+};
+
 export const makeCacheRpc = Effect.fnUntraced(function* (
   options: Parameters<typeof cacheLayer>[1] = {},
 ) {
@@ -62,8 +91,17 @@ export const makeCacheRpc = Effect.fnUntraced(function* (
     ),
   );
 
+  const state = yield* Cloudflare.DurableObjectState;
+  const runtime = yield* RuntimeContext;
+
+  const retainedRead = makeRetainedCacheReader(cache, (effect) =>
+    state
+      .waitUntil(effect)
+      .pipe(Effect.provideService(RuntimeContext, runtime)),
+  );
+
   const read = Effect.fn("ArcCache.rpc")(function* (query: ResourceQuery) {
-    return yield* cache.read(query).pipe(
+    return yield* retainedRead(query).pipe(
       Effect.match({
         onSuccess: (result) => ({ kind: "success", result }) as const,
         onFailure: (error) => ({ kind: "failure", error }) as const,

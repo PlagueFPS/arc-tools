@@ -2,10 +2,11 @@
 import { describe, expect } from "bun:test";
 
 import * as Test from "alchemy/Test/Bun";
-import { Effect, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer, Result } from "effect";
 import { TestClock } from "effect/testing";
 
 import { rankSuggestions } from "../src/autocomplete.js";
+import { makeRetainedCacheReader } from "../src/cloudflare.js";
 import { cachePolicy } from "../src/source.js";
 import { makeFixture } from "./cache-fixture.js";
 
@@ -29,6 +30,217 @@ const page = (names: readonly string[]) => ({
 });
 
 describe("cache-only autocomplete", () => {
+  test(
+    "ordinary reads retain complete catalog warming without delaying commands or fetching on autocomplete",
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture();
+      const retained: Effect.Effect<void>[] = [];
+
+      const read = makeRetainedCacheReader(fixture.cache, (effect) =>
+        Effect.sync(() => {
+          retained.push(effect);
+        }),
+      );
+
+      let replacement = false;
+
+      fixture.respond((url) =>
+        Effect.succeed(
+          Response.json(
+            url.searchParams.has("page")
+              ? page([
+                  replacement ? "Sensor replacement" : "Sensors",
+                  "Sensor wire",
+                ])
+              : { data: [{ id: "sensors", name: "Sensors", value: 10 }] },
+          ),
+        ),
+      );
+
+      for (const kind of ["items", "arcs"] as const) {
+        expect(yield* fixture.cache.suggest(kind, "sen")).toEqual([]);
+        const before = fixture.calls.length;
+        const query = { resource: kind, params: { search: "Sensors" } };
+        yield* read(query);
+        yield* read(query);
+        expect(fixture.calls).toHaveLength(before + 1);
+        expect(retained).toHaveLength(1);
+        expect(yield* fixture.cache.suggest(kind, "sen")).toEqual([]);
+        yield* Effect.all(retained.splice(0));
+        expect(yield* fixture.cache.suggest(kind, "sen")).toHaveLength(2);
+        expect(fixture.calls).toHaveLength(before + 2);
+        yield* read(query);
+        yield* Effect.all(retained.splice(0));
+        expect(fixture.calls).toHaveLength(before + 2);
+      }
+
+      const before = fixture.calls.length;
+      yield* TestClock.setTime(cachePolicy.metadataFreshMs);
+      replacement = true;
+      expect(yield* fixture.cache.suggest("items", "sen")).toHaveLength(2);
+      expect(fixture.calls).toHaveLength(before);
+      yield* read({ resource: "items", params: { search: "Sensors" } });
+      expect(fixture.calls).toHaveLength(before + 1);
+      yield* Effect.all(retained.splice(0));
+      expect(yield* fixture.cache.suggest("items", "replacement")).toEqual([
+        { name: "Sensor replacement", value: "Sensor replacement" },
+      ]);
+      expect(fixture.calls).toHaveLength(before + 2);
+      yield* fixture.cache.reset;
+      expect(yield* fixture.cache.suggest("items", "sen")).toEqual([]);
+      expect(fixture.calls).toHaveLength(before + 2);
+    }),
+  );
+
+  test(
+    "ordinary reads retry failed catalog warming only after cooldown",
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture();
+      const retained: Effect.Effect<void>[] = [];
+
+      const read = makeRetainedCacheReader(fixture.cache, (effect) =>
+        Effect.sync(() => {
+          retained.push(effect);
+        }),
+      );
+
+      fixture.respond((url) =>
+        Effect.succeed(
+          Response.json(
+            url.searchParams.has("page")
+              ? {
+                  data: [{ name: "Partial" }],
+                  pagination: {
+                    page: 1,
+                    total: 2,
+                    totalPages: 1,
+                    hasNextPage: false,
+                  },
+                }
+              : { data: [{ id: "sensors", name: "Sensors", value: 10 }] },
+          ),
+        ),
+      );
+
+      const query = {
+        resource: "items",
+        params: { search: "Sensors" },
+      } as const;
+
+      yield* read(query);
+      yield* Effect.all(retained.splice(0));
+      expect(yield* fixture.cache.suggest("items", "partial")).toEqual([]);
+      expect(fixture.calls).toHaveLength(2);
+      yield* read(query);
+      yield* Effect.all(retained.splice(0));
+      expect(fixture.calls).toHaveLength(2);
+      yield* TestClock.setTime(cachePolicy.retryCooldownMs);
+      yield* read(query);
+      yield* Effect.all(retained.splice(0));
+      expect(fixture.calls).toHaveLength(3);
+    }),
+  );
+
+  test(
+    "catalog warming outlives the command deadline with a matching persistent lease",
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture();
+      const started = yield* Deferred.make<void>();
+      const retained: Effect.Effect<void>[] = [];
+      fixture.body({ data: [{ id: "sensors", name: "Sensors", value: 10 }] });
+
+      const read = makeRetainedCacheReader(fixture.cache, (effect) =>
+        Effect.sync(() => {
+          retained.push(effect);
+        }),
+      );
+
+      yield* read({ resource: "items", params: {} });
+      fixture.respond((url) =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(started, undefined);
+          yield* Effect.sleep(1000);
+          const number = Number(url.searchParams.get("page"));
+
+          return Response.json({
+            data: [{ name: `Sensor ${number}` }],
+            pagination: {
+              page: number,
+              total: 4,
+              totalPages: 4,
+              hasNextPage: number < 4,
+            },
+          });
+        }),
+      );
+
+      const warming = yield* Effect.all(retained.splice(0)).pipe(
+        Effect.forkChild,
+      );
+
+      yield* Deferred.await(started);
+      yield* TestClock.adjust(3000);
+      const reconstructed = yield* fixture.reconstruct;
+      const busy = yield* reconstructed.read(items).pipe(Effect.result);
+      expect(Result.isFailure(busy) && busy.failure.reason).toBe("refreshing");
+      expect(yield* reconstructed.suggest("items", "sensor")).toEqual([]);
+      yield* TestClock.adjust(1000);
+      yield* Fiber.join(warming);
+      expect(yield* reconstructed.suggest("items", "sensor")).toHaveLength(4);
+      expect(fixture.calls).toHaveLength(5);
+    }),
+  );
+
+  test(
+    "catalog total budget aborts incomplete warming and starts cooldown",
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture({
+        policy: { ...cachePolicy, catalogTimeoutMs: 2500 },
+      });
+
+      const started = yield* Deferred.make<void>();
+      const retained: Effect.Effect<void>[] = [];
+
+      const read = makeRetainedCacheReader(fixture.cache, (effect) =>
+        Effect.sync(() => {
+          retained.push(effect);
+        }),
+      );
+
+      yield* read({ resource: "items", params: {} });
+      fixture.respond((url) =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(started, undefined);
+          yield* Effect.sleep(1000);
+          const number = Number(url.searchParams.get("page"));
+
+          return Response.json({
+            data: [{ name: `Sensor ${number}` }],
+            pagination: {
+              page: number,
+              total: 4,
+              totalPages: 4,
+              hasNextPage: number < 4,
+            },
+          });
+        }),
+      );
+
+      const warming = yield* Effect.all(retained.splice(0)).pipe(
+        Effect.forkChild,
+      );
+
+      yield* Deferred.await(started);
+      yield* TestClock.adjust(2500);
+      yield* Fiber.join(warming);
+      expect(yield* fixture.cache.suggest("items", "sensor")).toEqual([]);
+      expect(fixture.calls).toHaveLength(4);
+      yield* read({ resource: "items", params: {} });
+      yield* Effect.all(retained.splice(0));
+      expect(fixture.calls).toHaveLength(4);
+    }),
+  );
+
   test(
     "empty input, ranking, deduplication and Discord bounds",
     Effect.sync(() => {
@@ -106,6 +318,7 @@ describe("cache-only autocomplete", () => {
       const fixture = yield* makeFixture();
       yield* fixture.data.items({ search: "Sensors" });
       expect(yield* fixture.cache.suggest("items", "sen")).toEqual([]);
+
       fixture.respond((url) => {
         const number = Number(url.searchParams.get("page"));
 
@@ -173,6 +386,9 @@ describe("cache-only autocomplete", () => {
         ],
       });
       yield* fixture.data.events;
+      expect(yield* fixture.cache.suggest("events-maps", "night")).toEqual([
+        { name: "Night", value: "Night" },
+      ]);
       expect(yield* fixture.cache.suggest("events-maps", "space")).toEqual([
         { name: "Spaceport", value: "Spaceport" },
       ]);

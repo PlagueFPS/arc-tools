@@ -37,6 +37,7 @@ export const cachePolicy = {
   scheduleFreshMs: 60_000,
   retryCooldownMs: 60_000,
   sourceTimeoutMs: 1_800,
+  catalogTimeoutMs: 15_000,
   maxKeys: 128,
   maxEntryBytes: 96 * 1024,
   maxCacheBytes: 4 * 1024 * 1024,
@@ -180,7 +181,7 @@ export const makeSource = Effect.fnUntraced(function* (
     },
     (effect, resource) =>
       effect.pipe(
-        Effect.timeout(policy.sourceTimeoutMs),
+        Effect.timeout(policy.catalogTimeoutMs),
         Effect.mapError(
           () => new DataUnavailable({ resource, reason: "source" }),
         ),

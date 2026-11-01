@@ -286,7 +286,13 @@ export const makeCache = Effect.fnUntraced(function* (
                     onSome: (row) => row.value,
                   }),
                   retryAt: 0,
-                  leaseUntil: now + policy.sourceTimeoutMs + 1_000,
+                  leaseUntil:
+                    now +
+                    (query.resource === "items-catalog" ||
+                    query.resource === "arcs-catalog"
+                      ? policy.catalogTimeoutMs
+                      : policy.sourceTimeoutMs) +
+                    1_000,
                 } satisfies CacheRow);
 
                 return { kind: "fetch", generation } as const;
@@ -408,7 +414,7 @@ export const makeCache = Effect.fnUntraced(function* (
             body,
           ).pipe(
             Effect.map((response) =>
-              Arr.map(response.data, (event) => event.map),
+              Arr.flatMap(response.data, (event) => [event.name, event.map]),
             ),
           )
         : Schema.decodeEffect(Schema.fromJsonString(Catalog))(body).pipe(
