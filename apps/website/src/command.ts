@@ -1,11 +1,19 @@
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import { FetchHttpClient, HttpClient } from "effect/http";
-import { Dom, Http } from "foldkit";
+import { KeyValueStore } from "effect/persistence";
+import { Dom, Http, Render } from "foldkit";
 import { load, pushUrl } from "foldkit/navigation";
 
 import { ApplicationDefinition } from "./definition";
 import { CheckError, EnrollmentStatus, RequestId } from "./domain/enrollment";
 import { Message } from "./message";
+import {
+  StoredTheme,
+  Theme,
+  themeColor,
+  themeStorageKey,
+  themeTransitionKey,
+} from "./theme";
 
 export const checkEnrollment = Effect.fnUntraced(function* () {
   const client = yield* HttpClient.HttpClient;
@@ -153,10 +161,106 @@ export const LoadExternal = ApplicationDefinition.makeCommand("LoadExternal", {
   },
 });
 
+const persistTheme = Effect.fnUntraced(
+  function* (theme: Theme) {
+    const storage = yield* KeyValueStore.KeyValueStore;
+    const encoded = yield* Schema.encodeEffect(StoredTheme)(theme);
+
+    yield* storage.set(themeStorageKey, encoded);
+  },
+  (effect) => effect.pipe(Effect.ignore),
+);
+
+const applyTheme = (theme: Theme) =>
+  Effect.sync(() => {
+    const root = document.documentElement;
+    root.classList.remove("light", "dark");
+    root.classList.add(theme);
+
+    for (const meta of document.querySelectorAll<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    )) {
+      meta.content = themeColor[theme];
+    }
+  });
+
+const restoreTheme = Effect.gen(function* () {
+  const storage = yield* KeyValueStore.KeyValueStore;
+
+  const theme = yield* Schema.decodeUnknownEffect(StoredTheme)(
+    yield* storage.get(themeStorageKey),
+  );
+
+  return Option.some(theme);
+}).pipe(Effect.orElseSucceed(() => Option.none<Theme>()));
+
+/**
+ * Swaps every color at once. Without the freeze, elements with their own
+ * transitions would fade at different speeds and the page would smear. The
+ * toggle's icon opts out so it still morphs.
+ */
+const freezeTransitions = Effect.acquireRelease(
+  Effect.sync(() => {
+    const style = document.createElement("style");
+    style.textContent = `*:not([data-${themeTransitionKey}]),*::before,*::after{transition:none!important}`;
+    document.head.appendChild(style);
+
+    return style;
+  }),
+  (style) =>
+    Render.afterPaint.pipe(Effect.andThen(Effect.sync(() => style.remove()))),
+);
+
+const setTheme = (theme: Theme) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* freezeTransitions;
+      yield* applyTheme(theme);
+      // Commit the new colors while transitions are still disabled.
+      yield* Effect.sync(
+        () => getComputedStyle(document.documentElement).color,
+      );
+    }),
+  );
+
+export const ApplyTheme = ApplicationDefinition.makeCommand("ApplyTheme", {
+  args: { theme: Theme },
+  messages: [Message.CompletedApplyTheme],
+  handler: function* () {
+    return ({ theme }) =>
+      setTheme(theme).pipe(Effect.as(Message.CompletedApplyTheme()));
+  },
+});
+
+export const RestoreTheme = ApplicationDefinition.makeCommand("RestoreTheme", {
+  messages: [Message.RestoredTheme],
+  handler: function* () {
+    return () =>
+      restoreTheme.pipe(
+        Effect.map((theme) => Message.RestoredTheme({ theme })),
+      );
+  },
+});
+
+export const ToggleTheme = ApplicationDefinition.makeCommand("ToggleTheme", {
+  args: { theme: Theme },
+  messages: [Message.CompletedToggleTheme],
+  handler: function* () {
+    return ({ theme }) =>
+      setTheme(theme).pipe(
+        Effect.andThen(persistTheme(theme)),
+        Effect.as(Message.CompletedToggleTheme()),
+      );
+  },
+});
+
 export const EffectsLayer = Layer.mergeAll(
   CheckEnrollment.layer,
   LeaveChannel.layer,
   ScrollToContent.layer,
   NavigateInternal.layer,
   LoadExternal.layer,
+  ToggleTheme.layer,
+  RestoreTheme.layer,
+  ApplyTheme.layer,
 );

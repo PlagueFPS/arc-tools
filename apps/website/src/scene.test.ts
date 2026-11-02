@@ -1,4 +1,5 @@
 import { EnrollmentFailure } from "@arctools/twitch/enrollment";
+import { Option } from "effect";
 import {
   Command,
   click,
@@ -11,7 +12,7 @@ import {
 } from "foldkit/scene";
 import { test } from "vitest";
 
-import { CheckEnrollment, LeaveChannel } from "./command";
+import { CheckEnrollment, LeaveChannel, ToggleTheme } from "./command";
 import {
   CheckError,
   Enrollment,
@@ -23,10 +24,12 @@ import { update, view } from "./main";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { ApplicationRoute } from "./route";
+import { initialThemeState } from "./theme";
 
 const connection: Model = {
   leave: Enrollment.Idle(),
   landing: initialLanding(),
+  theme: initialThemeState(),
   route: ApplicationRoute.Connect(),
   enrollment: Enrollment.Idle(),
   requestId: RequestId.make(0),
@@ -228,6 +231,24 @@ test.each([
         }),
       ),
       expect(text("Your channel has left.")).toExist(),
+    );
+  },
+);
+
+test.each([ApplicationRoute.Home(), ApplicationRoute.Connect()])(
+  "the header theme switcher is available on $kind",
+  (route) => {
+    scene(
+      { update, view },
+      given({
+        ...connection,
+        route,
+        theme: { system: Option.some("light"), override: Option.none() },
+      }),
+      expect(selector("#theme-switcher")).toHaveAttr("type", "button"),
+      click(selector("#theme-switcher")),
+      Command.resolve(ToggleTheme, Message.CompletedToggleTheme()),
+      expect(selector("#theme-switcher")).toExist(),
     );
   },
 );

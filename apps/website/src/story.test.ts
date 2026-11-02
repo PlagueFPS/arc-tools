@@ -16,6 +16,7 @@ import {
   LoadExternal,
   NavigateInternal,
   ScrollToContent,
+  RestoreTheme,
   checkEnrollment,
 } from "./command";
 import {
@@ -25,10 +26,12 @@ import {
   RequestId,
 } from "./domain/enrollment";
 import { initialModel as initialLanding } from "./landing/model";
+import { BrowserStorageLayer } from "./layer";
 import { init, update } from "./main";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { ApplicationRoute } from "./route";
+import { initialThemeState } from "./theme";
 
 const url = (path: string) =>
   Option.getOrThrow(fromString(`https://bot.invalid${path}`));
@@ -37,7 +40,7 @@ const initial = () => init(url("/connect"));
 
 test("entering connect checks once and duplicate refresh clicks preserve the active request", () => {
   const started = initial();
-  expect(started.commands).toHaveLength(1);
+  expect(started.commands).toHaveLength(2);
   story(
     update,
     given(started.model),
@@ -55,6 +58,7 @@ test("pending refresh retains data then becomes ready for this channel", () => {
     given({
       leave: Enrollment.Idle(),
       landing: initialLanding(),
+      theme: initialThemeState(),
       route: ApplicationRoute.Connect(),
       enrollment: Enrollment.Success({ data: { kind: "pending" } }),
       requestId: RequestId.make(1),
@@ -153,7 +157,12 @@ test("OAuth navigation leaves the application and unknown URLs use NotFound", ()
   expect(init(url("/unknown")).model.route).toEqual(
     ApplicationRoute.NotFound({ path: "/unknown" }),
   );
-  expect(started.commands).toHaveLength(0);
+  expect(started.commands).toHaveLength(1);
+  Command.expectExact(RestoreTheme())({
+    ...started,
+    commands: started.commands ?? [],
+    outMessage: undefined,
+  });
 });
 
 const checkResponse = (body: string, status = 200) =>
@@ -229,7 +238,10 @@ test("a content hash moves to main and an in-app link stays inside the page", ()
   const home = init(url("/#main"));
 
   expect(home.model.route).toEqual(ApplicationRoute.Home());
-  Command.expectExact(ScrollToContent({ hash: "main" }))({
+  Command.expectExact(
+    RestoreTheme(),
+    ScrollToContent({ hash: "main" }),
+  )({
     ...home,
     commands: home.commands ?? [],
     outMessage: undefined,
@@ -239,6 +251,7 @@ test("a content hash moves to main and an in-app link stays inside the page", ()
 
   expect(opened.model.requestId).toBe(RequestId.make(1));
   Command.expectExact(
+    RestoreTheme(),
     CheckEnrollment({ requestId: RequestId.make(1) }),
     ScrollToContent({ hash: "session" }),
   )({ ...opened, commands: opened.commands ?? [], outMessage: undefined });
@@ -248,6 +261,7 @@ test("a duplicate settled response and a stale failure leave the visible status"
   const ready = {
     leave: Enrollment.Idle(),
     landing: initialLanding(),
+    theme: initialThemeState(),
     route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "raider" },
@@ -321,7 +335,13 @@ test("leaving Connect aborts the pending browser request", async () => {
 
   for (const command of leaving.commands ?? [])
     await Effect.runPromise(
-      command.effect.pipe(Effect.provide(ApplicationBlock.EffectsLayer)),
+      command.effect.pipe(
+        Effect.provide(
+          ApplicationBlock.EffectsLayer.pipe(
+            Layer.provideMerge(BrowserStorageLayer),
+          ),
+        ),
+      ),
     );
   const exit = await Effect.runPromise(Fiber.await(fiber));
   expect(aborted).toBe(true);
@@ -332,6 +352,7 @@ test("an absent session followed by an unavailable refresh never restores a form
   const ready: Model = {
     leave: Enrollment.Idle(),
     landing: initialLanding(),
+    theme: initialThemeState(),
     route: ApplicationRoute.Connect(),
     enrollment: Enrollment.Success({
       data: { kind: "ready", login: "former_channel" },

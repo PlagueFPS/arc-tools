@@ -10,6 +10,9 @@ import {
   LoadExternal,
   NavigateInternal,
   ScrollToContent,
+  ToggleTheme,
+  RestoreTheme,
+  ApplyTheme,
 } from "./command";
 import { ApplicationComposition } from "./composition";
 import {
@@ -21,6 +24,7 @@ import {
 import { Message } from "./message";
 import { Model } from "./model";
 import { ApplicationRoute, urlToApplicationRoute } from "./route";
+import { type Theme, effectiveTheme, initialThemeState } from "./theme";
 
 export { view } from "./view";
 
@@ -30,6 +34,9 @@ type CommandRequirements = Command.HandlerOf<
   | typeof LoadExternal
   | typeof NavigateInternal
   | typeof ScrollToContent
+  | typeof ToggleTheme
+  | typeof RestoreTheme
+  | typeof ApplyTheme
 >;
 
 type UpdateReturn = Update.Return<Model, Message, CommandRequirements>;
@@ -95,11 +102,13 @@ export const init = ApplicationComposition.makeInit((url: Url) => {
   return {
     model: {
       route,
+      theme: initialThemeState(),
       enrollment: checking ? Enrollment.Loading() : Enrollment.Idle(),
       leave: Enrollment.Idle(),
       requestId,
     },
     commands: [
+      RestoreTheme(),
       ...(checking ? [CheckEnrollment({ requestId })] : []),
       ...(contentScroll(url) ?? []),
     ],
@@ -116,6 +125,42 @@ export const update = ApplicationComposition.makeUpdate((model, message) =>
     CompletedNavigateInternal: () => ({ model }),
     CompletedLoadExternal: () => ({ model }),
     CompletedScrollToContent: () => ({ model }),
+    ClickedToggleTheme: () =>
+      Option.match(effectiveTheme(model.theme), {
+        onNone: () => ({ model }),
+        onSome: (current) => {
+          const theme: Theme = current === "dark" ? "light" : "dark";
+
+          return {
+            model: modifyFields(model, {
+              theme: modifyFields({ override: () => Option.some(theme) }),
+            }),
+            commands: [ToggleTheme({ theme })],
+          };
+        },
+      }),
+    CompletedToggleTheme: () => ({ model }),
+    RestoredTheme: ({ theme }) => {
+      // A preference loaded at startup must not replace a newer user choice.
+      if (Option.isSome(model.theme.override) || Option.isNone(theme))
+        return { model };
+
+      return {
+        model: modifyFields(model, {
+          theme: modifyFields({ override: () => theme }),
+        }),
+        commands: [ApplyTheme({ theme: theme.value })],
+      };
+    },
+    ChangedSystemTheme: ({ theme }) => ({
+      model: modifyFields(model, {
+        theme: modifyFields({ system: () => Option.some(theme) }),
+      }),
+      commands: Option.isNone(model.theme.override)
+        ? [ApplyTheme({ theme })]
+        : [],
+    }),
+    CompletedApplyTheme: () => ({ model }),
     CompletedCancelCheck: () => ({ model }),
     CompletedCancelLeave: () => ({ model }),
     ClickedLeaveChannel: () => {

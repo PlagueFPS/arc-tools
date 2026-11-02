@@ -24,7 +24,7 @@ export const view = ApplicationComposition.makeView((model, h) => ({
         ],
         ["Skip to content"],
       ),
-      header(model.route, h),
+      header(model, h),
       h.main(
         [h.Id("main"), h.Tabindex(-1)],
         [

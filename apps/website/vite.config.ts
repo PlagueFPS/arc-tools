@@ -49,7 +49,11 @@ export default defineConfig(({ mode }) => {
           extends: true,
           test: {
             name: "browser",
-            include: ["src/**/story.test.ts", "src/**/scene.test.ts"],
+            include: [
+              "src/**/story.test.ts",
+              "src/**/scene.test.ts",
+              "src/**/browser.test.ts",
+            ],
             environment: "happy-dom",
             setupFiles: ["./src/test-setup.ts"],
           },
