@@ -1,5 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import { ArcCacheDO } from "@arctools/arc-data/cloudflare";
+import { Suggestions } from "@arctools/arc-data/autocomplete";
+import { ArcCacheDO, bindSuggestions } from "@arctools/arc-data/cloudflare";
 import type { BotOperations } from "@arctools/bot-contracts";
 import { manifestHash } from "@arctools/discord/server";
 import { TwitchAccount } from "@arctools/twitch/server";
@@ -63,6 +64,11 @@ export default Bot.make(
       ? yield* testComposition.botTestBindings(identity)
       : Layer.empty;
 
+    const suggestionsClient = yield* bindSuggestions.pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker adapter is the composition root for runtime services.
+      Effect.provide(bindings),
+    );
+
     const revision = yield* buildRevision;
     const hash = yield* manifestHash;
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This Worker or Durable Object adapter is the composition root for its runtime services.
@@ -90,6 +96,7 @@ export default Bot.make(
 
         const response = yield* Effect.gen(function* () {
           const account = yield* client;
+          const suggestions = yield* suggestionsClient;
 
           const tenants = yield* observation
             ? tenantClient.pipe(
@@ -124,6 +131,7 @@ export default Bot.make(
               ingressHandlers({ ...config, callback, receivedAt }).pipe(
                 Layer.provide(Layer.succeed(TwitchAccount, account)),
                 Layer.provide(Layer.succeed(Tenants, tenants)),
+                Layer.provide(Layer.succeed(Suggestions, suggestions)),
               ),
             ),
             Layer.provide(HttpRouter.disableLogger),

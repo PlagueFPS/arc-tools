@@ -25,6 +25,8 @@ export const ArcParams = Schema.Struct({
 export type ArcsAPIParams = typeof ArcParams.Type;
 
 export const ResourceQuery = Schema.Union([
+  Schema.Struct({ resource: Schema.Literal("items-catalog") }),
+  Schema.Struct({ resource: Schema.Literal("arcs-catalog") }),
   Schema.Struct({ resource: Schema.Literal("items"), params: ItemParams }),
   Schema.Struct({ resource: Schema.Literal("arcs"), params: ArcParams }),
   Schema.Struct({ resource: Schema.Literal("traders") }),

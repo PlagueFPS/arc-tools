@@ -91,9 +91,14 @@ export function registerCacheTests({
       const input = query("persist");
       const first = yield* successful(url, input);
       const before = yield* snapshot(url);
-      expect(Rec.keys(before.rows)).toEqual([
-        "entry:v1:json:/items?id=persist",
-      ]);
+      expect(before.rows["entry:v1:json:/items?id=persist"]).toBeDefined();
+      expect(
+        Rec.keys(before.rows).every(
+          (key) =>
+            key === "entry:v1:json:/items?id=persist" ||
+            key === "entry:v1:json:/items-catalog",
+        ),
+      ).toBe(true);
       expect(first.provenance).toEqual({ freshness: "fresh", fetchedAt: 0 });
 
       const decoded = yield* Schema.decodeEffect(
@@ -111,7 +116,16 @@ export function registerCacheTests({
       );
 
       expect(after.instance).not.toBe(before.instance);
-      expect(after.rows).toEqual(before.rows);
+      expect(
+        Rec.keys(after.rows).every(
+          (key) =>
+            key === "entry:v1:json:/items?id=persist" ||
+            key === "entry:v1:json:/items-catalog",
+        ),
+      ).toBe(true);
+      expect(after.rows["entry:v1:json:/items?id=persist"]).toEqual(
+        before.rows["entry:v1:json:/items?id=persist"],
+      );
       yield* post(`${url}/time`, day - 1);
       expect(yield* successful(url, input)).toEqual(first);
       expect((yield* observations(source))["/items?id=persist"]).toBe(1);

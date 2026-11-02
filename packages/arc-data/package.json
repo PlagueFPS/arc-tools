@@ -11,6 +11,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./autocomplete": "./src/autocomplete.ts",
     "./cloudflare": "./src/cloudflare.ts",
     "./testing": "./test/cache-fixture.ts"
   },

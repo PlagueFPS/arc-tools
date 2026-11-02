@@ -1,8 +1,13 @@
 import { digest } from "@arctools/utils/http";
+import * as DiscordConfig from "dfx/DiscordConfig";
+import { DiscordREST, DiscordRESTLive } from "dfx/DiscordREST";
+import { MemoryRateLimitStoreLive } from "dfx/RateLimit";
 import {
   Clock,
+  Context,
   Duration,
   Effect,
+  Layer,
   Option,
   Predicate,
   Redacted,
@@ -352,22 +357,30 @@ export const waitForRelease = Effect.fn("Discord.waitForRelease")(function* (
   );
 });
 
-const discordClient = (
+const discordClient = Effect.fnUntraced(function* (
   client: HttpClient.HttpClient,
-  release: Pick<Release, "applicationId" | "token">,
-  api: string,
-) =>
-  client.pipe(
-    HttpClient.mapRequest((request) =>
-      request.pipe(
-        HttpClientRequest.prependUrl(api),
-        HttpClientRequest.setHeader(
-          "Authorization",
-          `Bot ${Redacted.value(release.token)}`,
-        ),
+  release: Pick<Release, "token">,
+  api?: string,
+) {
+  const services = yield* DiscordRESTLive.pipe(
+    Layer.provide(
+      DiscordConfig.layer({
+        token: release.token,
+        rest: api ? { baseUrl: api } : {},
+      }),
+    ),
+    Layer.provide(MemoryRateLimitStoreLive),
+    Layer.provide(
+      Layer.succeed(
+        HttpClient.HttpClient,
+        client.pipe(HttpClient.filterStatus((status) => status !== 429)),
       ),
     ),
+    Layer.build,
   );
+
+  return Context.get(services, DiscordREST).httpClient;
+});
 
 const commandsPath = (release: Pick<Release, "applicationId">) =>
   `/applications/${encodeURIComponent(release.applicationId)}/commands`;
@@ -376,10 +389,10 @@ export const preflightCommands = Effect.fn("Discord.preflight")(function* (
   release: Pick<Release, "applicationId" | "token">,
   options: { readonly api?: string } = {},
 ) {
-  const client = discordClient(
+  const client = yield* discordClient(
     yield* HttpClient.HttpClient,
     release,
-    options.api ?? "https://discord.com/api/v10",
+    options.api,
   );
 
   yield* withRetries((attempt, deadline) =>
@@ -392,7 +405,7 @@ export const preflightCommands = Effect.fn("Discord.preflight")(function* (
       { operation: "preflight", phase: "before", attempt, deadline },
     ),
   );
-});
+}, Effect.scoped);
 
 export const syncCommands = Effect.fn("Discord.sync")(function* (
   release: Release,
@@ -404,11 +417,7 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
 ) {
   const client = yield* HttpClient.HttpClient;
 
-  const discord = discordClient(
-    client,
-    release,
-    options.api ?? "https://discord.com/api/v10",
-  );
+  const discord = yield* discordClient(client, release, options.api);
 
   const desired = options.desired ?? commandManifest;
 
@@ -463,4 +472,4 @@ export const syncCommands = Effect.fn("Discord.sync")(function* (
       return { changed, drift: false, hash };
     }),
   );
-});
+}, Effect.scoped);

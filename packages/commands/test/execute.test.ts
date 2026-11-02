@@ -192,7 +192,7 @@ describe("cached command execution", () => {
   );
 
   test(
-    "events recalculate the clock, queen alias, name-only lookup, boundaries and two-hour window on cached schedules",
+    "events recalculate the clock, queen alias, map lookup, boundaries and two-hour window on cached schedules",
     Effect.gen(function* () {
       const fixture = yield* makeFixture();
       fixture.body({
@@ -224,7 +224,7 @@ describe("cached command execution", () => {
         "Harvester on Dam is active now (ends in 0m)",
       );
       expect((yield* run("event", "Dam")).text).toBe(
-        "[Warn] No event or map found matching: dam",
+        "Harvester on Dam is active now (ends in 0m)",
       );
       expect((yield* run("upcoming")).text).toContain("Window on Bastion");
       expect(fixture.calls).toHaveLength(1);
@@ -233,6 +233,9 @@ describe("cached command execution", () => {
         "Harvester on Dam (ends in 0m), Harvester on Spaceport (ends in 2m)",
       );
       expect((yield* run("event", "queen")).text).toBe(
+        "Harvester on Spaceport is active now (ends in 2m)",
+      );
+      expect((yield* run("event", "Spaceport")).text).toBe(
         "Harvester on Spaceport is active now (ends in 2m)",
       );
       expect(fixture.calls).toHaveLength(2);

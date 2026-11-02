@@ -124,6 +124,12 @@ export const makeSourceFixture = Effect.fnUntraced(function* (
         : {
             status: 200,
             body: {
+              pagination: {
+                page: 1,
+                total: 1,
+                totalPages: 1,
+                hasNextPage: false,
+              },
               data: [
                 {
                   id: "sensors",

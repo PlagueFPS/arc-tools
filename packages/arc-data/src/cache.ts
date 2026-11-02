@@ -1,4 +1,6 @@
 import {
+  Array as Arr,
+  String as Str,
   Context,
   Clock,
   Effect,
@@ -11,6 +13,11 @@ import {
   Semaphore,
 } from "effect";
 
+import {
+  Catalog,
+  rankSuggestions,
+  type SuggestionKind,
+} from "./autocomplete.js";
 import {
   ArcData,
   DataUnavailable,
@@ -128,6 +135,22 @@ export const makeCache = Effect.fnUntraced(function* (
 
   const fetch = (query: ResourceQuery) =>
     Match.value(query).pipe(
+      Match.when(
+        (query) =>
+          query.resource === "items-catalog" ||
+          query.resource === "arcs-catalog",
+        (query) =>
+          source.fetchCatalog(query.resource).pipe(
+            Effect.flatMap(Schema.encodeEffect(Schema.fromJsonString(Catalog))),
+            Effect.mapError(
+              () =>
+                new DataUnavailable({
+                  resource: query.resource,
+                  reason: "source",
+                }),
+            ),
+          ),
+      ),
       Match.when({ resource: "items" }, (query) =>
         fetchEncoded(query, ItemAPIResponse),
       ),
@@ -263,7 +286,13 @@ export const makeCache = Effect.fnUntraced(function* (
                     onSome: (row) => row.value,
                   }),
                   retryAt: 0,
-                  leaseUntil: now + policy.sourceTimeoutMs + 1_000,
+                  leaseUntil:
+                    now +
+                    (query.resource === "items-catalog" ||
+                    query.resource === "arcs-catalog"
+                      ? policy.catalogTimeoutMs
+                      : policy.sourceTimeoutMs) +
+                    1_000,
                 } satisfies CacheRow);
 
                 return { kind: "fetch", generation } as const;
@@ -359,7 +388,48 @@ export const makeCache = Effect.fnUntraced(function* (
     }),
   );
 
-  return { read, reset };
+  const suggest = Effect.fn("ArcCache.suggest")(function* (
+    kind: SuggestionKind,
+    query: string,
+  ) {
+    if (!Str.trim(query)) return [];
+
+    const resource =
+      kind === "events-maps" ? "events-schedule" : (`${kind}-catalog` as const);
+
+    const row = yield* rowAt(storage, `${prefix}${cacheKey({ resource })}`);
+    const now = yield* Clock.currentTimeMillis;
+
+    if (
+      Option.isNone(row) ||
+      !usable(row.value, now, policy) ||
+      !row.value.value
+    )
+      return [];
+    const body = row.value.value.body;
+
+    const names =
+      resource === "events-schedule"
+        ? Schema.decodeEffect(Schema.fromJsonString(EventAPIResponse))(
+            body,
+          ).pipe(
+            Effect.map((response) =>
+              Arr.flatMap(response.data, (event) => [event.name, event.map]),
+            ),
+          )
+        : Schema.decodeEffect(Schema.fromJsonString(Catalog))(body).pipe(
+            Effect.map((response) =>
+              Arr.map(response.data, (item) => item.name),
+            ),
+          );
+
+    return yield* names.pipe(
+      Effect.map((names) => rankSuggestions(names, query)),
+      Effect.orElseSucceed(() => []),
+    );
+  });
+
+  return { read, reset, suggest };
 });
 
 export const dataFromReader = (
