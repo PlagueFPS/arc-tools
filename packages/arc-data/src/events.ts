@@ -22,21 +22,24 @@ export const selectEvent = Effect.fn("ArcData.selectEvent")(function* (
 ) {
   const normalizedSearch = normalize(search);
 
-  const eventsByName = Arr.filter(events, (e) =>
-    Str.includes(normalizedSearch)(normalize(e.name)),
+  const matchingEvents = Arr.filter(
+    events,
+    (e) =>
+      Str.includes(normalizedSearch)(normalize(e.name)) ||
+      Str.includes(normalizedSearch)(normalize(e.map)),
   );
 
-  if (eventsByName.length === 0) return Option.none();
+  if (matchingEvents.length === 0) return Option.none();
 
   const now = yield* Clock.currentTimeMillis;
 
   const activeEvent = Arr.findFirst(
-    eventsByName,
+    matchingEvents,
     (e) => e.startTime <= now && now < e.endTime,
   );
 
   if (Option.isNone(activeEvent)) {
-    const upcoming = Arr.filter(eventsByName, (e) => e.startTime > now).sort(
+    const upcoming = Arr.filter(matchingEvents, (e) => e.startTime > now).sort(
       (a, b) => a.startTime - b.startTime,
     );
 

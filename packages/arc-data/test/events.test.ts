@@ -1,7 +1,7 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
-import * as Test from "alchemy/Test/Bun";
+import * as Test from "@alchemy.run/test/Bun";
 import { Effect, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -67,7 +67,7 @@ describe("selectEvent", () => {
   );
 
   test(
-    "matches by name only (not map)",
+    "matches by event name",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);
 
@@ -85,6 +85,46 @@ describe("selectEvent", () => {
 
       const match = Option.getOrThrow(result);
       expect(match.name).toBe("Harvester");
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  test(
+    "accepts suggested map names and selects active then nearest upcoming",
+    Effect.gen(function* () {
+      yield* TestClock.setTime(1500);
+
+      const events = [
+        event({
+          name: "Later",
+          map: "Spaceport",
+          startTime: 4000,
+          endTime: 5000,
+        }),
+        event({
+          name: "Next",
+          map: "Spaceport",
+          startTime: 2000,
+          endTime: 3000,
+        }),
+        event({
+          name: "Active",
+          map: "Spaceport",
+          startTime: 1000,
+          endTime: 2000,
+        }),
+      ];
+
+      expect(
+        Option.getOrThrow(yield* selectEvent(events, "Spaceport")).name,
+      ).toBe("Active");
+      yield* TestClock.setTime(2000);
+
+      expect(
+        Option.getOrThrow(yield* selectEvent(events, "Spaceport")).name,
+      ).toBe("Next");
+      expect(
+        Option.isNone(yield* selectEvent(events, "unknown map")),
+      ).toBeTrue();
     }).pipe(Effect.provide(TestClock.layer())),
   );
 

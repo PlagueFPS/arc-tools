@@ -2,6 +2,8 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
+import { commandCatalog } from "@arctools/commands/catalog";
 import {
   canonicalManifest,
   commandManifest,
@@ -13,9 +15,9 @@ import {
   waitForRelease,
 } from "@arctools/discord/server";
 import { digest, providerTransport } from "@arctools/utils/http";
-import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
+  Match,
   Deferred,
   Duration,
   Effect,
@@ -292,8 +294,7 @@ test(
         name: "item",
         description: "Item name",
         required: true,
-        autocomplete: false,
-        choices: [],
+        autocomplete: true,
         name_localizations: null,
         description_localizations: null,
       },
@@ -496,6 +497,39 @@ test(
   }),
 );
 
+test(
+  "every parameterized command advertises its catalog autocomplete source without static choices",
+  Effect.sync(() => {
+    for (const command of commandCatalog) {
+      const manifest = Option.getOrThrow(
+        Arr.findFirst(commandManifest, (entry) => entry.name === command.name),
+      );
+
+      expect(manifest.options).toHaveLength(command.slashOptions.length);
+
+      for (const option of command.slashOptions) {
+        const source = Match.value(command.name).pipe(
+          Match.when("loot", (): "arcs" => "arcs"),
+          Match.when("event", (): "events-maps" => "events-maps"),
+          Match.orElse((): "items" => "items"),
+        );
+
+        expect(option.autocomplete).toBe(source);
+
+        const registered = Option.getOrThrow(
+          Arr.findFirst(
+            manifest.options,
+            (entry) => entry.name === option.name,
+          ),
+        );
+
+        expect(registered.autocomplete).toBeTrue();
+        expect(registered).not.toHaveProperty("choices");
+      }
+    }
+  }),
+);
+
 const nativeResponse = (
   request: HttpClientRequest.HttpClientRequest,
   body: string,
@@ -503,7 +537,10 @@ const nativeResponse = (
 ) => {
   const native = HttpClientResponse.fromWeb(
     request,
-    new Response(body, { status }),
+    new Response(body, {
+      status,
+      headers: status === 429 ? { "retry-after": "0.0011" } : {},
+    }),
   );
 
   Object.defineProperty(native, "stream", {
@@ -566,6 +603,9 @@ const nativeFixture = Effect.fnUntraced(function* () {
       }
 
       expect(request.headers.authorization).toBe("Bot canary-discord-token");
+      expect(request.headers["user-agent"]).toBe(
+        "DiscordBot (https://github.com/tim-smart/dfx, 1.1.1)",
+      );
       expect(url.searchParams.get("with_localizations")).toBe("true");
 
       if (control.networkFailure)
@@ -613,7 +653,7 @@ const nativeFixture = Effect.fnUntraced(function* () {
 });
 
 test(
-  "scheduled Discord retries allow four total rate-limited attempts and never sleep after the last one",
+  "dfx header-based 429 retries cannot bypass the four-attempt release-fenced budget",
   Effect.gen(function* () {
     const f = yield* nativeFixture();
     f.control.rateLimits = 4;

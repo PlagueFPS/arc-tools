@@ -6,7 +6,17 @@
 @import "@fontsource/barlow/latin-600.css";
 @import "@fontsource/barlow/latin-700.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark {
+  &:is(.dark *) {
+    @slot;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    &:is(:root:not(.light) *) {
+      @slot;
+    }
+  }
+}
 
 @theme {
   --breakpoint-tablet: 700px;
@@ -134,6 +144,7 @@
   --border: #c6bcad;
   --input: var(--border);
   --ring: var(--foreground);
+  --plate: #d8cebd;
   --chart-1: var(--arc-amber);
   --chart-2: var(--foreground);
   --chart-3: var(--muted-foreground);
@@ -150,10 +161,29 @@
   --sidebar-ring: var(--ring);
 }
 
-.dark {
+/*
+ * Dark mode swaps the neutral roles; every derived token follows through
+ * color-mix(). `.dark` is an explicit choice, `.light` opts out of the system.
+ * Keep both blocks identical.
+ */
+:root.dark {
   color-scheme: dark;
   --background: var(--arc-ink);
   --foreground: var(--arc-cream);
   --destructive: #f59b90;
   --destructive-foreground: var(--arc-ink);
+  --border: color-mix(in srgb, var(--arc-ink) 80%, var(--arc-cream));
+  --plate: color-mix(in srgb, var(--arc-ink) 86%, var(--arc-cream));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+    --background: var(--arc-ink);
+    --foreground: var(--arc-cream);
+    --destructive: #f59b90;
+    --destructive-foreground: var(--arc-ink);
+    --border: color-mix(in srgb, var(--arc-ink) 80%, var(--arc-cream));
+    --plate: color-mix(in srgb, var(--arc-ink) 86%, var(--arc-cream));
+  }
 }

@@ -1,0 +1,26 @@
+diff --git a/lib/Workers/ViteChild.js b/lib/Workers/ViteChild.js
+index f0cb427d89a5c2b6b891044cdf64c98fc42947e6..57bf1a6963302e306b662cc739c4043cd6afed81 100644
+--- a/lib/Workers/ViteChild.js
++++ b/lib/Workers/ViteChild.js
+@@ -23,7 +23,7 @@ import { VITE_CHILD_READY_PREFIX, VITE_CHILD_READY_SUFFIX, } from "./ViteChild.s
+ // does not exist (workerd) — a module-level call would crash the bundle
+ // at startup even though no child is ever spawned there. At spawn time
+ // we are guaranteed to be in Node/bun.
+-const resolveRunner = (basename) => fileURLToPath(import.meta.resolve(`./${basename}${moduleExtension(import.meta.url)}`));
++const resolveRunner = (basename) => fileURLToPath(import.meta.resolve(moduleExtension(import.meta.url) === ".ts" && nodeLoaderArgs(import.meta.url)[1]?.endsWith("/register-dev-mode.js") ? `./${basename}.ts` : `../../lib/Workers/${basename}.js`));
+ // The runner for a Node child spawned from Bun. Bun runs a published
+ // install from `src/*.ts` (the `bun` export condition), but Node can't load
+ // that: `nodeLoaderArgs` pairs a `.ts` entry with the checkout-only
+diff --git a/src/Workers/ViteChild.ts b/src/Workers/ViteChild.ts
+index 72240485c2014741e0bd4bda4b90e7de30d53834..608db5ec3b226c99731186ba1641e801a032a1d5 100644
+--- a/src/Workers/ViteChild.ts
++++ b/src/Workers/ViteChild.ts
+@@ -41,7 +41,7 @@ export interface ViteChildHandle {
+ // at startup even though no child is ever spawned there. At spawn time
+ // we are guaranteed to be in Node/bun.
+ const resolveRunner = (basename: string) =>
+-  fileURLToPath(import.meta.resolve(`./${basename}${moduleExtension(import.meta.url)}`));
++  fileURLToPath(import.meta.resolve(moduleExtension(import.meta.url) === ".ts" && nodeLoaderArgs(import.meta.url)[1]?.endsWith("/register-dev-mode.js") ? `./${basename}.ts` : `../../lib/Workers/${basename}.js`));
+ 
+ // The runner for a Node child spawned from Bun. Bun runs a published
+ // install from `src/*.ts` (the `bun` export condition), but Node can't load

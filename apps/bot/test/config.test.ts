@@ -1,8 +1,8 @@
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect, test } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { botOrigin, websiteOrigin } from "@arctools/bot-contracts/origins";
-import * as Test from "alchemy/Test/Bun";
 import {
   ConfigProvider,
   Effect,

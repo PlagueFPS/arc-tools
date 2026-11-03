@@ -77,6 +77,14 @@ Inspect `GET /health` at the local address. It returns `status: "ready"`, the st
 
 A placeholder HTTPS origin can exercise health and signed PING locally without a tunnel or provider calls. It cannot receive live webhooks or OAuth redirects.
 
+## Use Discord autocomplete
+
+Item, ARC, and event/map options suggest up to 25 matches after you type. Empty input shows no suggestions. You can still submit text that is not in the suggestions.
+
+Suggestions read the shared data cache without calling MetaForge. A cold item or ARC catalog starts warming in the background after an ordinary command reads that resource. Until warming completes, suggestions stay empty. Later ordinary reads refresh catalogs through the cache's existing freshness and retry policies. Event and map suggestions use the cached event schedule and disappear when it expires.
+
+After deploying this revision, synchronize Discord commands so their options advertise autocomplete. The existing stage and manifest checks still apply. Commands continue to reply immediately without deferred responses.
+
 ## Retire personal-sender setup
 
 The dedicated test and production applications replace personal-sender configuration. Personal mode remains available for own-channel use, but is no longer the default development setup.

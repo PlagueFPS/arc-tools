@@ -1,6 +1,7 @@
 /* oxlint-disable effecttsgo/schema-sync -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { makeAccountStorage } from "@arctools/twitch/cloudflare";
 import { DispatchOutcome } from "@arctools/twitch/server";
 import {
@@ -12,7 +13,6 @@ import {
   splitAccount,
 } from "@arctools/twitch/testing";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
   Deferred,

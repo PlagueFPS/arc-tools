@@ -17,7 +17,7 @@ export ARC_BUILD_REVISION="$(git rev-parse HEAD)"
 export ARC_BOT_URL=https://local-verify.example
 export ARC_WEBSITE_URL=http://localhost:3000
 export TWITCH_SENDER_KIND="$ARC_ENVIRONMENT" TWITCH_SENDER_LOGIN=local_probe TWITCH_CHANNEL_LOGINS=local_probe
-export TWITCH_CLIENT_ID=fixture-twitch DISCORD_APPLICATION_ID=fixture-discord
+export TWITCH_CLIENT_ID=fixture-twitch DISCORD_APPLICATION_ID=123456789012345678
 export TWITCH_CLIENT_SECRET=fixture-secret
 export TWITCH_SIGNING_SECRET=fixture-signing DISCORD_BOT_TOKEN=fixture-token OPERATOR_SECRET=fixture-operator
 export DISCORD_PUBLIC_KEY=d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a

@@ -1,3 +1,4 @@
+import { Array as Arr } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 const paths = {
@@ -31,4 +32,38 @@ export const brandMark = <M>(
       h.AriaHidden(true),
     ],
     [h.path([h.D("M0 29 11 3h7L7 29zm13 0 7-17 12 17h-8l-3-5-2 5z")])],
+  );
+
+const themeIconPaths = {
+  light: [
+    "M12 2v2",
+    "M12 20v2",
+    "m4.93 4.93 1.41 1.41",
+    "m17.66 17.66 1.41 1.41",
+    "M2 12h2",
+    "M20 12h2",
+    "m6.34 17.66-1.41 1.41",
+    "m19.07 4.93-1.41 1.41",
+  ],
+  dark: ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"],
+};
+
+export const themeIcon = <M>(
+  theme: keyof typeof themeIconPaths,
+  h: HtmlBuilder<M>,
+): Html =>
+  h.svg(
+    [
+      h.ViewBox("0 0 24 24"),
+      h.Class(
+        "size-[18px] shrink-0 fill-none stroke-current stroke-[1.75] [stroke-linecap:round] [stroke-linejoin:round]",
+      ),
+      h.AriaHidden(true),
+    ],
+    [
+      ...(theme === "light"
+        ? [h.circle([h.Cx("12"), h.Cy("12"), h.R("4")])]
+        : []),
+      ...Arr.map(themeIconPaths[theme], (d) => h.path([h.D(d)])),
+    ],
   );

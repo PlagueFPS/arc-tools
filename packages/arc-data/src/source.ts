@@ -18,6 +18,7 @@ import {
   HttpClientRequest,
 } from "effect/http";
 
+import { Catalog } from "./autocomplete.js";
 import {
   ArcData,
   DataUnavailable,
@@ -36,6 +37,7 @@ export const cachePolicy = {
   scheduleFreshMs: 60_000,
   retryCooldownMs: 60_000,
   sourceTimeoutMs: 1_800,
+  catalogTimeoutMs: 15_000,
   maxKeys: 128,
   maxEntryBytes: 96 * 1024,
   maxCacheBytes: 4 * 1024 * 1024,
@@ -83,8 +85,11 @@ export const makeSource = Effect.fnUntraced(function* (
   );
 
   const fetch = Effect.fn("ArcData.source")(
-    function* <A, I>(query: ResourceQuery, schema: Schema.Codec<A, I>) {
-      const path = canonicalRequest(query);
+    function* <A, I>(
+      query: ResourceQuery,
+      schema: Schema.Codec<A, I>,
+      path = canonicalRequest(query),
+    ) {
       const response = yield* client.get(path);
 
       const bytes = yield* response.stream.pipe(
@@ -126,7 +131,64 @@ export const makeSource = Effect.fnUntraced(function* (
       ),
   );
 
-  return { fetch };
+  const fetchCatalog = Effect.fn("ArcData.catalog")(
+    function* (resource: "items-catalog" | "arcs-catalog") {
+      const query = { resource };
+      const endpoint = resource === "items-catalog" ? "items" : "arcs";
+
+      const Page = Schema.Struct({
+        data: Catalog.fields.data,
+        pagination: Schema.Struct({
+          page: Schema.Int.check(Schema.isGreaterThan(0)),
+          total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+          totalPages: Schema.Int.check(
+            Schema.isBetween({ minimum: 1, maximum: 64 }),
+          ),
+          hasNextPage: Schema.Boolean,
+        }),
+      });
+
+      const names: { readonly name: string }[] = [];
+      let total = 0;
+      let totalPages = 1;
+
+      for (let page = 1; page <= totalPages; page++) {
+        const result = yield* fetch(
+          query,
+          Page,
+          `/${endpoint}?limit=100&page=${page}`,
+        );
+
+        if (page === 1) {
+          total = result.pagination.total;
+          totalPages = result.pagination.totalPages;
+        }
+
+        if (
+          result.pagination.page !== page ||
+          result.pagination.total !== total ||
+          result.pagination.totalPages !== totalPages ||
+          result.pagination.hasNextPage !== page < totalPages
+        )
+          return yield* new DataUnavailable({ resource, reason: "source" });
+        names.push(...result.data);
+      }
+
+      if (names.length !== total)
+        return yield* new DataUnavailable({ resource, reason: "source" });
+
+      return { data: names };
+    },
+    (effect, resource) =>
+      effect.pipe(
+        Effect.timeout(policy.catalogTimeoutMs),
+        Effect.mapError(
+          () => new DataUnavailable({ resource, reason: "source" }),
+        ),
+      ),
+  );
+
+  return { fetch, fetchCatalog };
 });
 
 export const makeUncachedData = Effect.gen(function* () {

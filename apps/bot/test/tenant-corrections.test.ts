@@ -2,8 +2,8 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { AttemptId, Deadline } from "@arctools/twitch/server";
-import * as Test from "alchemy/Test/Bun";
 import {
   Result,
   Cause,

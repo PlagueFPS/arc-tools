@@ -318,6 +318,92 @@ export function registerTenantTests({
   };
 
   test(
+    "actual Bot autocomplete observes retained catalog warming without fetching on keystrokes",
+    Effect.gen(function* () {
+      const u = yield* urls;
+
+      const query = Effect.fnUntraced(function* (text: string) {
+        const base = discordCommand("suggestions", "sell", "sensors");
+
+        const { response } = yield* signedDiscord(u.bot, {
+          ...base,
+          type: 4,
+          data: {
+            ...base.data,
+            options: [{ type: 3, name: "item", value: text, focused: true }],
+          },
+        });
+
+        noTenant(response);
+
+        return yield* json(
+          response,
+          Schema.Struct({
+            type: Schema.Literal(8),
+            data: Schema.Struct({
+              choices: Schema.Array(
+                Schema.Struct({ name: Schema.String, value: Schema.String }),
+              ),
+            }),
+          }),
+        );
+      });
+
+      const before = yield* get(`${u.source}/observations`, Observations);
+      expect((yield* query(" ")).data.choices).toEqual([]);
+      expect((yield* query("sen")).data.choices).toEqual([]);
+      expect(yield* get(`${u.source}/observations`, Observations)).toEqual(
+        before,
+      );
+
+      yield* sourceControl(u.source, "/items?limit=100&page=1", {
+        data: [{ name: "Advanced Sensors" }, { name: "Sensors" }],
+        pagination: {
+          page: 1,
+          total: 2,
+          totalPages: 1,
+          hasNextPage: false,
+        },
+      });
+
+      const command = yield* signedDiscord(
+        u.bot,
+        discordCommand(
+          "warm-autocomplete",
+          "sell",
+          "sensors",
+          "autocomplete-guild",
+        ),
+        "autocomplete-warm-command",
+      );
+
+      expect(command.reply?.data.flags).toBe(0);
+
+      const warmed = yield* query("sen").pipe(
+        Effect.repeat({
+          until: (reply) => reply.data.choices.length > 0,
+          schedule: Schedule.spaced(50).pipe(Schedule.upTo({ times: 100 })),
+        }),
+      );
+
+      expect(warmed.data.choices).toEqual([
+        { name: "Sensors", value: "Sensors" },
+        { name: "Advanced Sensors", value: "Advanced Sensors" },
+      ]);
+      const after = yield* get(`${u.source}/observations`, Observations);
+      expect(after["/items?limit=100&page=1"]).toBe(1);
+      expect((yield* query("adv")).data.choices).toEqual([
+        { name: "Advanced Sensors", value: "Advanced Sensors" },
+      ]);
+      expect((yield* query("")).data.choices).toEqual([]);
+      expect(yield* get(`${u.source}/observations`, Observations)).toEqual(
+        after,
+      );
+      yield* retainJourney("autocomplete-cache", { before, after, warmed });
+    }),
+  );
+
+  test(
     "actual Bot verifies raw signatures, freshness, bounds and Discord context without allocating tenants",
     Effect.gen(function* () {
       const u = yield* urls;

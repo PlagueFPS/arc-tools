@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 
-import * as Test from "alchemy/Test/Bun";
+import * as Test from "@alchemy.run/test/Bun";
 import {
   Predicate,
   Effect,

@@ -1,4 +1,5 @@
-import { commandCatalog } from "@arctools/commands/catalog";
+import { Suggestions, type Suggestion } from "@arctools/arc-data/autocomplete";
+import { commandCatalog, type SlashOption } from "@arctools/commands/catalog";
 import {
   BroadcasterId,
   subscriptionBinding,
@@ -7,6 +8,10 @@ import {
   TwitchAccount,
 } from "@arctools/twitch/server";
 import { digest } from "@arctools/utils/http";
+import {
+  focusedOption,
+  response as interactionResponse,
+} from "dfx/Helpers/interactions";
 import {
   pipe,
   Cause,
@@ -56,6 +61,7 @@ export const ingressPolicy = {
   bodyMs: 750,
   twitchAgeMs: eventSubTiming.maxAgeMs,
   discordAgeMs: 300_000,
+  autocompleteMs: 250,
   futureSkewMs: eventSubTiming.futureSkewMs,
 } as const;
 
@@ -298,6 +304,31 @@ const DiscordCommand = Schema.Struct({
   }),
 });
 
+const DiscordAutocomplete = Schema.Struct({
+  ...DiscordCommand.fields,
+  type: Schema.Literal(4),
+  data: Schema.Struct({
+    type: Schema.Literal(1),
+    name: Schema.String,
+    options: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          type: Schema.Literal(3),
+          value: Schema.String.check(Schema.isMaxLength(256)),
+          focused: Schema.optional(Schema.Boolean),
+        }),
+      ),
+    ),
+  }),
+});
+
+const autocompleteReply = (choices: readonly Suggestion[] = []) =>
+  HttpServerResponse.jsonUnsafe(
+    interactionResponse({ type: 8, data: { choices: [...choices] } }),
+    { headers: { "Cache-Control": "no-store" } },
+  );
+
 const privateReply = (text = friendlyFailure) =>
   HttpServerResponse.jsonUnsafe(discordResponse(text, true), {
     headers: { "Cache-Control": "no-store" },
@@ -318,6 +349,7 @@ export const ingressHandlers = (config: IngressConfig) =>
       const tenants = yield* Tenants;
       const mac = yield* Mac.Mac;
       const signatures = yield* Signature.Signature;
+      const suggestions = yield* Suggestions;
 
       const twitch = Effect.fnUntraced(function* (
         request: HttpServerRequest.HttpServerRequest,
@@ -485,6 +517,80 @@ export const ingressHandlers = (config: IngressConfig) =>
 
         if (header.type === 1)
           return HttpServerResponse.jsonUnsafe({ type: 1 });
+
+        if (header.type === 4) {
+          const decoded = yield* decode(bytes, DiscordAutocomplete).pipe(
+            Effect.result,
+          );
+
+          if (Result.isFailure(decoded)) return autocompleteReply();
+          const value = decoded.success;
+
+          if (value.guild_id !== value.authorizing_integration_owners["0"])
+            return autocompleteReply();
+
+          const definition = Arr.findFirst(
+            commandCatalog,
+            (entry) => entry.name === value.data.name,
+          );
+
+          if (Option.isNone(definition)) return autocompleteReply();
+          const options = value.data.options ?? [];
+
+          if (
+            Arr.filter(options, (option) => option.focused === true).length !==
+              1 ||
+            Arr.dedupe(Arr.map(options, (option) => option.name)).length !==
+              options.length ||
+            Arr.some(
+              options,
+              (option) =>
+                !Arr.some<SlashOption>(
+                  definition.value.slashOptions,
+                  (expected) => expected.name === option.name,
+                ),
+            )
+          )
+            return autocompleteReply();
+
+          const focused = focusedOption(value.data);
+
+          if (Option.isNone(focused) || focused.value.type !== 3)
+            return autocompleteReply();
+          const field = focused.value;
+
+          const option = Arr.findFirst<SlashOption>(
+            definition.value.slashOptions,
+            (entry) => entry.name === field.name,
+          );
+
+          if (Option.isNone(option) || !option.value.autocomplete)
+            return autocompleteReply();
+          const query = Str.trim(field.value);
+
+          if (!query) return autocompleteReply();
+
+          const remaining = Math.min(
+            ingressPolicy.autocompleteMs,
+            config.receivedAt +
+              tenantPolicy.rpcMs -
+              (yield* Clock.currentTimeMillis),
+          );
+
+          if (remaining <= 0) return autocompleteReply();
+
+          return yield* suggestions
+            .suggest(option.value.autocomplete, query)
+            .pipe(
+              Effect.timeout(remaining),
+              Effect.map((choices) => autocompleteReply(choices.slice(0, 25))),
+              Effect.catchCause((cause) =>
+                Cause.hasInterrupts(cause)
+                  ? Effect.interrupt
+                  : Effect.succeed(autocompleteReply()),
+              ),
+            );
+        }
 
         const command = yield* decode(bytes, DiscordCommand).pipe(
           Effect.result,

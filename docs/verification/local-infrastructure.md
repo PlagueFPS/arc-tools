@@ -4,7 +4,7 @@
 
 ## Runtime and state
 
-`foundation.test.ts` passes `dev: true`, `Cloudflare.providers()`, and `localState()` to both `Test.make` and `makeStack`. Alchemy beta.84's `Test/Core.ts` resolves development mode independently of state. Its `Stack.ts` builds the stack's own state layer, so changing only `Test.make` would still initialize the cloud backend. `makeStack` lets the suite supply local state throughout. The default export retains the existing cloud backend for explicit deployment commands.
+`foundation.test.ts` passes `dev: true`, `Cloudflare.providers()`, and `localState()` to both `Test.make` and `makeStack`. Alchemy beta.85's `@alchemy.run/test/Core` resolves development mode independently of state. Its `Stack.ts` builds the stack's own state layer, so changing only `Test.make` would still initialize the cloud backend. `makeStack` lets the suite supply local state throughout. The default export retains the existing cloud backend for explicit deployment commands.
 
 The runner assigns a unique worktree/run stage and starts Bun with `.cloud-tests/<stage>/` as its working directory. Alchemy stores file state, bundles, logs, and emulator data inside that run's `.alchemy/`. This also prevents Alchemy's independent dotenv loader from reading the repository's `.env`. Child processes receive synthetic application credentials, a dedicated `local-tests` profile, `CI=true`, and no inherited Cloudflare credentials or Alchemy overrides. Telemetry is disabled. The suite rejects `ALCHEMY_TEST_DEV` overrides because that setting takes precedence over `dev: true`.
 

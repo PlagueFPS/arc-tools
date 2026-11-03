@@ -3,6 +3,8 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
+import { Suggestions } from "@arctools/arc-data/autocomplete";
 import {
   AccountStatus,
   AccountError,
@@ -18,7 +20,6 @@ import {
 } from "@arctools/twitch/testing/fixtures";
 import { cryptoLayer } from "@arctools/utils/crypto";
 import { digest } from "@arctools/utils/http";
-import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
   Deferred,
@@ -135,6 +136,9 @@ const fixture = Effect.fnUntraced(function* (
           }),
         respondDiscord: () => Effect.succeed(discordResponse("controlled")),
       }),
+    ),
+    Layer.provide(
+      Layer.succeed(Suggestions, { suggest: () => Effect.succeed([]) }),
     ),
     Layer.provide(Layer.succeed(Clock.Clock, h.clock)),
     Layer.provide(cryptoLayer),
