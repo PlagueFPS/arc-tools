@@ -141,24 +141,32 @@ export const update = ApplicationComposition.makeUpdate((model, message) =>
       }),
     CompletedToggleTheme: () => ({ model }),
     RestoredTheme: ({ theme }) => {
-      // A preference loaded at startup must not replace a newer user choice.
-      if (Option.isSome(model.theme.override) || Option.isNone(theme))
-        return { model };
+      const nextModel = modifyFields(model, {
+        theme: modifyFields({
+          restored: () => true,
+          override: (current) => Option.orElse(current, () => theme),
+        }),
+      });
+
+      if (Option.isSome(model.theme.override)) return { model: nextModel };
+      const selected = effectiveTheme(nextModel.theme);
 
       return {
-        model: modifyFields(model, {
-          theme: modifyFields({ override: () => theme }),
+        model: nextModel,
+        commands: Option.match(selected, {
+          onNone: () => [],
+          onSome: (theme) => [ApplyTheme({ theme })],
         }),
-        commands: [ApplyTheme({ theme: theme.value })],
       };
     },
     ChangedSystemTheme: ({ theme }) => ({
       model: modifyFields(model, {
         theme: modifyFields({ system: () => Option.some(theme) }),
       }),
-      commands: Option.isNone(model.theme.override)
-        ? [ApplyTheme({ theme })]
-        : [],
+      commands:
+        model.theme.restored && Option.isNone(model.theme.override)
+          ? [ApplyTheme({ theme })]
+          : [],
     }),
     CompletedApplyTheme: () => ({ model }),
     CompletedCancelCheck: () => ({ model }),

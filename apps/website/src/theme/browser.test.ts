@@ -1,5 +1,6 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Tests own the browser command entry point. */
 import { Deferred, Effect, Fiber, Layer, Option, Stream } from "effect";
+import { Window } from "happy-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { ToggleTheme, RestoreTheme, ApplyTheme } from "../command";
@@ -24,9 +25,10 @@ afterEach(() => {
 });
 
 test.each([false, true])(
-  "theme toggle persists an explicit choice with system dark=%s",
+  "theme toggle persists both explicit choices (reverse=%s)",
   async (dark) => {
     document.head.innerHTML = themeHead;
+    const stylesBefore = document.head.querySelectorAll("style").length;
     const chosen = dark ? "light" : "dark";
     const original = dark ? "dark" : "light";
 
@@ -38,7 +40,7 @@ test.each([false, true])(
       expect(meta.getAttribute("content")).toBe(themeColor[chosen]);
     }
 
-    expect(document.head.querySelector("style")).toBeNull();
+    expect(document.head.querySelectorAll("style")).toHaveLength(stylesBefore);
 
     await runToggle(original);
     expect(document.documentElement.classList.contains(original)).toBe(true);
@@ -153,3 +155,43 @@ test("the system theme subscription emits immediately, follows changes, and clea
     await Effect.runPromise(Fiber.interrupt(fiber));
   }
 });
+
+test.each([
+  { stored: '"light"', expected: "light" },
+  { stored: '"dark"', expected: "dark" },
+  { stored: '"invalid"', expected: "" },
+  { stored: "{", expected: "" },
+  { stored: null, expected: "" },
+])(
+  "pre-paint bootstrap applies only a valid override: $stored",
+  async ({ stored, expected }) => {
+    const browser = new Window({
+      url: "https://bot.invalid/",
+      settings: {
+        enableJavaScriptEvaluation: true,
+        // Only the application-owned bootstrap runs in this isolated test window.
+        suppressInsecureJavaScriptEnvironmentWarning: true,
+      },
+    });
+
+    try {
+      if (stored !== null)
+        browser.localStorage.setItem(themeStorageKey, stored);
+      browser.document.write(
+        `<!doctype html><html><head>${themeHead}</head><body></body></html>`,
+      );
+      expect(browser.document.documentElement.className).toBe(expected);
+
+      for (const meta of browser.document.querySelectorAll(
+        'meta[name="theme-color"]',
+      )) {
+        const selected = expected || meta.getAttribute("data-theme");
+        expect(meta.getAttribute("content")).toBe(
+          selected === "dark" ? themeColor.dark : themeColor.light,
+        );
+      }
+    } finally {
+      await browser.happyDOM.close();
+    }
+  },
+);

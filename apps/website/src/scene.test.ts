@@ -243,7 +243,11 @@ test.each([ApplicationRoute.Home(), ApplicationRoute.Connect()])(
       given({
         ...connection,
         route,
-        theme: { system: Option.some("light"), override: Option.none() },
+        theme: {
+          restored: true,
+          system: Option.some("light"),
+          override: Option.none(),
+        },
       }),
       expect(selector("#theme-switcher")).toHaveAttr("type", "button"),
       click(selector("#theme-switcher")),

@@ -15,6 +15,7 @@ test("system preference changes apply until a user chooses an override", () => {
   story(
     update,
     given(initial()),
+    message(Message.RestoredTheme({ theme: Option.none() })),
     message(Message.ChangedSystemTheme({ theme: "dark" })),
     Command.expectExact(ApplyTheme({ theme: "dark" })),
     Command.resolve(ApplyTheme, Message.CompletedApplyTheme()),
@@ -57,8 +58,13 @@ test.each([true, false])(
 );
 
 test("late storage restoration cannot replace a user choice", () => {
-  const system = update(
+  const ready = update(
     initial(),
+    Message.RestoredTheme({ theme: Option.none() }),
+  ).model;
+
+  const system = update(
+    ready,
     Message.ChangedSystemTheme({ theme: "light" }),
   ).model;
 
@@ -71,4 +77,28 @@ test("late storage restoration cannot replace a user choice", () => {
 
   expect(restored.model).toEqual(chosen);
   expect(restored.commands).toBeUndefined();
+});
+
+test("system subscription waits for storage before applying colors", () => {
+  story(
+    update,
+    given(initial()),
+    message(Message.ChangedSystemTheme({ theme: "dark" })),
+    Command.expectExact(),
+    message(Message.RestoredTheme({ theme: Option.some("light") })),
+    Command.expectExact(ApplyTheme({ theme: "light" })),
+    Command.resolve(ApplyTheme, Message.CompletedApplyTheme()),
+  );
+});
+
+test("an absent saved preference applies the already observed system theme", () => {
+  story(
+    update,
+    given(initial()),
+    message(Message.ChangedSystemTheme({ theme: "dark" })),
+    Command.expectExact(),
+    message(Message.RestoredTheme({ theme: Option.none() })),
+    Command.expectExact(ApplyTheme({ theme: "dark" })),
+    Command.resolve(ApplyTheme, Message.CompletedApplyTheme()),
+  );
 });

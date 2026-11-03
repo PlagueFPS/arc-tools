@@ -19,7 +19,8 @@ const themeSwitcher = (model: Model, h: ApplicationViewBuilder): Html =>
   Button.view(
     {
       type: "button",
-      isDisabled: Option.isNone(effectiveTheme(model.theme)),
+      isDisabled:
+        !model.theme.restored || Option.isNone(effectiveTheme(model.theme)),
       onClick: Message.ClickedToggleTheme(),
       toView: (attributes) =>
         h.button(
