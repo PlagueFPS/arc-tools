@@ -1,8 +1,10 @@
+import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
 import { UrlRequest } from "foldkit/navigation";
 import { Url } from "foldkit/url";
 
 import { CheckError, EnrollmentStatus, RequestId } from "./domain/enrollment";
+import { Theme } from "./theme";
 
 export const Message = defineMessageUnion({
   ClickedLink: { request: UrlRequest },
@@ -10,6 +12,11 @@ export const Message = defineMessageUnion({
   CompletedNavigateInternal: {},
   CompletedLoadExternal: {},
   CompletedScrollToContent: {},
+  ClickedToggleTheme: {},
+  CompletedToggleTheme: {},
+  RestoredTheme: { theme: Schema.Option(Theme) },
+  ChangedSystemTheme: { theme: Theme },
+  CompletedApplyTheme: {},
   CompletedCancelCheck: {},
   ClickedCheckStatus: {},
   ClickedLeaveChannel: {},

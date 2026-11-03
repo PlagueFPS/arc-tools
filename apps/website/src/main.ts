@@ -10,6 +10,9 @@ import {
   LoadExternal,
   NavigateInternal,
   ScrollToContent,
+  ToggleTheme,
+  RestoreTheme,
+  ApplyTheme,
 } from "./command";
 import { ApplicationComposition } from "./composition";
 import {
@@ -21,6 +24,7 @@ import {
 import { Message } from "./message";
 import { Model } from "./model";
 import { ApplicationRoute, urlToApplicationRoute } from "./route";
+import { type Theme, effectiveTheme, initialThemeState } from "./theme";
 
 export { view } from "./view";
 
@@ -30,6 +34,9 @@ type CommandRequirements = Command.HandlerOf<
   | typeof LoadExternal
   | typeof NavigateInternal
   | typeof ScrollToContent
+  | typeof ToggleTheme
+  | typeof RestoreTheme
+  | typeof ApplyTheme
 >;
 
 type UpdateReturn = Update.Return<Model, Message, CommandRequirements>;
@@ -95,11 +102,13 @@ export const init = ApplicationComposition.makeInit((url: Url) => {
   return {
     model: {
       route,
+      theme: initialThemeState(),
       enrollment: checking ? Enrollment.Loading() : Enrollment.Idle(),
       leave: Enrollment.Idle(),
       requestId,
     },
     commands: [
+      RestoreTheme(),
       ...(checking ? [CheckEnrollment({ requestId })] : []),
       ...(contentScroll(url) ?? []),
     ],
@@ -116,6 +125,50 @@ export const update = ApplicationComposition.makeUpdate((model, message) =>
     CompletedNavigateInternal: () => ({ model }),
     CompletedLoadExternal: () => ({ model }),
     CompletedScrollToContent: () => ({ model }),
+    ClickedToggleTheme: () =>
+      Option.match(effectiveTheme(model.theme), {
+        onNone: () => ({ model }),
+        onSome: (current) => {
+          const theme: Theme = current === "dark" ? "light" : "dark";
+
+          return {
+            model: modifyFields(model, {
+              theme: modifyFields({ override: () => Option.some(theme) }),
+            }),
+            commands: [ToggleTheme({ theme })],
+          };
+        },
+      }),
+    CompletedToggleTheme: () => ({ model }),
+    RestoredTheme: ({ theme }) => {
+      const nextModel = modifyFields(model, {
+        theme: modifyFields({
+          restored: () => true,
+          override: (current) => Option.orElse(current, () => theme),
+        }),
+      });
+
+      if (Option.isSome(model.theme.override)) return { model: nextModel };
+      const selected = effectiveTheme(nextModel.theme);
+
+      return {
+        model: nextModel,
+        commands: Option.match(selected, {
+          onNone: () => [],
+          onSome: (theme) => [ApplyTheme({ theme })],
+        }),
+      };
+    },
+    ChangedSystemTheme: ({ theme }) => ({
+      model: modifyFields(model, {
+        theme: modifyFields({ system: () => Option.some(theme) }),
+      }),
+      commands:
+        model.theme.restored && Option.isNone(model.theme.override)
+          ? [ApplyTheme({ theme })]
+          : [],
+    }),
+    CompletedApplyTheme: () => ({ model }),
     CompletedCancelCheck: () => ({ model }),
     CompletedCancelLeave: () => ({ model }),
     ClickedLeaveChannel: () => {

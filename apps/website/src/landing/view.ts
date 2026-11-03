@@ -50,7 +50,7 @@ const categories = (
       h.Role("group"),
       h.AriaLabel("Command category"),
       h.Class(
-        "relative inline-flex items-center gap-0.5 rounded-full bg-[rgba(10,10,10,.82)] p-1 font-sans text-[13px] leading-none shadow-[0_0_0_1px_rgba(255,255,255,.08)_inset,0_2px_6px_rgba(0,0,0,.15)] backdrop-blur-[12px] backdrop-saturate-[1.4]",
+        "relative inline-flex items-center gap-0.5 rounded-full bg-[rgba(10,10,10,.82)] p-1 font-sans text-[13px] leading-none shadow-[0_0_0_1px_rgba(255,255,255,.08)_inset,0_2px_6px_rgba(0,0,0,.15)] backdrop-blur-[12px] backdrop-saturate-[1.4] dark:bg-muted",
       ),
     ],
     [

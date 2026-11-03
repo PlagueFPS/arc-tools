@@ -38,6 +38,17 @@ test.each(["/", "/connect"])(
           : "Checking the connection session in this browser.",
       );
       expect(html).not.toContain("private-fixture");
+
+      const bootstrapIndex = Option.getOrThrow(
+        Str.indexOf("arctools-theme")(html),
+      );
+
+      expect(bootstrapIndex).toBeLessThan(
+        Option.getOrThrow(Str.indexOf("/assets/test.css")(html)),
+      );
+      expect(bootstrapIndex).toBeLessThan(
+        Option.getOrThrow(Str.indexOf("/assets/test.js")(html)),
+      );
       expect(network).not.toHaveBeenCalled();
     } finally {
       network.mockRestore();

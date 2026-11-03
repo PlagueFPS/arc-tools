@@ -44,7 +44,7 @@ export const chat = (model: Model, h: HtmlBuilder<typeof Message.Type>): Html =>
       h.Id("chat-preview"),
       h.AriaLabel("Interactive Twitch chat preview"),
       h.Class(
-        "overflow-hidden rounded-lg border border-[#39393e] bg-[#18181b] font-[Arial,sans-serif] text-[#efeff1] shadow-[10px_12px_0_#d8cebd] max-[620px]:shadow-[6px_8px_0_#d8cebd]",
+        "overflow-hidden rounded-lg border border-[#39393e] bg-[#18181b] font-[Arial,sans-serif] text-[#efeff1] shadow-[10px_12px_0_var(--plate)] max-[620px]:shadow-[6px_8px_0_var(--plate)]",
       ),
     ],
     [

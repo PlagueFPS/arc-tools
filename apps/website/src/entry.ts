@@ -1,6 +1,7 @@
 import { Program, Runtime } from "foldkit";
 
 import { ApplicationBlock } from "./block";
+import { BrowserStorageLayer } from "./layer";
 
 import "./styles.css";
 
@@ -14,4 +15,4 @@ const program = Program.make({
   devTools: { dispatch: true },
 });
 
-Runtime.hydrate(program);
+Runtime.hydrate(program.provide(BrowserStorageLayer));
