@@ -1,7 +1,7 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
-import * as Test from "alchemy/Test/Bun";
+import * as Test from "@alchemy.run/test/Bun";
 import { Deferred, Effect, Fiber, Layer, Result } from "effect";
 import { TestClock } from "effect/testing";
 

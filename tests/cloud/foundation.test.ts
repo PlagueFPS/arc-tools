@@ -6,9 +6,9 @@ import { expect } from "bun:test";
 import { writeFile } from "node:fs/promises";
 
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import * as Test from "@alchemy.run/test/Bun";
 import { manifestHash } from "@arctools/discord/server";
 import { State, localState } from "alchemy/State";
-import * as Test from "alchemy/Test/Bun";
 import {
   Effect,
   Schedule,

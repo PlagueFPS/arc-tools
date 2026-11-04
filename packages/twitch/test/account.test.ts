@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import type { AccountIdentity } from "@arctools/twitch/server";
 import { Dispatch } from "@arctools/twitch/server";
 import {
@@ -8,7 +9,6 @@ import {
   nextAlarm,
 } from "@arctools/twitch/testing";
 import type { SendResult } from "@arctools/twitch/testing";
-import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
   Deferred,

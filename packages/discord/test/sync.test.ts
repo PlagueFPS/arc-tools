@@ -2,6 +2,7 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { commandCatalog } from "@arctools/commands/catalog";
 import {
   canonicalManifest,
@@ -14,7 +15,6 @@ import {
   waitForRelease,
 } from "@arctools/discord/server";
 import { digest, providerTransport } from "@arctools/utils/http";
-import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
   Match,

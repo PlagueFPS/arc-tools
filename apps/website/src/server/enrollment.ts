@@ -7,6 +7,7 @@ import {
   OAuthCompletion,
   enrollmentTiming,
 } from "@arctools/twitch/server";
+import { cryptoLayer, randomCredential } from "@arctools/utils/crypto";
 import { digest } from "@arctools/utils/http";
 import {
   Effect,
@@ -44,14 +45,6 @@ const headers = {
 const BrowserSession = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 
 const CallbackCode = Schema.NonEmptyString.check(Schema.isMaxLength(2048));
-
-const randomCredential = () =>
-  Arr.join(
-    Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
-      Str.padStart(2, "0")(byte.toString(16)),
-    ),
-    "",
-  );
 
 const readSession = Effect.fnUntraced(function* (request: Request) {
   const policy = enrollmentCookiePolicy(request);
@@ -155,8 +148,8 @@ export const websiteHttp = <R>(
         if (Option.isNone(policy))
           return yield* new AccountError({ code: "input" });
         const previousSession = yield* readSession(request);
-        const credential = randomCredential();
-        const state = `enroll.${randomCredential()}`;
+        const credential = yield* randomCredential;
+        const state = `enroll.${yield* randomCredential}`;
         const session = EnrollmentSession.make(yield* digest(credential));
 
         const location = yield* (yield* client).enrollmentBegin({
@@ -176,6 +169,8 @@ export const websiteHttp = <R>(
       },
       (effect) =>
         effect.pipe(
+          // oxlint-disable-next-line effecttsgo/strict-effect-provide -- This HTTP adapter owns the Web Crypto runtime for enrollment credentials.
+          Effect.provide(cryptoLayer),
           Effect.timeout(12_000),
           Effect.catchCause(() =>
             Effect.succeed(

@@ -1,6 +1,6 @@
+/* oxlint-disable effecttsgo/strict-effect-provide -- These host adapters provide stateless Web Crypto services for callers outside a shared runtime. */
 import {
   flow,
-  Crypto,
   Effect,
   Layer,
   Option,
@@ -8,7 +8,6 @@ import {
   type Scope,
   Stream,
 } from "effect";
-import { Hex } from "effect/encoding";
 import {
   FetchHttpClient,
   HttpClient,
@@ -16,6 +15,8 @@ import {
   type HttpClientRequest,
   type HttpClientResponse,
 } from "effect/http";
+
+import * as Crypto from "./crypto.js";
 
 export class ProviderError extends Schema.TaggedError<
   ProviderError,
@@ -90,17 +91,9 @@ export const decodeBody = <A, I>(schema: Schema.Codec<A, I>) =>
     Effect.mapError(() => new ProviderError({ kind: "body" })),
   );
 
-const webCrypto = Crypto.make({
-  randomBytes: (size) => crypto.getRandomValues(new Uint8Array(size)),
-  digest: (algorithm, bytes) =>
-    Effect.promise(() =>
-      crypto.subtle.digest(algorithm, new Uint8Array(bytes)),
-    ).pipe(Effect.map((buffer) => new Uint8Array(buffer))),
-});
-
-export const randomUUID = webCrypto.randomUUIDv4().pipe(Effect.orDie);
+export const randomUUID = Crypto.randomUUID.pipe(
+  Effect.provide(Crypto.cryptoLayer),
+);
 
 export const digest = (value: string) =>
-  webCrypto
-    .digest("SHA-256", new TextEncoder().encode(value))
-    .pipe(Effect.map(Hex.encode), Effect.orDie);
+  Crypto.digest(value).pipe(Effect.provide(Crypto.cryptoLayer));

@@ -6,6 +6,7 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { makeAccountStorage } from "@arctools/twitch/cloudflare";
 import { AccountError } from "@arctools/twitch/server";
 import {
@@ -19,7 +20,6 @@ import {
 import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { providerTransport } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import * as Test from "alchemy/Test/Bun";
 import {
   Predicate,
   Clock,

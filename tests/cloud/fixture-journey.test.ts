@@ -4,9 +4,9 @@
 /* oxlint-disable effecttsgo/schema-sync-in-effect -- Fixture builders and native callbacks validate synchronously; Effect programs use Effect decoders. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import * as Test from "alchemy/Test/Bun";
 import {
   Cause,
   Deferred,

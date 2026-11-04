@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import * as Test from "alchemy/Test/Bun";
+import * as Test from "@alchemy.run/test/Bun";
 import { Cause, Effect, Exit, Layer, Schema } from "effect";
 
 import { acknowledgeReconstruction } from "./fixture-response.js";

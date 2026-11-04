@@ -346,7 +346,13 @@ export function registerAccountTests({
       );
 
       expect(statusResponse.status).toBe(401);
+      expect(statusResponse.headers.get("content-type")).toContain(
+        "application/problem+json",
+      );
       expect(yield* Effect.promise(() => statusResponse.json())).toEqual({
+        type: "urn:arctools:problem:operator-unauthorized",
+        status: 401,
+        title: "Operator authentication is required.",
         error: "unauthorized",
       });
 

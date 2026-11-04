@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import {
   BroadcasterId,
   EnrollmentSession,
@@ -8,7 +9,6 @@ import {
 import { policy, ChannelRecord } from "@arctools/twitch/testing";
 import { randomUUID as secureRandomUUID } from "@arctools/utils/http";
 import { digest } from "@arctools/utils/http";
-import * as Test from "alchemy/Test/Bun";
 import {
   Clock,
   Deferred,

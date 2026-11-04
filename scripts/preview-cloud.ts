@@ -4,8 +4,8 @@
 import { writeFile } from "node:fs/promises";
 
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import * as Core from "@alchemy.run/test/Core";
 import * as DurableObjects from "@distilled.cloud/cloudflare/durable-objects";
-import * as Core from "alchemy/Test/Core";
 import { Effect, Schema, Stream, Array as Arr } from "effect";
 
 import Stack from "../alchemy.run.js";

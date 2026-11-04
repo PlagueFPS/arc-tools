@@ -2,6 +2,7 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import {
   Suggestions,
   type SuggestionKind,
@@ -15,7 +16,7 @@ import {
   type SubscriptionObservation,
   TwitchAccount,
 } from "@arctools/twitch/server";
-import * as Test from "alchemy/Test/Bun";
+import { cryptoLayer } from "@arctools/utils/crypto";
 import {
   Array as Arr,
   Result,
@@ -172,6 +173,7 @@ const fixture = Effect.fnUntraced(function* (
     ),
     Layer.provide(Layer.succeed(TwitchAccount, account)),
     Layer.provide(Layer.succeed(Tenants, tenants)),
+    Layer.provide(cryptoLayer),
     Layer.provide(
       Layer.succeed(
         Suggestions,
@@ -931,9 +933,16 @@ test(
       authorization,
     );
 
-    expect(overflow.status).toBe(503);
+    expect(overflow.status).toBe(413);
+    expect(overflow.headers.get("content-type")).toContain(
+      "application/problem+json",
+    );
+    expect(overflow.headers.get("cache-control")).toBe("no-store");
     expect(yield* json(overflow)).toEqual({
-      error: "operator-operation-failed",
+      type: "urn:arctools:problem:operator-body-too-large",
+      status: 413,
+      title: "The request body exceeds 4096 bytes.",
+      error: "body-too-large",
     });
     expect(
       (yield* f.request(
@@ -941,22 +950,45 @@ test(
         encode(new TextDecoder().decode(body) + " "),
         authorization,
       )).status,
-    ).toBe(503);
-    expect(
-      (yield* f.request("/ops/status", encode("{"), authorization)).status,
-    ).toBe(503);
-    expect(
-      (yield* f.request(
-        "/ops/status",
-        encode({ stage: "staging" }),
-        authorization,
-      )).status,
-    ).toBe(409);
+    ).toBe(413);
+
+    const malformed = yield* f.request(
+      "/ops/status",
+      encode("{"),
+      authorization,
+    );
+
+    expect(malformed.status).toBe(400);
+    expect(yield* json(malformed)).toEqual({
+      type: "urn:arctools:problem:operator-invalid-request",
+      status: 400,
+      title: "The request must contain a valid stage as JSON.",
+      error: "invalid-request",
+    });
+
+    const mismatch = yield* f.request(
+      "/ops/status",
+      encode({ stage: "staging" }),
+      authorization,
+    );
+
+    expect(mismatch.status).toBe(409);
+    expect(yield* json(mismatch)).toEqual({
+      type: "urn:arctools:problem:operator-stage-mismatch",
+      status: 409,
+      title: "The requested stage does not match this bot.",
+      error: "stage-mismatch",
+    });
     expect(f.reads()).toBe(1);
     expect(f.setups()).toBe(0);
-    expect((yield* f.request("/ops/setup", body, authorization)).status).toBe(
-      503,
-    );
+    const failed = yield* f.request("/ops/setup", body, authorization);
+    expect(failed.status).toBe(503);
+    expect(yield* json(failed)).toEqual({
+      type: "urn:arctools:problem:operator-operation-failed",
+      status: 503,
+      title: "The operator operation could not be completed.",
+      error: "operator-operation-failed",
+    });
     expect(f.setups()).toBe(1);
   }),
 );
@@ -974,10 +1006,37 @@ test(
 
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("1");
+    expect(response.headers.get("content-type")).toContain(
+      "application/problem+json",
+    );
     expect(yield* Effect.promise(() => response.json())).toEqual({
+      type: "urn:arctools:problem:operator-busy",
+      status: 503,
+      title: "Another operator operation is in progress. Retry shortly.",
       error: "operator-busy",
     });
     expect(f.setups()).toBe(1);
+  }),
+);
+
+test(
+  "operator reports channel capacity conflicts as a distinct problem",
+  Effect.gen(function* () {
+    const f = yield* fixture({ setupError: "capacity" });
+
+    const response = yield* f.request(
+      "/ops/setup",
+      encode({ stage: identity.stage }),
+      { authorization: "Bearer operator" },
+    );
+
+    expect(response.status).toBe(409);
+    expect(yield* json(response)).toEqual({
+      type: "urn:arctools:problem:operator-capacity-exceeded",
+      status: 409,
+      title: "The channel capacity has been exceeded.",
+      error: "channel-capacity-exceeded",
+    });
   }),
 );
 
@@ -1004,7 +1063,16 @@ test(
       );
 
       expect(response.status).toBe(401);
-      expect(yield* json(response)).toEqual({ error: "unauthorized" });
+      expect(response.headers.get("content-type")).toContain(
+        "application/problem+json",
+      );
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(yield* json(response)).toEqual({
+        type: "urn:arctools:problem:operator-unauthorized",
+        status: 401,
+        title: "Operator authentication is required.",
+        error: "unauthorized",
+      });
     }
 
     expect(reads).toBe(0);

@@ -9,8 +9,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import * as Test from "@alchemy.run/test/Bun";
 import type { SetupResult } from "@arctools/twitch/server";
-import * as Test from "alchemy/Test/Bun";
 import {
   Cause,
   Deferred,

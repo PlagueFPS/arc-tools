@@ -1,10 +1,10 @@
 /* oxlint-disable effecttsgo/global-date-in-effect -- Host timestamps record real transport and deadline evidence independently of the injected test clock. */
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import type { AccountConfig } from "@arctools/twitch/server";
 import { subscriptionBinding } from "@arctools/twitch/server";
 import type { Subscription } from "@arctools/twitch/testing";
-import * as Test from "alchemy/Test/Bun";
 import {
   Match,
   Effect,

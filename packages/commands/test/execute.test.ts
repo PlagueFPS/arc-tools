@@ -1,9 +1,9 @@
 /* oxlint-disable effecttsgo/strict-effect-provide -- Each isolated test or fixture is an entry point that owns its injected layer scope. */
 import { describe, expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { DataUnavailable } from "@arctools/arc-data";
 import { makeFixture } from "@arctools/arc-data/testing";
-import * as Test from "alchemy/Test/Bun";
 import {
   Result,
   Predicate,

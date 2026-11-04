@@ -16,11 +16,12 @@
     "@arctools/commands": "workspace:*",
     "@arctools/utils": "workspace:*",
     "dfx": "1.1.1",
-    "effect": "4.0.5"
+    "effect": "4.1.0"
   },
   "devDependencies": {
     "@arctools/typescript-config": "workspace:*",
-    "alchemy": "2.0.0-beta.84",
-    "typescript": "7.0.2"
+    "alchemy": "2.0.0-beta.85",
+    "typescript": "7.0.2",
+    "@alchemy.run/test": "2.0.0-beta.85"
   }
 }

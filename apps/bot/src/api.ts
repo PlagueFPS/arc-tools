@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 
+import { operatorErrors } from "./operator-errors.js";
+
 export class BotApi extends HttpApi.make("arc-tools").add(
   HttpApiGroup.make("health").add(
     HttpApiEndpoint.get("health", "/health", {
@@ -17,7 +19,7 @@ export class BotApi extends HttpApi.make("arc-tools").add(
     HttpApiEndpoint.post("discord", "/interactions/discord"),
   ),
   HttpApiGroup.make("operator").add(
-    HttpApiEndpoint.post("setup", "/ops/setup"),
-    HttpApiEndpoint.post("status", "/ops/status"),
+    HttpApiEndpoint.post("setup", "/ops/setup", { error: operatorErrors }),
+    HttpApiEndpoint.post("status", "/ops/status", { error: operatorErrors }),
   ),
 ) {}

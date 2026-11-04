@@ -151,7 +151,12 @@ async function viteCommand(
        )));
        process.stdout.write([command.command, ...command.args].join(String.fromCharCode(10)));`,
     ],
-    { env: { PATH: nodeDirectory }, stdout: "pipe", stderr: "pipe" },
+    {
+      env: { PATH: nodeDirectory },
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 10_000,
+    },
   );
 
   const [stdout, stderr, exit] = await Promise.all([
@@ -197,6 +202,7 @@ for (const operation of viteOperations) {
               alchemyContext: {},
             }),
           },
+          timeout: 10_000,
           stdin: new Uint8Array(),
           stdout: "pipe",
           stderr: "pipe",
@@ -217,6 +223,7 @@ for (const operation of viteOperations) {
         await rm(directory, { recursive: true, force: true });
       }
     },
+    30_000,
   );
 }
 

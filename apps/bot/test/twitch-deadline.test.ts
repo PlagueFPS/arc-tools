@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 
+import * as Test from "@alchemy.run/test/Bun";
 import { ArcData } from "@arctools/arc-data";
 import { Suggestions } from "@arctools/arc-data/autocomplete";
 import {
@@ -10,7 +11,7 @@ import {
   ReplyId,
   TwitchAccount,
 } from "@arctools/twitch/server";
-import * as Test from "alchemy/Test/Bun";
+import { cryptoLayer } from "@arctools/utils/crypto";
 import {
   Clock,
   Effect,
@@ -151,6 +152,7 @@ const fixture = Effect.fnUntraced(function* (worker: number) {
       ),
       Layer.provide(Layer.succeed(TwitchAccount, trustedAccount)),
       Layer.provide(Layer.succeed(Tenants, tenants)),
+      Layer.provide(cryptoLayer),
       Layer.provide(
         Layer.succeed(Suggestions, { suggest: () => Effect.succeed([]) }),
       ),

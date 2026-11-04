@@ -4,6 +4,7 @@ import { ArcCacheDO, bindSuggestions } from "@arctools/arc-data/cloudflare";
 import type { BotOperations } from "@arctools/bot-contracts";
 import { manifestHash } from "@arctools/discord/server";
 import { TwitchAccount } from "@arctools/twitch/server";
+import { cryptoLayer } from "@arctools/utils/crypto";
 import { Stack } from "alchemy";
 import type { HttpEffect } from "alchemy/Http";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
@@ -138,6 +139,7 @@ export default Bot.make(
             Layer.provide(
               Layer.succeed(HttpMiddleware.TracerDisabledWhen, () => true),
             ),
+            Layer.provide(cryptoLayer),
             Layer.provide(HttpServer.layerServices),
             HttpRouter.toHttpEffect,
           );
