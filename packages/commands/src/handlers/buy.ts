@@ -24,29 +24,32 @@ export const buyHandler = Effect.fn("Command.buyHandler")(
     const normalizedQuery = normalize(query);
     const traders = yield* getTraders();
 
-    const matches: { traderName: string; itemName: string; price: number }[] =
-      [];
+    const matches = pipe(
+      traders,
+      Rec.toEntries,
+      Arr.flatMap(([traderName, inventory]) =>
+        pipe(
+          inventory,
+          Arr.filter((item) => {
+            const matchesId = Str.toLowerCase(item.id) === potentialId;
 
-    for (const [traderName, inventory] of Rec.toEntries(traders)) {
-      Arr.forEach(inventory, (item) => {
-        const matchesId = Str.toLowerCase(item.id) === potentialId;
+            const matchesName =
+              pipe(
+                item.name,
+                Str.toLowerCase,
+                Str.includes(Str.toLowerCase(query)),
+              ) || pipe(item.name, normalize, Str.includes(normalizedQuery));
 
-        const matchesName =
-          pipe(
-            item.name,
-            Str.toLowerCase,
-            Str.includes(Str.toLowerCase(query)),
-          ) || pipe(item.name, normalize, Str.includes(normalizedQuery));
-
-        if (matchesId || matchesName) {
-          matches.push({
+            return matchesId || matchesName;
+          }),
+          Arr.map((item) => ({
             traderName,
             itemName: item.name,
             price: item.trader_price,
-          });
-        }
-      });
-    }
+          })),
+        ),
+      ),
+    );
 
     if (matches.length === 0) {
       return yield* Effect.succeed(`[Warn] No trader sells: ${query}`);

@@ -17,24 +17,24 @@ export const findHandler = Effect.fn("Command.findHandler")(
       return yield* Effect.succeed(`[Warn] No such item: ${search}`);
     }
 
-    const parts: string[] = [];
-
-    if (Option.isSome(item.value.loot_area)) {
-      parts.push(`can be found in ${item.value.loot_area.value} areas`);
-    }
-
-    if (
-      Option.isSome(item.value.dropped_by) &&
-      item.value.dropped_by.value.length > 0
-    ) {
-      const droppedBy = pipe(
-        item.value.dropped_by.value,
-        Arr.map((e) => e.arc.name),
-        Arr.join(", "),
-      );
-
-      parts.push(`can be dropped by ${droppedBy}`);
-    }
+    const parts = Arr.getSomes([
+      pipe(
+        item.value.loot_area,
+        Option.map((area) => `can be found in ${area} areas`),
+      ),
+      pipe(
+        item.value.dropped_by,
+        Option.filter(Arr.isReadonlyArrayNonEmpty),
+        Option.map((enemies) =>
+          pipe(
+            enemies,
+            Arr.map((enemy) => enemy.arc.name),
+            Arr.join(", "),
+            (names) => `can be dropped by ${names}`,
+          ),
+        ),
+      ),
+    ]);
 
     if (parts.length === 0) {
       return yield* Effect.succeed(
