@@ -1,5 +1,13 @@
 import { normalize } from "@arctools/utils";
-import { Array as Arr, Clock, Effect, Option, String as Str } from "effect";
+import {
+  Array as Arr,
+  Clock,
+  Effect,
+  Option,
+  Order,
+  String as Str,
+  pipe,
+} from "effect";
 
 import { ArcData } from "./data-service.js";
 import type { Event } from "./schema.js";
@@ -39,8 +47,10 @@ export const selectEvent = Effect.fn("ArcData.selectEvent")(function* (
   );
 
   if (Option.isNone(activeEvent)) {
-    const upcoming = Arr.filter(matchingEvents, (e) => e.startTime > now).sort(
-      (a, b) => a.startTime - b.startTime,
+    const upcoming = pipe(
+      matchingEvents,
+      Arr.filter((e) => e.startTime > now),
+      Arr.sort(Order.mapInput(Order.Number, (e: Event) => e.startTime)),
     );
 
     return Arr.head(upcoming);
