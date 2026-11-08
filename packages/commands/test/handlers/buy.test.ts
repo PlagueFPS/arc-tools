@@ -123,6 +123,29 @@ describe("buyHandler", () => {
   );
 
   test(
+    "preserves inventory and seller order across matching modes",
+    Effect.gen(function* () {
+      const result = yield* run({
+        traders: {
+          Apollo: [
+            { id: "POWER-CELL", name: "Battery", trader_price: 5 },
+            { id: "unrelated", name: "Unrelated", trader_price: 1 },
+            { id: "compact", name: "PowerCell", trader_price: 6 },
+          ],
+          Celeste: [{ id: "cell", name: "Power Cell", trader_price: 7 }],
+          Lance: [],
+          Shani: [{ id: "spare", name: "Spare Power Cell", trader_price: 8 }],
+          TianWen: [],
+        },
+      })("POWER CELL");
+
+      expect(result).toBe(
+        "Battery can be purchased from Apollo for 5 coins, PowerCell can be purchased from Apollo for 6 coins, Power Cell can be purchased from Celeste for 7 seeds, Spare Power Cell can be purchased from Shani for 8 cred.",
+      );
+    }),
+  );
+
+  test(
     "formats multiple matches",
     Effect.gen(function* () {
       const result = yield* run({
