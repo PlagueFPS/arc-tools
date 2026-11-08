@@ -67,6 +67,23 @@ describe("selectEvent", () => {
   );
 
   test(
+    "keeps source order when nearest upcoming events share a start time",
+    Effect.gen(function* () {
+      yield* TestClock.setTime(0);
+
+      const later = event({ name: "Later", startTime: 5000, endTime: 6000 });
+      const first = event({ name: "First", startTime: 1000, endTime: 2000 });
+      const second = event({ name: "Second", startTime: 1000, endTime: 2000 });
+      const events = [later, first, second];
+
+      const result = yield* selectEvent(events, "bastion");
+
+      expect(Option.getOrThrow(result)).toBe(first);
+      expect(events).toEqual([later, first, second]);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  test(
     "matches by event name",
     Effect.gen(function* () {
       yield* TestClock.setTime(0);

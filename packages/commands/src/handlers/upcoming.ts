@@ -1,6 +1,6 @@
-import { getEvents } from "@arctools/arc-data";
+import { type Event, getEvents } from "@arctools/arc-data";
 import { formatMinutes } from "@arctools/utils";
-import { pipe, Clock, Duration, Effect, Array as Arr } from "effect";
+import { pipe, Clock, Duration, Effect, Array as Arr, Order } from "effect";
 
 import { CommandError } from "../lib/command-error.js";
 
@@ -10,10 +10,13 @@ export const upcomingHandler = Effect.fn("Command.upcomingHandler")(
     const now = yield* Clock.currentTimeMillis;
     const twoHoursFromNow = now + Duration.hours(2).pipe(Duration.toMillis);
 
-    const upcoming = Arr.filter(
+    const upcoming = pipe(
       events,
-      (e) => !!(e.startTime > now && e.startTime <= twoHoursFromNow),
-    ).sort((a, b) => a.startTime - b.startTime);
+      Arr.filter(
+        (e) => !!(e.startTime > now && e.startTime <= twoHoursFromNow),
+      ),
+      Arr.sort(Order.mapInput(Order.Number, (e: Event) => e.startTime)),
+    );
 
     if (upcoming.length === 0) {
       return yield* Effect.succeed("No upcoming events");

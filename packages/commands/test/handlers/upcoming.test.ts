@@ -73,6 +73,25 @@ describe("upcomingHandler", () => {
   );
 
   test(
+    "keeps source order for upcoming events sharing a start time",
+    Effect.gen(function* () {
+      yield* TestClock.setTime(0);
+
+      const later = event({ name: "Later", map: "M3", startTime: 120_000 });
+      const first = event({ name: "First", map: "M1", startTime: 60_000 });
+      const second = event({ name: "Second", map: "M2", startTime: 60_000 });
+      const events = [later, first, second];
+
+      const result = yield* run({ events })("");
+
+      expect(result).toBe(
+        "First on M1 (starts in 1m), Second on M2 (starts in 1m), Later on M3 (starts in 2m)",
+      );
+      expect(events).toEqual([later, first, second]);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  test(
     "excludes events starting at or before now",
     Effect.gen(function* () {
       yield* TestClock.setTime(60_000);
